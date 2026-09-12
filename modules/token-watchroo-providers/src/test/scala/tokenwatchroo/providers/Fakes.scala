@@ -39,6 +39,10 @@ object Fakes {
   val claudeUsage: String =
     """{"five_hour":{"utilization":72.0,"resets_at":"2026-09-12T09:12:00Z"},"seven_day":{"utilization":38.0,"resets_at":"2026-09-15T00:00:00Z"}}"""
 
+  /** The usage fixture plus a `limits` array with two scoped windows, Opus listed before Fable. */
+  val claudeUsageWithLimits: String =
+    """{"five_hour":{"utilization":72.0,"resets_at":"2026-09-12T09:12:00Z"},"seven_day":{"utilization":38.0,"resets_at":"2026-09-15T00:00:00Z"},"seven_day_opus":null,"seven_day_sonnet":null,"limits":[{"kind":"session","group":"session","percent":72,"severity":"normal","resets_at":"2026-09-12T09:12:00Z","scope":null,"is_active":false},{"kind":"weekly_all","group":"weekly","percent":38,"severity":"normal","resets_at":"2026-09-15T00:00:00Z","scope":null,"is_active":false},{"kind":"weekly_scoped","group":"weekly","percent":82,"severity":"normal","resets_at":"2026-09-15T00:00:00Z","scope":{"model":{"id":null,"display_name":"Opus"},"surface":null},"is_active":true},{"kind":"weekly_scoped","group":"weekly","percent":68,"severity":"normal","resets_at":"2026-09-15T00:00:00Z","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null},"is_active":false}]}"""
+
   val codexAuth: String =
     """{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"x","access_token":"eyJ-access","refresh_token":"r","account_id":"acct-1"},"last_refresh":"2026-09-10T00:00:00Z"}"""
 

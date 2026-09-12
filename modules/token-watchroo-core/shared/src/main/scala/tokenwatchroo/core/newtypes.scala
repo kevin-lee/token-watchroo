@@ -52,6 +52,19 @@ object PlanLabel extends Newtype[NonEmptyString], CatsEqShow[NonEmptyString] {
   }
 }
 
+/** The display name of a Claude model behind a per-model weekly window, such as "Fable" or "Sonnet 4.5", taken from
+  * `scope.model.display_name` of the usage response. `fromDisplayName` trims because it reads API text, while
+  * `WindowId.parse` never trims because the wire is the contract.
+  */
+type ModelName = ModelName.Type
+object ModelName extends Newtype[NonEmptyString], CatsEqShow[NonEmptyString] {
+  given render: Render[ModelName] = Render.render(_.value.value)
+
+  /** Trims the API's display name. Empty input gives none. */
+  def fromDisplayName(displayName: String): Option[ModelName] =
+    NonEmptyString.from(displayName.trim).toOption.map(ModelName(_))
+}
+
 /** An OAuth access token. Never rendered or shown: both instances print a placeholder. */
 type AccessToken = AccessToken.Type
 object AccessToken extends Newtype[NonEmptyString], CatsEq[NonEmptyString] {

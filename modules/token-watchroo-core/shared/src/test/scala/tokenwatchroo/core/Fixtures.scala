@@ -2,7 +2,7 @@ package tokenwatchroo.core
 
 import cats.syntax.all.*
 import hedgehog.*
-import hedgehog.extra.refined4s.gens.NumGens
+import hedgehog.extra.refined4s.gens.{NumGens, StringGens}
 import refined4s.types.all.*
 import tokenwatchroo.core.providers.*
 
@@ -16,7 +16,18 @@ object Fixtures {
   val genPercent: Gen[UsedPercent] =
     NumGens.genNonNegDouble(NonNegDouble(0.0d), NonNegDouble(100.0d)).map(d => UsedPercent.clamp(d.value))
 
-  val genWindowId: Gen[WindowId] = Gen.element1(WindowId.Session, WindowId.Weekly)
+  /** Names may contain spaces and dots anywhere, so the wire round trip is exercised on the verbatim rule. */
+  val genModelName: Gen[ModelName] =
+    StringGens
+      .genNonEmptyString(Gen.choice1(Gen.alphaNum, Gen.constant(' '), Gen.constant('.')), PosInt(16))
+      .map(ModelName(_))
+
+  /** A name that survives `ModelName.fromDisplayName` unchanged, for the sorting property. */
+  val genPlainModelName: Gen[ModelName] =
+    StringGens.genNonEmptyString(Gen.alphaNum, PosInt(12)).map(ModelName(_))
+
+  val genWindowId: Gen[WindowId] =
+    Gen.choice1(Gen.constant(WindowId.session), Gen.constant(WindowId.weekly), genModelName.map(WindowId.model))
   val genAgentId: Gen[AgentId]   = Gen.element1(AgentId.ClaudeCode, AgentId.Codex)
 
   def window(id: WindowId, percent: Double, resetsAt: Option[EpochSeconds]): UsageWindow =
@@ -47,10 +58,13 @@ object Fixtures {
       Gen.constant(ClaudePlan.enterprise),
     )
 
-  /** An agent has at most one window per id. */
+  /** An agent has at most one window per id, so model names are distinct. */
   val genAgentWindows: Gen[List[UsageWindow]] =
     for {
       session <- genWindowFor(WindowId.Session).option
       weekly  <- genWindowFor(WindowId.Weekly).option
-    } yield session.toList ++ weekly.toList
+      names   <- genModelName.list(Range.linear(0, 3))
+      models  <- genUsageWindow.list(Range.linear(0, 3))
+    } yield session.toList ++ weekly.toList ++
+      names.distinct.zip(models).map { case (name, w) => w.copy(id = WindowId.model(name)) }
 }

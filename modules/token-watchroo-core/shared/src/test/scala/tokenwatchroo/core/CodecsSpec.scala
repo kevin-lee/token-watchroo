@@ -67,6 +67,11 @@ object CodecsSpec extends Properties {
       List(
         codecs.write(AgentId.ClaudeCode) ==== "\"claude-code\"",
         codecs.write(WindowId.Weekly) ==== "\"weekly\"",
+        codecs.write(WindowId.model(ModelName(NonEmptyString("Sonnet 4.5")))) ==== "\"weekly-model:Sonnet 4.5\"",
+        codecs.readEither[WindowId]("\"weekly-model:Fable\"") ==== Right(
+          WindowId.model(ModelName(NonEmptyString("Fable")))
+        ),
+        codecs.readEither[WindowId]("\"weekly-model:\"").isLeft ==== true,
         codecs.write(AgentStatus.Exhausted) ==== "\"exhausted\"",
         codecs.write(Source.LocalLog) ==== "\"local-log\"",
         codecs.write(MenubarKind.Critical) ==== "\"critical\"",
@@ -92,15 +97,18 @@ object CodecsSpec extends Properties {
   def testAlertState: Result = {
     val state = AlertState(
       Map(
-        WindowKey(AgentId.Codex, WindowId.Session)     ->
+        WindowKey(AgentId.Codex, WindowId.Session)                                        ->
           WindowRecord(EpochSeconds(1789187040L), UsedPercent.clamp(82.0d), Set(AlertKind.Warning80)),
-        WindowKey(AgentId.ClaudeCode, WindowId.Weekly) ->
+        WindowKey(AgentId.ClaudeCode, WindowId.Weekly)                                    ->
           WindowRecord(EpochSeconds(1789617600L), UsedPercent.clamp(3.0d), Set.empty[AlertKind]),
+        WindowKey(AgentId.ClaudeCode, WindowId.model(ModelName(NonEmptyString("Fable")))) ->
+          WindowRecord(EpochSeconds(1789617600L), UsedPercent.clamp(68.0d), Set(AlertKind.Warning80)),
       )
     )
     Result.all(
       List(
         codecs.readEither[AlertState](codecs.write(state)) ==== Right(state),
+        codecs.write(state).contains(""""window":"weekly-model:Fable"""") ==== true,
         codecs.readEither[AlertState]("""{"records":[]}""") ==== Right(AlertState.empty),
       )
     )

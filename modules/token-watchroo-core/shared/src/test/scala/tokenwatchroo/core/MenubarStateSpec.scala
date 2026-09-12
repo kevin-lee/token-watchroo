@@ -3,6 +3,7 @@ package tokenwatchroo.core
 import cats.syntax.all.*
 import hedgehog.*
 import hedgehog.runner.*
+import refined4s.types.all.*
 
 object MenubarStateSpec extends Properties {
 
@@ -11,6 +12,7 @@ object MenubarStateSpec extends Properties {
     example("an exhausted window wins and carries the soonest reset", testExhausted),
     example("unavailable agents are ignored", testUnavailableIgnored),
     example("no available agent gives the unavailable state", testNoAgents),
+    example("an exhausted per-model window drives the ring", testExhaustedPerModel),
   )
 
   private val now = EpochSeconds(1789185600L)
@@ -53,6 +55,27 @@ object MenubarStateSpec extends Properties {
     )
     val derived = MenubarState.derive(agents)
     Result.all(List(derived.kind ==== MenubarKind.Warning, derived.usedPercent ==== Some(UsedPercent.clamp(82.0d))))
+  }
+
+  def testExhaustedPerModel: Result = {
+    val fable   = WindowId.model(ModelName(NonEmptyString("Fable")))
+    val agents  = List(
+      Fixtures.available(
+        AgentId.ClaudeCode,
+        now,
+        Fixtures.window(WindowId.Session, 40.0d, EpochSeconds(1789190000L).some),
+        Fixtures.window(WindowId.Weekly, 45.0d, EpochSeconds(1789500000L).some),
+        Fixtures.window(fable, 100.0d, EpochSeconds(1789400000L).some),
+      )
+    )
+    val derived = MenubarState.derive(agents)
+    Result.all(
+      List(
+        derived.kind ==== MenubarKind.Exhausted,
+        derived.usedPercent ==== Some(UsedPercent.clamp(100.0d)),
+        derived.resetsAt ==== Some(EpochSeconds(1789400000L)),
+      )
+    )
   }
 
   def testNoAgents: Result =

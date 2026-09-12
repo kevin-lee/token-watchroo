@@ -3,14 +3,36 @@ package tokenwatchroo.core
 import cats.syntax.all.*
 import hedgehog.*
 import hedgehog.runner.*
+import refined4s.types.all.*
 import tokenwatchroo.core.codecs.given
 import tokenwatchroo.core.providers.*
 
 object ResponseDecodingSpec extends Properties {
 
   override def tests: List[Test] = List(
-    example("Claude usage response becomes session and weekly windows", testClaudeUsage),
-    example("Claude usage response with missing limits gives idle windows", testClaudeUsageIdle),
+    example(
+      "Claude usage response without limits becomes session, weekly, and the fixed per-model windows that have a reset",
+      testClaudeUsage,
+    ),
+    example(
+      "Claude usage response with missing limits gives idle session and weekly windows and no per-model rows",
+      testClaudeUsageIdle,
+    ),
+    example(
+      "Claude usage response with a limits array gives a Fable row from the weekly_scoped entry",
+      testLimitsFable
+    ),
+    example(
+      "Claude usage response with limits present and no weekly_scoped entry gives no per-model rows",
+      testLimitsNoScoped,
+    ),
+    example("Claude usage response with limits null falls back to the fixed keys", testLimitsNull),
+    example(
+      "weekly_scoped entries without a reset, without a name, or with an unknown kind are omitted, a repeated name keeps the first entry, and rows sort by name",
+      testTwoScoped,
+    ),
+    example("a malformed resets_at in a weekly_scoped entry fails the mapping", testMalformedScopedReset),
+    property("per-model rows come out sorted by name", testSortedByName),
     example("Claude keychain blob gives a token, scope, and plan label", testClaudeBlob),
     example("Claude keychain blob with an expired token is rejected", testClaudeBlobExpired),
     example("Claude keychain blob without OAuth is rejected", testClaudeBlobMcpOnly),
@@ -32,21 +54,110 @@ object ResponseDecodingSpec extends Properties {
   private val claudeUsage =
     """{"five_hour":{"utilization":42.5,"resets_at":"2026-05-11T18:00:00Z"},"seven_day":{"utilization":17.0,"resets_at":"2026-05-18T00:00:00+00:00"},"seven_day_opus":{"utilization":0,"resets_at":null},"seven_day_sonnet":{"utilization":25.0,"resets_at":"2026-05-18T00:00:00Z"},"extra_usage":{"is_enabled":false}}"""
 
+  private def model(name: String): WindowId = WindowId.model(ModelName(NonEmptyString.unsafeFrom(name)))
+
+  private def claudeWindows(json: String): Either[String, List[UsageWindow]] =
+    codecs.readEither[ClaudeUsageResponse](json).leftMap(_.message).flatMap(_.toWindows.leftMap(_.message))
+
   def testClaudeUsage: Result = {
-    val windows =
-      codecs.readEither[ClaudeUsageResponse](claudeUsage).leftMap(_.message).flatMap(_.toWindows.leftMap(_.message))
+    val windows = claudeWindows(claudeUsage)
     Result.all(
       List(
-        windows.map(_.map(_.id)) ==== Right(List(WindowId.Session, WindowId.Weekly)),
-        windows.map(_.map(_.usedPercent)) ==== Right(List(UsedPercent.clamp(42.5d), UsedPercent.clamp(17.0d))),
-        windows.map(_.flatMap(_.resetsAt)) ==== Right(
-          List(Iso8601.parseToEpochSeconds("2026-05-11T18:00:00Z"), Iso8601.parseToEpochSeconds("2026-05-18T00:00:00Z"))
-            .flatMap(_.toOption)
+        windows.map(_.map(_.id)) ==== Right(List(WindowId.Session, WindowId.Weekly, model("Sonnet"))),
+        windows.map(_.map(_.usedPercent)) ==== Right(
+          List(UsedPercent.clamp(42.5d), UsedPercent.clamp(17.0d), UsedPercent.clamp(25.0d))
         ),
-        windows.map(_.flatMap(_.windowLength)) ==== Right(List(Seconds(18000L), Seconds(604800L))),
+        windows.map(_.flatMap(_.resetsAt)) ==== Right(
+          List(
+            Iso8601.parseToEpochSeconds("2026-05-11T18:00:00Z"),
+            Iso8601.parseToEpochSeconds("2026-05-18T00:00:00Z"),
+            Iso8601.parseToEpochSeconds("2026-05-18T00:00:00Z"),
+          ).flatMap(_.toOption)
+        ),
+        windows.map(_.flatMap(_.windowLength)) ==== Right(List(Seconds(18000L), Seconds(604800L), Seconds(604800L))),
       )
     )
   }
+
+  /** The verified shape of 2026-09-12, trimmed to the relevant keys. */
+  private val claudeUsageWithLimits =
+    """{"five_hour":{"utilization":24.0,"resets_at":"2026-09-12T15:20:00.361743+00:00"},"seven_day":{"utilization":45.0,"resets_at":"2026-09-12T18:00:00.361764+00:00"},"seven_day_opus":null,"seven_day_sonnet":null,"seven_day_oauth_apps":null,"extra_usage":{"is_enabled":false},"limits":[{"kind":"session","group":"session","percent":24,"severity":"normal","resets_at":"2026-09-12T15:20:00.361743+00:00","scope":null,"is_active":false},{"kind":"weekly_all","group":"weekly","percent":45,"severity":"normal","resets_at":"2026-09-12T18:00:00.361764+00:00","scope":null,"is_active":false},{"kind":"weekly_scoped","group":"weekly","percent":68,"severity":"normal","resets_at":"2026-09-12T18:00:00.361932+00:00","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null},"is_active":true}],"spend":{"percent":0},"member_dashboard_available":false}"""
+
+  private val claudeUsageTwoScoped =
+    """{"five_hour":{"utilization":24.0,"resets_at":"2026-09-12T15:20:00.361743+00:00"},"seven_day":{"utilization":45.0,"resets_at":"2026-09-12T18:00:00.361764+00:00"},"limits":[{"kind":"weekly_scoped","group":"weekly","percent":30,"severity":"normal","resets_at":"2026-09-12T18:00:00Z","scope":{"model":{"id":null,"display_name":"Opus"},"surface":null},"is_active":false},{"kind":"weekly_scoped","group":"weekly","percent":50,"severity":"normal","resets_at":null,"scope":{"model":{"id":null,"display_name":"Sonnet"},"surface":null},"is_active":false},{"kind":"weekly_scoped","group":"weekly","percent":10,"severity":"normal","resets_at":"2026-09-12T18:00:00Z","scope":null,"is_active":false},{"kind":"monthly_scoped","group":"monthly","percent":5,"severity":"normal","resets_at":"2026-09-12T18:00:00Z","scope":{"model":{"id":null,"display_name":"Haiku"},"surface":null},"is_active":false},{"kind":"weekly_scoped","group":"weekly","percent":68,"severity":"normal","resets_at":"2026-09-12T18:00:00Z","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null},"is_active":true},{"kind":"weekly_scoped","group":"weekly","percent":70,"severity":"normal","resets_at":"2026-09-12T18:00:00Z","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null},"is_active":false}]}"""
+
+  private val claudeUsageLimitsNoScoped =
+    """{"five_hour":{"utilization":24.0,"resets_at":"2026-09-12T15:20:00Z"},"seven_day":{"utilization":45.0,"resets_at":"2026-09-12T18:00:00Z"},"seven_day_opus":{"utilization":10.0,"resets_at":"2026-09-12T18:00:00Z"},"limits":[{"kind":"session","group":"session","percent":24,"severity":"normal","resets_at":"2026-09-12T15:20:00Z","scope":null,"is_active":false},{"kind":"weekly_all","group":"weekly","percent":45,"severity":"normal","resets_at":"2026-09-12T18:00:00Z","scope":null,"is_active":false}]}"""
+
+  private val claudeUsageLimitsNull =
+    """{"five_hour":{"utilization":24.0,"resets_at":"2026-09-12T15:20:00Z"},"seven_day":{"utilization":45.0,"resets_at":"2026-09-12T18:00:00Z"},"seven_day_opus":{"utilization":10.0,"resets_at":"2026-09-12T18:00:00Z"},"seven_day_sonnet":null,"limits":null}"""
+
+  def testLimitsFable: Result = {
+    val windows = claudeWindows(claudeUsageWithLimits)
+    Result.all(
+      List(
+        windows.map(_.map(_.id)) ==== Right(List(WindowId.Session, WindowId.Weekly, model("Fable"))),
+        windows.map(_.map(_.usedPercent)) ==== Right(
+          List(UsedPercent.clamp(24.0d), UsedPercent.clamp(45.0d), UsedPercent.clamp(68.0d))
+        ),
+        windows.map(_.lastOption.flatMap(_.resetsAt)) ==== Right(
+          Iso8601.parseToEpochSeconds("2026-09-12T18:00:00.361932+00:00").toOption
+        ),
+        windows.map(_.lastOption.flatMap(_.windowLength)) ==== Right(Some(Seconds(604800L))),
+        windows.map(_.map(_.isIdle)) ==== Right(List(false, false, false)),
+      )
+    )
+  }
+
+  def testLimitsNoScoped: Result =
+    claudeWindows(claudeUsageLimitsNoScoped).map(_.map(_.id)) ==== Right(List(WindowId.Session, WindowId.Weekly))
+
+  def testLimitsNull: Result = {
+    val windows = claudeWindows(claudeUsageLimitsNull)
+    Result.all(
+      List(
+        windows.map(_.map(_.id)) ==== Right(List(WindowId.Session, WindowId.Weekly, model("Opus"))),
+        windows.map(_.lastOption.map(_.usedPercent)) ==== Right(Some(UsedPercent.clamp(10.0d))),
+      )
+    )
+  }
+
+  def testTwoScoped: Result = {
+    val windows = claudeWindows(claudeUsageTwoScoped)
+    Result.all(
+      List(
+        windows.map(_.map(_.id)) ==== Right(List(WindowId.Session, WindowId.Weekly, model("Fable"), model("Opus"))),
+        windows.map(_.map(_.usedPercent)) ==== Right(
+          List(UsedPercent.clamp(24.0d), UsedPercent.clamp(45.0d), UsedPercent.clamp(68.0d), UsedPercent.clamp(30.0d))
+        ),
+      )
+    )
+  }
+
+  def testMalformedScopedReset: Result =
+    claudeWindows(
+      """{"limits":[{"kind":"weekly_scoped","percent":68,"resets_at":"soon","scope":{"model":{"display_name":"Fable"}}}]}"""
+    ).isLeft ==== true
+
+  def testSortedByName: Property =
+    for {
+      names <- Fixtures.genPlainModelName.list(Range.linear(0, 6)).map(_.distinct).log("names")
+    } yield {
+      val entries  = names.map { name =>
+        ClaudeLimitEntry(
+          "weekly_scoped".some,
+          none[String],
+          10.0d.some,
+          none[String],
+          "2026-09-12T18:00:00Z".some,
+          ClaudeLimitScope(ClaudeLimitModel(none[String], name.value.value.some).some, none[String]).some,
+          none[Boolean],
+        )
+      }
+      val response =
+        ClaudeUsageResponse(none[ClaudeLimit], none[ClaudeLimit], none[ClaudeLimit], none[ClaudeLimit], entries.some)
+      response.toWindows.map(_.drop(2).map(_.id)) ==== Right(names.sortBy(_.value.value).map(WindowId.model))
+    }
 
   def testClaudeUsageIdle: Result = {
     val windows = codecs

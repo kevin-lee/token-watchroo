@@ -39,14 +39,45 @@ enum AgentId: String, Decodable {
     }
 }
 
-enum WindowId: String, Decodable {
+/// Mirrors `WindowId.parse` in the core: `session`, `weekly`, or `weekly-model:<name>` split at the first colon with a
+/// non-empty name. An unknown id is kept as `.unknown` so a newer library never makes the shell drop a snapshot.
+enum WindowId: Decodable, Equatable {
     case session
     case weekly
+    case model(String)
+    case unknown(String)
+
+    private static let modelPrefix = "weekly-model:"
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = WindowId.parse(raw)
+    }
+
+    static func parse(_ raw: String) -> WindowId {
+        if raw == "session" { return .session }
+        if raw == "weekly" { return .weekly }
+        if raw.hasPrefix(modelPrefix) {
+            let name = String(raw.dropFirst(modelPrefix.count))
+            return name.isEmpty ? .unknown(raw) : .model(name)
+        }
+        return .unknown(raw)
+    }
 
     var label: String {
         switch self {
         case .session: return "Session"
         case .weekly: return "Weekly"
+        case .model(let name): return "Weekly (\(name))"
+        case .unknown(let raw): return raw
+        }
+    }
+
+    /// False only for an id this shell does not know, which the card never draws.
+    var isRendered: Bool {
+        switch self {
+        case .session, .weekly, .model: return true
+        case .unknown: return false
         }
     }
 }
@@ -81,6 +112,8 @@ struct AgentSnapshot: Decodable {
     let source: Source?
     let fetchedAt: Int64
     let error: String?
+
+    var renderedWindows: [UsageWindow] { windows.filter { $0.id.isRendered } }
 }
 
 struct MenubarState: Decodable {

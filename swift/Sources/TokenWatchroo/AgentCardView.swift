@@ -1,7 +1,8 @@
 import AppKit
 
 /// The per-agent card from `design/Main.dc.html`, drawn directly: 328 wide, corner radius 10, half-point border,
-/// 12 pt padding, name, plan badge, status pill, and one row plus bar per window.
+/// 12 pt padding, name, plan badge, status pill, and one row plus bar per window. Per-model rows follow Weekly in the
+/// order received.
 final class AgentCardView: NSView {
 
     static let width: CGFloat = 328
@@ -30,7 +31,7 @@ final class AgentCardView: NSView {
         if agent.status == .unavailable {
             body = noteHeight * 2
         } else {
-            let windows = CGFloat(max(agent.windows.count, 1))
+            let windows = CGFloat(max(agent.renderedWindows.count, 1))
             body = windows * (rowHeight + rowGap + barHeight) + (windows - 1) * blockGap
                 + (agent.source == .localLog || agent.error != nil ? rowGap + noteHeight : 0)
         }
@@ -65,7 +66,7 @@ final class AgentCardView: NSView {
             return
         }
 
-        for (index, window) in agent.windows.enumerated() {
+        for (index, window) in agent.renderedWindows.enumerated() {
             if index > 0 { y += AgentCardView.blockGap }
             drawWindow(window, at: y)
             y += AgentCardView.rowHeight + AgentCardView.rowGap + AgentCardView.barHeight

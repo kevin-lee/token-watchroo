@@ -3,6 +3,7 @@ package tokenwatchroo.providers
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
+import refined4s.types.all.*
 import scala.concurrent.duration.*
 import tokenwatchroo.core.*
 
@@ -244,6 +245,30 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
     assertEquals(snapshot.status, AgentStatus.Unavailable)
     assertEquals(snapshot.planLabel, None)
     assertEquals(snapshot.error.map(_.value.value), Some("Token expired (HTTP 401). Run claude to sign in again."))
+  }
+
+  test("a limits array gives per-model rows sorted by name that count towards the status") {
+    val snapshot =
+      (for {
+        http <- Fakes
+                  .RoutingHttp
+                  .make(
+                    Map(
+                      UsageUrl   -> Fakes.ok(Fakes.claudeUsageWithLimits),
+                      ProfileUrl -> Fakes.ok(Fakes.claudeProfile20x),
+                    )
+                  )
+        p    <- make(http, new Fakes.FakeKeychain(Fakes.claudeBlob.asRight))
+        s    <- scheduled(p, Fakes.now)
+      } yield s).unsafeRunSync()
+    val fable    = WindowId.model(ModelName(NonEmptyString("Fable")))
+    val opus     = WindowId.model(ModelName(NonEmptyString("Opus")))
+    assertEquals(
+      snapshot.windows.map(w => (w.id, w.usedPercent.value)),
+      List((WindowId.Session, 72.0d), (WindowId.Weekly, 38.0d), (fable, 68.0d), (opus, 82.0d))
+    )
+    assertEquals(snapshot.status, AgentStatus.Warning)
+    assertEquals(snapshot.windows.drop(2).flatMap(_.windowLength), List(Seconds(604800L), Seconds(604800L)))
   }
 
   test("the profile call carries the usage headers and the short timeout") {

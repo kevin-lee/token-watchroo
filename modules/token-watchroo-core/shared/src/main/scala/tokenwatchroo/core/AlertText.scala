@@ -2,7 +2,9 @@ package tokenwatchroo.core
 
 import extras.render.syntax.*
 
-/** Notification copy, following `design/Alerts.dc.html`. */
+/** Notification copy, following `design/Alerts.dc.html`. Per-model rows read "Claude Code is near its weekly Fable
+  * limit" and "68% of the weekly Fable window used. Resets in 2 hours."
+  */
 object AlertText {
 
   def warning80(agent: AgentId, window: UsageWindow, now: EpochSeconds): Alert =
@@ -11,7 +13,7 @@ object AlertText {
       window,
       now,
       AlertKind.Warning80,
-      render"$agent is near its ${window.id.label.toLowerCase} limit",
+      render"$agent is near its ${window.id.limitNoun} limit",
       usageBody(window, now)
     )
 
@@ -24,7 +26,7 @@ object AlertText {
       window,
       now,
       AlertKind.Reset,
-      render"$agent ${window.id.label.toLowerCase} reset",
+      render"$agent ${window.id.limitNoun} reset",
       s"A fresh ${window.id.describe} is available.",
     )
 

@@ -3,6 +3,7 @@ package tokenwatchroo.core
 import cats.syntax.all.*
 import hedgehog.*
 import hedgehog.runner.*
+import refined4s.types.all.*
 
 object AgentStatusSpec extends Properties {
 
@@ -10,6 +11,7 @@ object AgentStatusSpec extends Properties {
     property("status is monotonic in the maximum percent", testMonotonic),
     example("thresholds", testThresholds),
     example("no windows is unavailable", testEmpty),
+    property("per-model windows count towards the status", testPerModel),
   )
 
   private val now = EpochSeconds(1789185600L)
@@ -51,4 +53,21 @@ object AgentStatusSpec extends Properties {
   }
 
   def testEmpty: Result = AgentStatus.of(Nil) ==== AgentStatus.Unavailable
+
+  def testPerModel: Property =
+    for {
+      a <- Fixtures.genPercent.log("a")
+      b <- Fixtures.genPercent.log("b")
+    } yield {
+      val fable   = WindowId.model(ModelName(NonEmptyString("Fable")))
+      val opus    = WindowId.model(ModelName(NonEmptyString("Opus")))
+      val windows = List(
+        Fixtures.window(WindowId.Session, 10.0d, now.some),
+        Fixtures.window(WindowId.Weekly, 10.0d, now.some),
+        Fixtures.window(fable, a.value, now.some),
+        Fixtures.window(opus, b.value, now.some),
+      )
+      val max     = if (a >= b) a else b
+      AgentStatus.of(windows) ==== AgentStatus.of(List(Fixtures.window(WindowId.Session, max.value, now.some)))
+    }
 }
