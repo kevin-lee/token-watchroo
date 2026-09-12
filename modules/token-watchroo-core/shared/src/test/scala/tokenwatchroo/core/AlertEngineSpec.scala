@@ -73,6 +73,7 @@ object AlertEngineSpec extends Properties {
         alerts.map(_.kind) ==== List(AlertKind.Critical95),
         alerts.map(_.title) ==== List("Claude Code is almost out"),
         alerts.map(_.body) ==== List("96% of the 5 h window used. Resets in 1 hour 12 minutes."),
+        alerts.map(_.usedPercent) ==== List(UsedPercent.clamp(96.0d)),
         record.map(_.fired) ==== Some(Set[AlertKind](AlertKind.Critical95, AlertKind.Warning80)),
       )
     )
@@ -106,6 +107,7 @@ object AlertEngineSpec extends Properties {
         resets.map(_.kind) ==== List(AlertKind.Reset),
         resets.map(_.title) ==== List("Claude Code session reset"),
         resets.map(_.body) ==== List("A fresh 5 h window is available."),
+        resets.map(_.usedPercent) ==== List(UsedPercent.clamp(3.0d)),
         again ==== Nil,
       )
     )

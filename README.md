@@ -12,6 +12,7 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 - Menubar ring with four states: normal, warning at 80% (amber), critical at 95% (red), and exhausted (time until reset).
 - A card per agent: plan badge (for Claude Code the live plan with the Max multiplier or the Team seat, such as "Max 5x" or "Team Premium"), status pill, session and weekly bars, one more bar per model-specific weekly window on Claude Code (for example "Weekly (Fable)"), reset countdowns in your local time zone.
 - System notifications, deduplicated per window so a restart never repeats one.
+- An app icon with light and dark appearances on macOS 26 (light only on macOS 14 and 15), and a ring thumbnail on every notification showing the alert's percent.
 - Codex keeps working offline from its local rollout logs when the usage endpoint fails.
 - Menu items: Refresh now, Launch at Login, Quit.
 
@@ -21,13 +22,14 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 - The app never refreshes tokens. When a token expires, run `claude` or `codex` once and the card recovers on the next refresh.
 - The bundle is ad-hoc signed, so macOS asks to allow keychain access again after each rebuild. Click "Always Allow" once per build.
 - No settings window, thresholds fixed at 80% and 95%, refresh every 60 seconds.
-- Cursor, Gemini CLI, API-budget agents, an app icon, notarization, and a DMG are on the roadmap in `.ai/docs/design/token-watchroo-design.md`.
+- Cursor, Gemini CLI, API-budget agents, notarization, and a DMG are on the roadmap in `.ai/docs/design/token-watchroo-design.md`.
 
 ## Requirements
 
 - macOS 14 or later on Apple Silicon (the build is host-architecture only).
 - Xcode command line tools with Swift 6 (`swift build`).
 - JDK 17 or later and sbt 2 for the build only. LLVM/Clang from Xcode is used by Scala Native.
+- Full Xcode 26 only to regenerate the app icon (`scripts/generate-icons.sh` uses actool). The build itself needs the Command Line Tools only.
 - Claude Code and/or Codex signed in on this machine.
 
 ## Install
@@ -59,9 +61,16 @@ sbt bundleApp
 
 # assemble and open
 sbt runApp
+
+# regenerate the app icon (needs Xcode 26), outputs are committed
+scripts/generate-icons.sh
 ```
 
 Set `TW_NETWORK_TESTS=1` to include the libcurl smoke test against example.com.
+
+## App icon
+
+The sources are the kangaroo artwork under `design/logo/`: `token-watchroo-logo.png` for the light appearance and `token-watchroo-logo-dark.png` for the dark one. `design/AppIcon.icon` is an Icon Composer package (it opens in Icon Composer from Xcode 26) that uses both PNGs as one layer specialised per appearance. `scripts/generate-icons.sh` resizes the sources into the package and compiles it with actool into `assets/Assets.car` and `assets/AppIcon.icns`. Both files are committed and `sbt bundleApp` only copies them into the bundle, so a normal build needs no Xcode. macOS 26 switches between the light and dark kangaroo with the system appearance, while macOS 14 and 15 show the light one from the `.icns`.
 
 ## Architecture
 
@@ -76,16 +85,16 @@ Set `TW_NETWORK_TESTS=1` to include the libcurl smoke test against example.com.
 │  │  UNUserNotificationCenter│  tw_shutdown                                    │    │
 │  └──────────▲───────────────┘            └──────┬────────────────┬────────────┘    │
 │             │ callback (JSON envelope)          │                │                 │
-│             └──────────────────────────────────┘                │                 │
+│             └───────────────────────────────────┘                │                 │
 │                                          ┌───────────────────────▼────────────┐    │
-│                                          │ token-watchroo-providers            │    │
-│                                          │  keychain, auth.json, libcurl,      │    │
-│                                          │  Claude Code and Codex providers    │    │
+│                                          │ token-watchroo-providers           │    │
+│                                          │  keychain, auth.json, libcurl,     │    │
+│                                          │  Claude Code and Codex providers   │    │
 │                                          └───────────────────────┬────────────┘    │
 │                                          ┌───────────────────────▼────────────┐    │
-│                                          │ token-watchroo-core (JVM + Native)  │    │
-│                                          │  domain model, thresholds, alert    │    │
-│                                          │  engine, JSON codecs, parsers       │    │
+│                                          │ token-watchroo-core (JVM + Native) │    │
+│                                          │  domain model, thresholds, alert   │    │
+│                                          │  engine, JSON codecs, parsers      │    │
 │                                          └────────────────────────────────────┘    │
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -96,6 +105,7 @@ Set `TW_NETWORK_TESTS=1` to include the libcurl smoke test against example.com.
 | `modules/token-watchroo-providers` | Scala Native | Keychain reader (`/usr/bin/security`), `auth.json` reader, libcurl HTTP client, the Claude Code and Codex providers. Tested with munit. |
 | `modules/token-watchroo-app` | Scala Native static library | The exported C API (`tw_start`, `tw_refresh`, `tw_set_config`, `tw_shutdown`), the cats-effect runtime, the poll loop, state persistence. Tested with munit. |
 | `swift/` | Swift 6 package | `NSStatusItem`, `NSMenu` with custom card views, notifications, Launch at Login. Renders what the library sends. |
+| `assets/` | committed build inputs | `Assets.car` and `AppIcon.icns` generated by `scripts/generate-icons.sh`. |
 
 The full design, including the threading and garbage-collector contract between Swift and Scala Native, the JSON contract, and the roadmap, is in `.ai/docs/design/token-watchroo-design.md`.
 
