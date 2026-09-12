@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", system-ui, "Helvetica Neue", sans-serif; background: #f2f2f4; -webkit-font-smoothing: antialiased; }
+    a { color: #2f6fdd; } a:hover { color: #1f55b5; }
+  </style>
+</helmet>
+<div style="width: 880px; height: 300px; box-sizing: border-box; padding: 24px; background: #f2f2f4; display: flex; flex-direction: column; gap: 18px;">
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <span style="font-size: 15px; font-weight: 600; color: #1d1d1f;">Menubar item states</span>
+    <span style="font-size: 12px; color: #6e6e73;">The ring fills with the highest usage across agents, a plan window or a share of an API budget. Color and text change at each alert threshold, and an exhausted window swaps the percentage for the time until reset. Each strip is a state demo, not the live snapshot.</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;">
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <div style="height: 28px; background: #2b2b2e; border-radius: 6px; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 5px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#ffffff" stroke-opacity="0.3" stroke-width="2"></circle><circle cx="8" cy="8" r="6" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-dasharray="27.1 37.7" transform="rotate(-90 8 8)"></circle></svg>
+          <span style="font-size: 12px; font-weight: 600; color: #ffffff; font-variant-numeric: tabular-nums;">72%</span>
+        </div>
+        <span style="font-size: 12px; color: #ffffff; opacity: 0.6;">Thu 14:32</span>
+      </div>
+      <span style="font-size: 12px; color: #6e6e73;"><strong style="font-weight: 600; color: #1d1d1f;">Normal</strong> · below the first threshold, monochrome like any system item</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <div style="height: 28px; background: #2b2b2e; border-radius: 6px; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 5px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#f0b73a" stroke-opacity="0.3" stroke-width="2"></circle><circle cx="8" cy="8" r="6" stroke="#f0b73a" stroke-width="2" stroke-linecap="round" stroke-dasharray="30.9 37.7" transform="rotate(-90 8 8)"></circle></svg>
+          <span style="font-size: 12px; font-weight: 600; color: #f0b73a; font-variant-numeric: tabular-nums;">82%</span>
+        </div>
+        <span style="font-size: 12px; color: #ffffff; opacity: 0.6;">Thu 14:32</span>
+      </div>
+      <span style="font-size: 12px; color: #6e6e73;"><strong style="font-weight: 600; color: #1d1d1f;">Warning</strong> · at 80%, amber and a single notification</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <div style="height: 28px; background: #2b2b2e; border-radius: 6px; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 5px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#ff6b5c" stroke-opacity="0.3" stroke-width="2"></circle><circle cx="8" cy="8" r="6" stroke="#ff6b5c" stroke-width="2" stroke-linecap="round" stroke-dasharray="36.2 37.7" transform="rotate(-90 8 8)"></circle></svg>
+          <span style="font-size: 12px; font-weight: 600; color: #ff6b5c; font-variant-numeric: tabular-nums;">96%</span>
+        </div>
+        <span style="font-size: 12px; color: #ffffff; opacity: 0.6;">Thu 14:32</span>
+      </div>
+      <span style="font-size: 12px; color: #6e6e73;"><strong style="font-weight: 600; color: #1d1d1f;">Critical</strong> · at 95%, red and a second notification</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <div style="height: 28px; background: #2b2b2e; border-radius: 6px; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 5px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" fill="#ff6b5c" stroke="#ff6b5c" stroke-width="2"></circle><path d="M8 4.8v3.4l2.2 1.4" stroke="#2b2b2e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          <span style="font-size: 12px; font-weight: 600; color: #ff6b5c; font-variant-numeric: tabular-nums;">38 m</span>
+        </div>
+        <span style="font-size: 12px; color: #ffffff; opacity: 0.6;">Thu 14:32</span>
+      </div>
+      <span style="font-size: 12px; color: #6e6e73;"><strong style="font-weight: 600; color: #1d1d1f;">Exhausted</strong> · window used up, shows time until reset</span>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

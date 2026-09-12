@@ -1,0 +1,92 @@
+{
+  "artboards": [
+    {
+      "file": "MenubarStates.dc.html",
+      "title": "Menubar item states",
+      "x": 0,
+      "y": 0,
+      "w": 880,
+      "h": 300
+    },
+    {
+      "file": "Main.dc.html",
+      "title": "Panel · Native (leading)",
+      "x": 960,
+      "y": 0,
+      "w": 380,
+      "h": 640
+    },
+    {
+      "file": "Alerts.dc.html",
+      "title": "Notifications",
+      "x": 1420,
+      "y": 0,
+      "w": 440,
+      "h": 320
+    },
+    {
+      "file": "AddAgent.dc.html",
+      "title": "Settings · Add agent",
+      "x": 960,
+      "y": 780,
+      "w": 800,
+      "h": 540
+    },
+    {
+      "file": "InstrumentCluster.dc.html",
+      "title": "Alt A · Instrument cluster",
+      "x": 0,
+      "y": 820,
+      "w": 380,
+      "h": 560
+    },
+    {
+      "file": "BigNumbers.dc.html",
+      "title": "Alt B · Big numbers",
+      "x": 460,
+      "y": 820,
+      "w": 380,
+      "h": 560
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -170,
+      "w": 440,
+      "text": "Token Watchroo · menubar app\nRing in the menubar = highest usage across agents. Click opens the panel. Each agent is tracked under one of two billing models: a subscription plan (individual or team) with session and weekly windows, or an API account (enterprise) with a monthly budget in dollars and tokens. Alerts fire once per window or budget at 80% and 95%, plus one on reset.\nAll numbers are sample values."
+    },
+    {
+      "id": "leading",
+      "x": 960,
+      "y": -130,
+      "w": 380,
+      "text": "Leading direction: native macOS popover, one card per agent with a plan badge. Plan cards show windows, API cards show budget and today's spend. Tradeoff: quiet, but less glanceable than a gauge."
+    },
+    {
+      "id": "alt-a",
+      "x": 0,
+      "y": 700,
+      "w": 380,
+      "text": "Alt A · Instrument cluster: dark, monospace, gauges plus a usage line. Tradeoff: dense, looks foreign next to system menus. Direction sketch only, still shows the plan-model data set."
+    },
+    {
+      "id": "alt-b",
+      "x": 460,
+      "y": 700,
+      "w": 380,
+      "text": "Alt B · Big numbers: one large percentage per agent, serif display face, minimal bars. Tradeoff: fewest details visible, a budget in dollars fits less naturally. Direction sketch only."
+    },
+    {
+      "id": "add-agent",
+      "x": 960,
+      "y": 700,
+      "w": 520,
+      "text": "Add agent sheet, both billing choices side by side. Plan agents need no budget; API agents get a monthly budget and read spend from the provider's usage API."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}
