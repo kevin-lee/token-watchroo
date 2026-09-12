@@ -14,6 +14,16 @@ object ResponseDecodingSpec extends Properties {
     example("Claude keychain blob gives a token, scope, and plan label", testClaudeBlob),
     example("Claude keychain blob with an expired token is rejected", testClaudeBlobExpired),
     example("Claude keychain blob without OAuth is rejected", testClaudeBlobMcpOnly),
+    example("Claude keychain blob with a rate limit tier gives the multiplier", testClaudeBlobWithTier),
+    example(
+      "Claude keychain blob with an unknown subscription type keeps the capitalised label",
+      testClaudeBlobUnknownSubscription,
+    ),
+    example("Claude profile response gives the plan from the organization type and tier", testClaudeProfile),
+    example("Claude profile response with a team seat gives Team Premium", testClaudeProfileTeamSeat),
+    example("Claude profile response prefers the organization over the account flags", testClaudeProfileOrgWins),
+    example("Claude profile response without an organization falls back to the account flags", testClaudeProfileFlags),
+    example("Claude profile response with missing or unknown fields gives no plan", testClaudeProfileUnknown),
     example("Codex usage response becomes session and weekly windows", testCodexUsage),
     example("Codex auth file gives token and account id", testCodexAuth),
     example("Codex auth file in API-key mode is rejected", testCodexAuthApiKey),
@@ -71,6 +81,53 @@ object ResponseDecodingSpec extends Properties {
 
   def testClaudeBlobMcpOnly: Result =
     ClaudeCredentialsBlob.parse("""{"mcpOAuth":{"server":{}}}""", 0L).isLeft ==== true
+
+  private val blobWithTier =
+    """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","expiresAt":4102444800000,"scopes":["user:profile"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}"""
+
+  def testClaudeBlobWithTier: Result =
+    ClaudeCredentialsBlob.parse(blobWithTier, 1789185600000L).map(_.planLabel.map(_.value.value)) ==== Right(
+      Some("Max 5x")
+    )
+
+  def testClaudeBlobUnknownSubscription: Result = {
+    val blobFree =
+      """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","expiresAt":4102444800000,"scopes":["user:profile"],"subscriptionType":"free","rateLimitTier":"default_claude_max_5x"}}"""
+    ClaudeCredentialsBlob.parse(blobFree, 1789185600000L).map(_.planLabel.map(_.value.value)) ==== Right(Some("Free"))
+  }
+
+  private val claudeProfile =
+    """{"account":{"uuid":"a","full_name":"Test","display_name":"Test","email":"test@example.com","has_claude_max":true,"has_claude_pro":false,"created_at":"2024-03-12T02:08:34.586213Z"},"organization":{"uuid":"o","name":"Org","organization_type":"claude_max","billing_type":"stripe_subscription","rate_limit_tier":"default_claude_max_5x","seat_tier":null,"has_extra_usage_enabled":false,"subscription_status":"active","cc_onboarding_flags":{}},"application":{"uuid":"p","name":"Claude Code","slug":"claude-code"},"enabled_plugins":[]}"""
+
+  private def profileLabel(json: String): Either[String, Option[String]] =
+    codecs.readEither[ClaudeProfileResponse](json).leftMap(_.message).map(_.planLabel.map(_.value.value))
+
+  def testClaudeProfile: Result = profileLabel(claudeProfile) ==== Right(Some("Max 5x"))
+
+  def testClaudeProfileTeamSeat: Result =
+    profileLabel(
+      """{"organization":{"organization_type":"claude_team","rate_limit_tier":"default_claude_team_5x","seat_tier":"team_tier_1"}}"""
+    ) ==== Right(Some("Team Premium"))
+
+  def testClaudeProfileOrgWins: Result =
+    profileLabel(
+      """{"account":{"has_claude_max":false,"has_claude_pro":true},"organization":{"organization_type":"claude_team"}}"""
+    ) ==== Right(Some("Team"))
+
+  def testClaudeProfileFlags: Result =
+    profileLabel("""{"account":{"has_claude_max":false,"has_claude_pro":true}}""") ==== Right(Some("Pro"))
+
+  def testClaudeProfileUnknown: Result =
+    Result.all(
+      List(
+        profileLabel("{}") ==== Right(None),
+        profileLabel("""{"account":null,"organization":null}""") ==== Right(None),
+        profileLabel(
+          """{"account":{"has_claude_max":false,"has_claude_pro":false},"organization":{"organization_type":"claude_future","rate_limit_tier":"default_claude_ai","seat_tier":null}}"""
+        ) ==== Right(None),
+        profileLabel("""{"account":{"has_claude_max":"yes"}}""").isLeft ==== true,
+      )
+    )
 
   private val codexUsage =
     """{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":33,"limit_window_seconds":18000,"resets_at":1789187040},"secondary_window":{"used_percent":12.0,"limit_window_seconds":604800,"resets_at":1789617600}},"credits":{"balance":"0"}}"""

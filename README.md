@@ -10,7 +10,7 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 
 - Agents: Claude Code (subscription plan) and Codex (ChatGPT plan), auto-detected from the credentials the CLIs already store. No sign-in inside the app.
 - Menubar ring with four states: normal, warning at 80% (amber), critical at 95% (red), and exhausted (time until reset).
-- A card per agent: plan badge, status pill, session and weekly bars, reset countdowns in your local time zone.
+- A card per agent: plan badge (for Claude Code the live plan with the Max multiplier or the Team seat, such as "Max 5x" or "Team Premium"), status pill, session and weekly bars, reset countdowns in your local time zone.
 - System notifications, deduplicated per window so a restart never repeats one.
 - Codex keeps working offline from its local rollout logs when the usage endpoint fails.
 - Menu items: Refresh now, Launch at Login, Quit.
@@ -101,7 +101,7 @@ The full design, including the threading and garbage-collector contract between 
 
 ## Credentials and privacy
 
-- Claude Code: the app reads the `Claude Code-credentials` keychain item through `/usr/bin/security`, the same way TokenEater and CodexBar do, and calls `https://api.anthropic.com/api/oauth/usage` with that token.
+- Claude Code: the app reads the `Claude Code-credentials` keychain item through `/usr/bin/security`, the same way TokenEater and CodexBar do, calls `https://api.anthropic.com/api/oauth/usage` with that token, and calls `https://api.anthropic.com/api/oauth/profile` for the plan badge at most once an hour and on Refresh now.
 - Codex: the app reads `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) and calls `https://chatgpt.com/backend-api/wham/usage`. When that fails it reads the newest log under `~/.codex/sessions`.
 - Nothing is written back to those files or to the keychain. Tokens never appear in logs or on cards.
 - The only file the app writes is `~/Library/Application Support/Token Watchroo/state.json`, which remembers which notifications already fired.

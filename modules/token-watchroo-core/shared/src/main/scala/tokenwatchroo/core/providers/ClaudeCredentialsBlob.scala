@@ -7,15 +7,31 @@ import refined4s.types.all.*
 import tokenwatchroo.core.*
 import tokenwatchroo.core.codecs.given
 
-/** The `claudeAiOauth` entry of the "Claude Code-credentials" keychain item. */
+/** The `claudeAiOauth` entry of the "Claude Code-credentials" keychain item. `rateLimitTier` is camelCase in the
+  * keychain (verified 2026-09-12), and the blob codec has no field-name mapper.
+  */
 final case class ClaudeAiOauth(
   accessToken: Option[String],
   expiresAt: Option[Long],
   scopes: Option[List[String]],
   subscriptionType: Option[String],
+  rateLimitTier: Option[String],
 ) derives CanEqual,
       Eq,
       Show
+
+object ClaudeAiOauth {
+  extension (oauth: ClaudeAiOauth) {
+
+    /** The login-time snapshot of the plan, the offline fallback for the badge. When `subscriptionType` is present it
+      * is the plan word and `rateLimitTier` is only a multiplier source. Without a word the tier alone decides.
+      */
+    def toPlan: Option[ClaudePlan] = oauth.subscriptionType match {
+      case Some(word) => ClaudePlan.fromSubscriptionType(word, oauth.rateLimitTier)
+      case None => oauth.rateLimitTier.flatMap(ClaudePlan.fromRateLimitTier)
+    }
+  }
+}
 
 /** The JSON payload stored as the keychain password. It may hold only MCP state and no OAuth entry. */
 final case class ClaudeCredentialsBlob(claudeAiOauth: Option[ClaudeAiOauth]) derives CanEqual, Eq, Show
@@ -53,6 +69,6 @@ object ClaudeCredentialsBlob {
       token,
       oauth.expiresAt,
       ProfileScope.fromScopes(oauth.scopes.getOrElse(Nil)),
-      oauth.subscriptionType.flatMap(PlanLabel.fromPlanType),
+      oauth.toPlan.map(_.label).orElse(oauth.subscriptionType.flatMap(PlanLabel.fromPlanType)),
     )
 }

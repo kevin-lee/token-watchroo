@@ -3,12 +3,14 @@ package tokenwatchroo.providers
 import cats.effect.IO
 import cats.syntax.all.*
 import java.nio.charset.StandardCharsets
+import scala.concurrent.duration.FiniteDuration
 import scala.scalanative.libc.{stdlib, string}
 import scala.scalanative.unsafe.*
 import scala.scalanative.unsigned.*
 import tokenwatchroo.core.*
 
-/** The libcurl `HttpClient`. Each request is one blocking `curl_easy_perform` inside `IO.blocking`.
+/** The libcurl `HttpClient`. Each request is one blocking `curl_easy_perform` inside `IO.blocking`. The timeout is
+  * per request and clamped to at least one second, because libcurl reads 0 as no timeout.
   *
   * Response bytes are collected by a C callback into a malloc-backed buffer described by a `CStruct3` of data pointer,
   * length, and capacity. Invariant: the callback allocates no Scala objects and touches no Scala references, because
@@ -20,7 +22,6 @@ object CurlHttp extends HttpClient {
   private type Buffer = CStruct3[Ptr[Byte], CSize, CSize]
 
   private val InitialCapacity: CSize = 8192.toCSize
-  private val TotalTimeoutSeconds    = 20L
   private val ConnectTimeoutSeconds  = 10L
 
   /** Must run once before the first request. */
@@ -55,16 +56,19 @@ object CurlHttp extends HttpClient {
     url: String,
     headers: List[(String, String)],
     userAgent: UserAgent,
+    timeout: FiniteDuration,
   ): IO[Either[ProviderError, HttpResponse]] =
-    IO.blocking(perform(url, headers, userAgent))
+    IO.blocking(perform(url, headers, userAgent, timeout))
 
   private def perform(
     url: String,
     headers: List[(String, String)],
-    userAgent: UserAgent
+    userAgent: UserAgent,
+    timeout: FiniteDuration,
   ): Either[ProviderError, HttpResponse] =
     Zone {
-      val curl = LibCurl.curl_easy_init()
+      val totalSeconds = math.max(1L, timeout.toSeconds)
+      val curl         = LibCurl.curl_easy_init()
       if (curl == null) ProviderError.network("curl_easy_init failed").asLeft[HttpResponse]
       else {
         val buffer     = alloc[Buffer]()
@@ -83,8 +87,9 @@ object CurlHttp extends HttpClient {
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.HttpHeader, headerList)
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.WriteFunction, writeCallback)
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.WriteData, buffer.asInstanceOf[Ptr[Byte]])
-            val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.Timeout, TotalTimeoutSeconds)
-            val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.ConnectTimeout, ConnectTimeoutSeconds)
+            val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.Timeout, totalSeconds)
+            val _    =
+              LibCurl.curl_easy_setopt(curl, CurlOpt.ConnectTimeout, math.min(ConnectTimeoutSeconds, totalSeconds))
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.NoSignal, 1L)
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.FollowLocation, 0L)
             val code = LibCurl.curl_easy_perform(curl)

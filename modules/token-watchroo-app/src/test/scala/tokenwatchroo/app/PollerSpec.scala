@@ -21,11 +21,15 @@ class PollerSpec extends munit.FunSuite {
       none[ClaudeCodeVersion]
     )
 
-  final private class Stub(agent: AgentId, detection: Detection, fetchResult: EpochSeconds => IO[AgentSnapshot])
-      extends UsageProvider {
-    override def id: AgentId                                                 = agent
-    override def detect(config: Config): IO[Detection]                       = IO.pure(detection)
-    override def fetch(now: EpochSeconds, config: Config): IO[AgentSnapshot] = fetchResult(now)
+  final private class Stub(
+    agent: AgentId,
+    detection: Detection,
+    fetchResult: (EpochSeconds, FetchTrigger) => IO[AgentSnapshot],
+  ) extends UsageProvider {
+    override def id: AgentId                                                                        = agent
+    override def detect(config: Config): IO[Detection]                                              = IO.pure(detection)
+    override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
+      fetchResult(now, trigger)
   }
 
   final private class RecordingSink(ref: Ref[IO, List[Envelope]]) extends EnvelopeSink {
@@ -36,27 +40,35 @@ class PollerSpec extends munit.FunSuite {
   private def window(percent: Double): UsageWindow =
     UsageWindow.clamped(WindowId.Session, percent, resetsAt.some, Seconds(18000L).some)
 
+  private def claudeSnapshot(percent: Double, at: EpochSeconds): AgentSnapshot =
+    AgentSnapshot
+      .available(AgentId.ClaudeCode, none[PlanLabel], List(window(percent)), Source.Api, at, none[ErrorMessage])
+
   private def claudeAt(percent: Double): UsageProvider =
+    new Stub(AgentId.ClaudeCode, Detection.Detected, (at, _) => IO.pure(claudeSnapshot(percent, at)))
+
+  /** Records the trigger of every fetch. */
+  private def claudeRecording(percent: Double, triggers: Ref[IO, List[FetchTrigger]]): UsageProvider =
     new Stub(
       AgentId.ClaudeCode,
       Detection.Detected,
-      at =>
-        IO.pure(
-          AgentSnapshot
-            .available(AgentId.ClaudeCode, none[PlanLabel], List(window(percent)), Source.Api, at, none[ErrorMessage])
-        ),
+      (at, trigger) => triggers.update(_ :+ trigger).as(claudeSnapshot(percent, at)),
     )
 
   private val codexDown: UsageProvider =
     new Stub(
       AgentId.Codex,
       Detection.Detected,
-      at =>
+      (at, _) =>
         IO.pure(AgentSnapshot.unavailable(AgentId.Codex, at, ErrorMessage(NonEmptyString("Network error: curl 6")))),
     )
 
   private val notDetected: UsageProvider =
-    new Stub(AgentId.Codex, Detection.NotDetected, _ => IO.raiseError(new IllegalStateException("must not be fetched")))
+    new Stub(
+      AgentId.Codex,
+      Detection.NotDetected,
+      (_, _) => IO.raiseError(new IllegalStateException("must not be fetched")),
+    )
 
   private def setup: IO[(Ref[IO, List[Envelope]], RecordingSink, StateStore)] =
     for {
@@ -75,9 +87,9 @@ class PollerSpec extends munit.FunSuite {
       for {
         (ref, sink, store) <- setup
         providers = List(claudeAt(85.0d), codexDown, notDetected)
-        _      <- Poller.tick(config, providers, sink, store, IO.pure(now))
+        _      <- Poller.tick(config, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
         first  <- ref.get
-        _      <- Poller.tick(config, providers, sink, store, IO.pure(now))
+        _      <- Poller.tick(config, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
         second <- ref.get
       } yield (first, second)
     val (first, second) = program.unsafeRunSync()
@@ -96,21 +108,25 @@ class PollerSpec extends munit.FunSuite {
         .map(envelopes => snapshots(envelopes).size >= count)
         .ifM(IO.unit, IO.sleep(20.millis) >> awaitSnapshots(ref, count))
 
-    val program =
+    val program     =
       for {
         (ref, sink, store) <- setup
+        triggers           <- Ref.of[IO, List[FetchTrigger]](Nil)
         queue              <- Queue.unbounded[IO, Command]
-        fiber              <- Poller.run(config, List(claudeAt(10.0d)), queue, sink, store, IO.pure(now)).start
-        _                  <- awaitSnapshots(ref, 1).timeout(5.seconds)
-        _                  <- queue.offer(Command.refresh)
-        _                  <- awaitSnapshots(ref, 2).timeout(3.seconds)
-        _                  <- queue.offer(Command.shutdown)
-        _                  <- fiber.joinWithNever.timeout(5.seconds)
-        all                <- ref.get
-      } yield all
-    val all     = program.unsafeRunSync()
+        provider = claudeRecording(10.0d, triggers)
+        fiber <- Poller.run(config, List(provider), queue, sink, store, IO.pure(now)).start
+        _     <- awaitSnapshots(ref, 1).timeout(5.seconds)
+        _     <- queue.offer(Command.refresh)
+        _     <- awaitSnapshots(ref, 2).timeout(3.seconds)
+        _     <- queue.offer(Command.shutdown)
+        _     <- fiber.joinWithNever.timeout(5.seconds)
+        all   <- ref.get
+        seen  <- triggers.get
+      } yield (all, seen)
+    val (all, seen) = program.unsafeRunSync()
     assertEquals(snapshots(all).size, 2)
     assertEquals(alerts(all), Nil)
+    assertEquals(seen, List(FetchTrigger.Scheduled, FetchTrigger.Manual))
   }
 
   test("a provider that forces garbage collection during the tick still delivers") {
@@ -118,7 +134,7 @@ class PollerSpec extends munit.FunSuite {
       new Stub(
         AgentId.ClaudeCode,
         Detection.Detected,
-        at =>
+        (at, _) =>
           IO.blocking {
             val junk = (1 to 2000).map(i => List.fill(50)(i.toString)).toList
             System.gc()
@@ -131,8 +147,10 @@ class PollerSpec extends munit.FunSuite {
     val program                =
       for {
         (ref, sink, store) <- setup
-        _   <- (1 to 5).toList.traverse_(_ => Poller.tick(config, List(gcHeavy), sink, store, IO.pure(now)))
-        all <- ref.get
+        _                  <- (1 to 5)
+                                .toList
+                                .traverse_(_ => Poller.tick(config, List(gcHeavy), sink, store, IO.pure(now), FetchTrigger.Scheduled))
+        all                <- ref.get
       } yield all
     val all                    = program.unsafeRunSync()
     assertEquals(snapshots(all).size, 5)
@@ -148,7 +166,7 @@ class PollerSpec extends munit.FunSuite {
       for {
         ref <- Ref.of[IO, List[Envelope]](Nil)
         sink = new RecordingSink(ref)
-        _   <- Poller.tick(config, List(claudeAt(10.0d)), sink, broken, IO.pure(now))
+        _   <- Poller.tick(config, List(claudeAt(10.0d)), sink, broken, IO.pure(now), FetchTrigger.Scheduled)
         all <- ref.get
       } yield all
     val all                = program.unsafeRunSync()

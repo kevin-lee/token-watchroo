@@ -1,6 +1,8 @@
 package tokenwatchroo.providers
 
-import cats.effect.IO
+import cats.{Eq, Show}
+import cats.derived.*
+import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import java.nio.file.Path
 import refined4s.types.all.*
@@ -23,6 +25,17 @@ object Fakes {
   val claudeBlob: String =
     """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","refreshToken":"r","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max"}}"""
 
+  /** The same blob with the login-time tier, and the same again for another account. */
+  val claudeBlobWithTier: String =
+    """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","refreshToken":"r","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}"""
+
+  val claudeBlobOtherToken: String =
+    """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-other","refreshToken":"r","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}"""
+
+  /** The verified profile shape, on a Max 20x organization. */
+  val claudeProfile20x: String =
+    """{"account":{"uuid":"a","full_name":"Test","display_name":"Test","email":"test@example.com","has_claude_max":true,"has_claude_pro":false},"organization":{"uuid":"o","name":"Org","organization_type":"claude_max","billing_type":"stripe_subscription","rate_limit_tier":"default_claude_max_20x","seat_tier":null,"subscription_status":"active"},"application":{"uuid":"p","name":"Claude Code","slug":"claude-code"},"enabled_plugins":[]}"""
+
   val claudeUsage: String =
     """{"five_hour":{"utilization":72.0,"resets_at":"2026-09-12T09:12:00Z"},"seven_day":{"utilization":38.0,"resets_at":"2026-09-15T00:00:00Z"}}"""
 
@@ -39,12 +52,73 @@ object Fakes {
     override def get(
       url: String,
       headers: List[(String, String)],
-      userAgent: UserAgent
+      userAgent: UserAgent,
+      timeout: FiniteDuration,
     ): IO[Either[ProviderError, HttpResponse]] =
       IO.pure(response)
   }
 
   def ok(body: String): Either[ProviderError, HttpResponse] = HttpResponse(HttpStatus(200), body).asRight[ProviderError]
+
+  /** The exact text `CurlHttp` produces on a libcurl timeout. */
+  val curlTimeout: Either[ProviderError, HttpResponse] =
+    ProviderError.network("curl 28: Timeout was reached").asLeft[HttpResponse]
+
+  def claudeRoutes(profile: Either[ProviderError, HttpResponse]): Map[String, Either[ProviderError, HttpResponse]] =
+    Map(ClaudeCodeProvider.UsageUrl -> ok(claudeUsage), ClaudeCodeProvider.ProfileUrl -> profile)
+
+  given Eq[FiniteDuration]   = Eq.fromUniversalEquals
+  given Show[FiniteDuration] = Show.fromToString
+
+  final case class RecordedRequest(headers: List[(String, String)], userAgent: UserAgent, timeout: FiniteDuration)
+      derives CanEqual,
+        Eq,
+        Show
+
+  /** Answers per URL, records every request, and lets a test change an answer between calls. */
+  final class RoutingHttp(
+    responses: Ref[IO, Map[String, Either[ProviderError, HttpResponse]]],
+    calls: Ref[IO, Map[String, List[RecordedRequest]]],
+  ) extends HttpClient {
+    override def get(
+      url: String,
+      headers: List[(String, String)],
+      userAgent: UserAgent,
+      timeout: FiniteDuration,
+    ): IO[Either[ProviderError, HttpResponse]] =
+      calls.update(m => m.updated(url, m.getOrElse(url, Nil) :+ RecordedRequest(headers, userAgent, timeout))) >>
+        responses.get.map(_.getOrElse(url, ProviderError.network(s"unexpected URL: $url").asLeft[HttpResponse]))
+
+    def callsTo(url: String): IO[Int] = calls.get.map(_.getOrElse(url, Nil).size)
+
+    def lastRequest(url: String): IO[Option[RecordedRequest]] = calls.get.map(_.getOrElse(url, Nil).lastOption)
+
+    def set(url: String, response: Either[ProviderError, HttpResponse]): IO[Unit] =
+      responses.update(_.updated(url, response))
+  }
+
+  object RoutingHttp {
+    def make(initial: Map[String, Either[ProviderError, HttpResponse]]): IO[RoutingHttp] =
+      for {
+        responses <- Ref.of[IO, Map[String, Either[ProviderError, HttpResponse]]](initial)
+        calls     <- Ref.of[IO, Map[String, List[RecordedRequest]]](Map.empty)
+      } yield new RoutingHttp(responses, calls)
+  }
+
+  /** Each read returns the head of the list and drops it, keeping the last element forever. */
+  final class SequencedKeychain(results: Ref[IO, List[Either[ProviderError, String]]]) extends KeychainReader {
+    override def readGenericPassword(service: String, timeout: FiniteDuration): IO[Either[ProviderError, String]] =
+      results.modify {
+        case head :: next :: rest => (next :: rest, head)
+        case head :: Nil => (head :: Nil, head)
+        case Nil => (Nil, ProviderError.credentialsMissing.asLeft[String])
+      }
+  }
+
+  object SequencedKeychain {
+    def make(results: List[Either[ProviderError, String]]): IO[SequencedKeychain] =
+      Ref.of[IO, List[Either[ProviderError, String]]](results).map(new SequencedKeychain(_))
+  }
 
   final class FakeKeychain(result: Either[ProviderError, String]) extends KeychainReader {
     override def readGenericPassword(service: String, timeout: FiniteDuration): IO[Either[ProviderError, String]] =

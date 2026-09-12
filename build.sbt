@@ -11,15 +11,15 @@ ThisBuild / developers := List(
     props.GitHubUsername,
     props.AuthorName,
     props.AuthorEmail,
-    url(s"https://github.com/${props.GitHubUsername}"),
+    uri(s"https://github.com/${props.GitHubUsername}"),
   )
 )
-ThisBuild / homepage := url(
+ThisBuild / homepage := uri(
   s"https://github.com/${props.GitHubUsername}/${props.RepoName}"
 ).some
 ThisBuild / scmInfo :=
   ScmInfo(
-    url(s"https://github.com/${props.GitHubUsername}/${props.RepoName}"),
+    uri(s"https://github.com/${props.GitHubUsername}/${props.RepoName}"),
     s"https://github.com/${props.GitHubUsername}/${props.RepoName}.git",
   ).some
 
@@ -100,7 +100,7 @@ lazy val bundleApp      = taskKey[String]("Assemble dist/Token Watchroo.app")
 lazy val runApp         = taskKey[Unit]("Assemble and open the app bundle")
 
 lazy val appAssemblySettings: SettingsDefinition = List(
-  stageNativeLib := {
+  stageNativeLib := Def.uncached {
     val converter = fileConverter.value
     val archive   = converter.toPath((app / Compile / nativeLink).value).toFile
     val target    = baseDirectory.value / "swift" / "lib" / s"lib${props.StaticLibBaseName}.a"
@@ -109,7 +109,7 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     target.getAbsolutePath
   },
 
-  swiftBuild := {
+  swiftBuild := Def.uncached {
     val log        = streams.value.log
     val swiftDir   = baseDirectory.value / "swift"
     val archive    = file(stageNativeLib.value)
@@ -130,7 +130,7 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     executable.getAbsolutePath
   },
 
-  bundleApp := {
+  bundleApp := Def.uncached {
     val log        = streams.value.log
     val executable = swiftBuild.value
     val script     = baseDirectory.value / "scripts" / "bundle-app.sh"
@@ -145,7 +145,7 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     appBundle.getAbsolutePath
   },
 
-  runApp := {
+  runApp := Def.uncached {
     val appBundle = bundleApp.value
     val exit      = Process(Seq("open", appBundle)).!
     if (exit != 0) sys.error(s"open failed with exit code $exit") else ()
@@ -195,8 +195,12 @@ lazy val nativeSettings: SettingsDefinition = List(Test / fork := false)
 
 def commonNativeConfig(c: NativeConfig): NativeConfig = {
   val deploymentTarget = s"-mmacosx-version-min=${props.MinimumMacOsVersion}"
+  /* The interflow optimiser in release-fast mode miscompiles the poller's first tick since issue #3: the app never
+   * emitted a snapshot, deterministically, while the same code works with the optimiser off, in debug mode, and in
+   * release-full mode (verified 2026-09-12). The optimiser stays off until the trigger is bisected. */
   c.withLTO(LTO.none)
     .withMode(Mode.releaseFast)
+    .withOptimize(false)
     .withGC(GC.commix)
     .withCompileOptions(c.compileOptions :+ deploymentTarget)
     .withLinkingOptions(c.linkingOptions :+ deploymentTarget)

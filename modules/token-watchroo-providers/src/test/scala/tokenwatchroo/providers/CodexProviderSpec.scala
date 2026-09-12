@@ -17,7 +17,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(None)
     )
-    val snapshot = p.fetch(Fakes.now, config).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Warning)
     assertEquals(snapshot.source, Some(Source.Api))
     assertEquals(snapshot.planLabel.map(_.value.value), Some("Plus"))
@@ -34,7 +34,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine)))
     )
-    val snapshot = p.fetch(Fakes.now, config).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))
     assertEquals(snapshot.status, AgentStatus.Ok)
     assertEquals(snapshot.planLabel.map(_.value.value), Some("Prolite"))
@@ -48,7 +48,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(None)
     )
-    val snapshot = p.fetch(Fakes.now, config).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
     assertEquals(snapshot.error.map(_.value.value), Some("Usage API error HTTP 500"))
   }

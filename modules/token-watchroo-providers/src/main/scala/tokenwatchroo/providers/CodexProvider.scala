@@ -36,7 +36,7 @@ final class CodexProvider(
         }
     }
 
-  override def fetch(now: EpochSeconds, config: Config): IO[AgentSnapshot] =
+  override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
     CodexHomeResolver.resolve(config, env) match {
       case Left(error) => IO.pure(AgentSnapshot.unavailable(id, now, error.toErrorMessage(CodexProvider.Cli)))
       case Right(home) =>
@@ -50,7 +50,14 @@ final class CodexProvider(
     val result =
       for {
         oauth    <- auth.read(home).eitherT
-        response <- http.get(CodexProvider.UsageUrl, headers(oauth), CodexProvider.userAgent(appVersion)).eitherT
+        response <- http
+                      .get(
+                        CodexProvider.UsageUrl,
+                        headers(oauth),
+                        CodexProvider.userAgent(appVersion),
+                        HttpClient.StandardTimeout
+                      )
+                      .eitherT
         usage    <-
           codecs.readEither[CodexUsageResponse](response.body).leftMap(e => ProviderError.decode(e.message)).eitherT[IO]
       } yield AgentSnapshot.available(id, usage.planLabel, usage.toWindows, Source.Api, now, none[ErrorMessage])
