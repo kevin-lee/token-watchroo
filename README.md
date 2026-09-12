@@ -12,7 +12,7 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 - Menubar ring with four states: normal, warning at 80% (amber), critical at 95% (red), and exhausted (time until reset).
 - A card per agent: plan badge (for Claude Code the live plan with the Max multiplier or the Team seat, such as "Max 5x" or "Team Premium"), status pill, session and weekly bars, one more bar per model-specific weekly window on Claude Code (for example "Weekly (Fable)"), reset countdowns in your local time zone.
 - System notifications, deduplicated per window so a restart never repeats one.
-- An app icon with light and dark appearances on macOS 26 (light only on macOS 14 and 15), and a ring thumbnail on every notification showing the alert's percent.
+- An app icon with light and dark appearances on macOS 26 (the dark one with the Dark icon style, light only on macOS 14 and 15), and a ring thumbnail on every notification showing the alert's percent.
 - Codex keeps working offline from its local rollout logs when the usage endpoint fails.
 - Menu items: Refresh now, Launch at Login, Quit.
 
@@ -70,7 +70,7 @@ Set `TW_NETWORK_TESTS=1` to include the libcurl smoke test against example.com.
 
 ## App icon
 
-The sources are the kangaroo artwork under `design/logo/`: `token-watchroo-logo.png` for the light appearance and `token-watchroo-logo-dark.png` for the dark one. `design/AppIcon.icon` is an Icon Composer package (it opens in Icon Composer from Xcode 26) that uses both PNGs as one layer specialised per appearance. `scripts/generate-icons.sh` resizes the sources into the package and compiles it with actool into `assets/Assets.car` and `assets/AppIcon.icns`. Both files are committed and `sbt bundleApp` only copies them into the bundle, so a normal build needs no Xcode. macOS 26 switches between the light and dark kangaroo with the system appearance, while macOS 14 and 15 show the light one from the `.icns`.
+The sources are the kangaroo artwork under `design/logo/`: `token-watchroo-logo.png` for the light appearance and `token-watchroo-logo-dark.png` for the dark one. `design/AppIcon.icon` is an Icon Composer package (it opens in Icon Composer from Xcode 26) that uses both PNGs as one layer specialised per appearance. `scripts/generate-icons.sh` resizes the sources into the package and compiles it with actool into `assets/Assets.car` and `assets/AppIcon.icns`. Both files are committed and `sbt bundleApp` only copies them into the bundle, so a normal build needs no Xcode. On macOS 26 the dark kangaroo appears when System Settings > Appearance > "Icon & widget style" is set to Dark (or to Automatic, at night). With the Default style the light kangaroo stays even in Dark Mode, which is how macOS 26 treats every app icon. macOS 14 and 15 always show the light one from the `.icns`.
 
 ## Architecture
 
