@@ -1,0 +1,27 @@
+# sbt
+target/
+project/target/
+project/project/
+.bsp/
+.bloop/
+.metals/
+project/**/metals.sbt
+.jvmopts
+
+# IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# local scripts with secrets
+.scripts/
+
+# build outputs
+dist/
+swift/.build/
+swift/lib/
+
+# machine-local MCP config (regenerate with /setup-metals-mcp)
+.mcp.json

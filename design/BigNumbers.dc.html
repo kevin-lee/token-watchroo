@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Manrope:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: "Manrope", "Avenir Next", system-ui, sans-serif; background: #f7f5f0; -webkit-font-smoothing: antialiased; }
+    a { color: #7a5a00; } a:hover { color: #5c4300; }
+  </style>
+</helmet>
+<div style="width: 380px; height: 560px; box-sizing: border-box; padding: 24px; background: #f7f5f0; display: flex; flex-direction: column; gap: 4px;">
+  <div style="display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 12px;">
+    <span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 22px; color: #1b1a17;">Token Watchroo</span>
+    <span style="font-size: 11px; color: #8a857a;">30 s ago</span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px; padding: 14px 0; border-top: 1px solid #e2ded4;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+      <span style="font-size: 13px; font-weight: 600; color: #1b1a17;">Claude Code</span>
+      <span style="font-size: 12px; color: #8a857a;">resets in 1 h 12 m</span>
+    </div>
+    <div style="display: flex; align-items: baseline; gap: 10px;">
+      <span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 64px; line-height: 1; color: #1b1a17; font-variant-numeric: tabular-nums;">72<span style="font-size: 28px;">%</span></span>
+      <span style="font-size: 12px; color: #8a857a;">of the 5 h session<br>weekly 38%</span>
+    </div>
+    <div style="height: 2px; background: #e2ded4;"><div style="width: 72%; height: 2px; background: #1b1a17;"></div></div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px; padding: 14px 0; border-top: 1px solid #e2ded4;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+      <span style="font-size: 13px; font-weight: 600; color: #1b1a17;">Codex CLI</span>
+      <span style="font-size: 12px; color: #b0781a;">near limit · resets in 24 m</span>
+    </div>
+    <div style="display: flex; align-items: baseline; gap: 10px;">
+      <span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 64px; line-height: 1; color: #b0781a; font-variant-numeric: tabular-nums;">91<span style="font-size: 28px;">%</span></span>
+      <span style="font-size: 12px; color: #8a857a;">of the 5 h session<br>weekly 55%</span>
+    </div>
+    <div style="height: 2px; background: #e2ded4;"><div style="width: 91%; height: 2px; background: #b0781a;"></div></div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px; padding: 14px 0; border-top: 1px solid #e2ded4;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+      <span style="font-size: 13px; font-weight: 600; color: #1b1a17;">Gemini CLI</span>
+      <span style="font-size: 12px; color: #8a857a;">resets in 9 h 40 m</span>
+    </div>
+    <div style="display: flex; align-items: baseline; gap: 10px;">
+      <span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 64px; line-height: 1; color: #1b1a17; font-variant-numeric: tabular-nums;">12<span style="font-size: 28px;">%</span></span>
+      <span style="font-size: 12px; color: #8a857a;">of today's requests</span>
+    </div>
+    <div style="height: 2px; background: #e2ded4;"><div style="width: 12%; height: 2px; background: #1b1a17;"></div></div>
+  </div>
+
+  <div style="margin-top: auto; display: flex; justify-content: space-between; font-size: 12px; color: #8a857a; border-top: 1px solid #e2ded4; padding-top: 12px;">
+    <span>Settings</span>
+    <span>Quit</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

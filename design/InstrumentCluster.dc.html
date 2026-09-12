@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: "IBM Plex Mono", "SF Mono", Menlo, monospace; background: #0f1012; -webkit-font-smoothing: antialiased; }
+    a { color: #7fd1a7; } a:hover { color: #a9e6c5; }
+  </style>
+</helmet>
+<div style="width: 380px; height: 560px; box-sizing: border-box; padding: 16px; background: #0f1012; display: flex; flex-direction: column; gap: 12px;">
+  <div style="display: flex; justify-content: space-between; align-items: baseline;">
+    <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #8a8f99;">Token Watchroo</span>
+    <span style="font-size: 11px; color: #8a8f99; font-variant-numeric: tabular-nums;">14:32:07</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+    <div style="border: 1px solid #26282d; border-radius: 4px; padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+      <svg width="84" height="84" viewBox="0 0 84 84" fill="none"><circle cx="42" cy="42" r="34" stroke="#26282d" stroke-width="8"></circle><circle cx="42" cy="42" r="34" stroke="#7fd1a7" stroke-width="8" stroke-linecap="butt" stroke-dasharray="153.8 213.6" transform="rotate(-90 42 42)"></circle><text x="42" y="47" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="18" font-weight="600" fill="#e8e9ec">72</text></svg>
+      <span style="font-size: 11px; color: #e8e9ec;">CLAUDE</span>
+      <span style="font-size: 10px; color: #8a8f99; font-variant-numeric: tabular-nums;">1h12m</span>
+    </div>
+    <div style="border: 1px solid #5a4a1c; border-radius: 4px; padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px; background: #16140e;">
+      <svg width="84" height="84" viewBox="0 0 84 84" fill="none"><circle cx="42" cy="42" r="34" stroke="#26282d" stroke-width="8"></circle><circle cx="42" cy="42" r="34" stroke="#f0b73a" stroke-width="8" stroke-linecap="butt" stroke-dasharray="194.4 213.6" transform="rotate(-90 42 42)"></circle><text x="42" y="47" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="18" font-weight="600" fill="#f0b73a">91</text></svg>
+      <span style="font-size: 11px; color: #e8e9ec;">CODEX</span>
+      <span style="font-size: 10px; color: #f0b73a; font-variant-numeric: tabular-nums;">24m</span>
+    </div>
+    <div style="border: 1px solid #26282d; border-radius: 4px; padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+      <svg width="84" height="84" viewBox="0 0 84 84" fill="none"><circle cx="42" cy="42" r="34" stroke="#26282d" stroke-width="8"></circle><circle cx="42" cy="42" r="34" stroke="#7fd1a7" stroke-width="8" stroke-linecap="butt" stroke-dasharray="25.6 213.6" transform="rotate(-90 42 42)"></circle><text x="42" y="47" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="18" font-weight="600" fill="#e8e9ec">12</text></svg>
+      <span style="font-size: 11px; color: #e8e9ec;">GEMINI</span>
+      <span style="font-size: 10px; color: #8a8f99; font-variant-numeric: tabular-nums;">9h40m</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #26282d; padding-top: 12px;">
+    <span style="font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #8a8f99;">Weekly</span>
+    <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr) 40px; gap: 10px; align-items: center;">
+      <span style="font-size: 11px; color: #e8e9ec;">CLAUDE</span>
+      <div style="height: 4px; background: #26282d;"><div style="width: 38%; height: 4px; background: #e8e9ec;"></div></div>
+      <span style="font-size: 11px; color: #e8e9ec; text-align: right; font-variant-numeric: tabular-nums;">38</span>
+    </div>
+    <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr) 40px; gap: 10px; align-items: center;">
+      <span style="font-size: 11px; color: #e8e9ec;">CODEX</span>
+      <div style="height: 4px; background: #26282d;"><div style="width: 55%; height: 4px; background: #e8e9ec;"></div></div>
+      <span style="font-size: 11px; color: #e8e9ec; text-align: right; font-variant-numeric: tabular-nums;">55</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #26282d; padding-top: 12px;">
+    <span style="font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #8a8f99;">Session usage · last 60 min</span>
+    <svg width="348" height="56" viewBox="0 0 348 56" fill="none"><path d="M0 48 L20 46 L40 47 L60 40 L80 41 L100 36 L120 30 L140 32 L160 24 L180 22 L200 18 L220 20 L240 12 L260 14 L280 10 L300 8 L320 9 L348 4" stroke="#7fd1a7" stroke-width="1.5"></path><line x1="0" y1="55.5" x2="348" y2="55.5" stroke="#26282d"></line></svg>
+    <span style="font-size: 10px; color: #8a8f99;">At this pace Codex runs out a few minutes before its reset.</span>
+  </div>
+
+  <div style="margin-top: auto; display: flex; justify-content: space-between; font-size: 10px; color: #8a8f99;">
+    <span>ALERT 80 / 95</span>
+    <span>REFRESH 30s</span>
+    <span>QUIT</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
