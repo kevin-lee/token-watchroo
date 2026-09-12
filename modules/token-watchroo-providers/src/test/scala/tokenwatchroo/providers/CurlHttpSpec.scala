@@ -15,6 +15,7 @@ class CurlHttpSpec extends munit.FunSuite {
       "https://example.com/",
       List("Accept" -> "text/html"),
       UserAgent(NonEmptyString("token-watchroo-test/0")),
+      HttpClient.StandardTimeout,
     )).unsafeRunSync()
     assertEquals(result.map(_.status.value), Right(200))
     assert(result.exists(_.body.contains("Example Domain")))

@@ -232,6 +232,9 @@ object codecs {
   given claudeUsageResponseCodec: JsonValueCodec[ClaudeUsageResponse]     = JsonCodecMaker.make(
     CodecMakerConfig.withSkipUnexpectedFields(true).withFieldNameMapper(JsonCodecMaker.enforce_snake_case)
   )
+  given claudeProfileResponseCodec: JsonValueCodec[ClaudeProfileResponse] = JsonCodecMaker.make(
+    CodecMakerConfig.withSkipUnexpectedFields(true).withFieldNameMapper(JsonCodecMaker.enforce_snake_case)
+  )
   given claudeCredentialsBlobCodec: JsonValueCodec[ClaudeCredentialsBlob] =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
   given codexUsageResponseCodec: JsonValueCodec[CodexUsageResponse]       = JsonCodecMaker.make(

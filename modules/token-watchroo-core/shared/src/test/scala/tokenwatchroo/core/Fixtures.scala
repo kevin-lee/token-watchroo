@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import hedgehog.*
 import hedgehog.extra.refined4s.gens.NumGens
 import refined4s.types.all.*
+import tokenwatchroo.core.providers.*
 
 /** Generators and builders shared by the core specs. */
 object Fixtures {
@@ -37,6 +38,14 @@ object Fixtures {
     } yield UsageWindow(id, percent, resetsAt, Seconds(18000L).some)
 
   private def genWindowFor(id: WindowId): Gen[UsageWindow] = genUsageWindow.map(_.copy(id = id))
+
+  val genClaudePlan: Gen[ClaudePlan] =
+    Gen.choice1(
+      NumGens.genPosInt(PosInt(1), PosInt(100)).map(UsageMultiplier(_)).option.map(ClaudePlan.max),
+      Gen.constant(ClaudePlan.pro),
+      Gen.element1(TeamSeat.Standard, TeamSeat.Premium).option.map(ClaudePlan.team),
+      Gen.constant(ClaudePlan.enterprise),
+    )
 
   /** An agent has at most one window per id. */
   val genAgentWindows: Gen[List[UsageWindow]] =
