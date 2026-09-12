@@ -3,6 +3,7 @@ package tokenwatchroo.core
 import cats.syntax.all.*
 import hedgehog.*
 import hedgehog.runner.*
+import refined4s.types.all.*
 
 object AlertEngineSpec extends Properties {
 
@@ -16,6 +17,7 @@ object AlertEngineSpec extends Properties {
     example("60 seconds of reset drift is the same window, five hours is a new one", testDrift),
     example("an unavailable snapshot in between does not reset", testUnavailableInBetween),
     example("records older than 8 days are pruned", testPrune),
+    example("per-model windows alert with their own copy and identifier", testPerModelCopy),
   )
 
   private val now      = EpochSeconds(1789185600L)
@@ -122,6 +124,33 @@ object AlertEngineSpec extends Properties {
     val (afterDown, down) = AlertEngine.step(warned, unavailable, now)
     val (_, back)         = AlertEngine.step(afterDown, claude(86.0d, resetsAt, now), now)
     Result.all(List(down ==== Nil, back ==== Nil, afterDown ==== warned))
+  }
+
+  private val fable: WindowId = WindowId.model(ModelName(NonEmptyString("Fable")))
+
+  private def claudeModel(percent: Double, reset: EpochSeconds, at: EpochSeconds): Snapshot =
+    Fixtures.snapshot(at, Fixtures.available(AgentId.ClaudeCode, at, Fixtures.window(fable, percent, reset.some)))
+
+  def testPerModelCopy: Result = {
+    val week               = Seconds(604800L)
+    val (warned, warnings) = AlertEngine.step(AlertState.empty, claudeModel(82.0d, resetsAt, now), now)
+    val (critical, crits)  = AlertEngine.step(warned, claudeModel(96.0d, resetsAt, now), now)
+    val (_, resets)        =
+      AlertEngine.step(critical, claudeModel(3.0d, resetsAt.plus(week), now.plus(week)), now.plus(week))
+    Result.all(
+      List(
+        warnings.map(_.kind) ==== List(AlertKind.Warning80),
+        warnings.map(_.title) ==== List("Claude Code is near its weekly Fable limit"),
+        warnings.map(_.body) ==== List("82% of the weekly Fable window used. Resets in 1 hour 12 minutes."),
+        warnings.map(_.identifier) ==== List("claude-code.weekly-model:Fable.1789189920.threshold80"),
+        crits.map(_.kind) ==== List(AlertKind.Critical95),
+        crits.map(_.title) ==== List("Claude Code is almost out"),
+        crits.map(_.body) ==== List("96% of the weekly Fable window used. Resets in 1 hour 12 minutes."),
+        resets.map(_.kind) ==== List(AlertKind.Reset),
+        resets.map(_.title) ==== List("Claude Code weekly Fable reset"),
+        resets.map(_.body) ==== List("A fresh weekly Fable window is available."),
+      )
+    )
   }
 
   def testPrune: Result = {

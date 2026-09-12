@@ -2,7 +2,7 @@
 
 TokenWatchroo - Track your tokens. Get warned before they run out.
 
-A macOS menubar app that shows how much of each AI agent's usage window you have used and warns you before a window runs out. The ring in the menubar fills with the highest usage across your agents. Click it for a card per agent with session and weekly windows, percentages, and reset times. Notifications fire once at 80% and once at 95% of a window, and once more when the window resets.
+A macOS menubar app that shows how much of each AI agent's usage window you have used and warns you before a window runs out. The ring in the menubar fills with the highest usage across your agents. Click it for a card per agent with session and weekly windows, per-model weekly windows for Claude Code, percentages, and reset times. Notifications fire once at 80% and once at 95% of a window, and once more when the window resets.
 
 All business logic is Scala 3 compiled by Scala Native into a static library. A small Swift shell hosts it and owns the menubar item, the menu, notifications, and timers. There is no JVM at runtime.
 
@@ -10,7 +10,7 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 
 - Agents: Claude Code (subscription plan) and Codex (ChatGPT plan), auto-detected from the credentials the CLIs already store. No sign-in inside the app.
 - Menubar ring with four states: normal, warning at 80% (amber), critical at 95% (red), and exhausted (time until reset).
-- A card per agent: plan badge (for Claude Code the live plan with the Max multiplier or the Team seat, such as "Max 5x" or "Team Premium"), status pill, session and weekly bars, reset countdowns in your local time zone.
+- A card per agent: plan badge (for Claude Code the live plan with the Max multiplier or the Team seat, such as "Max 5x" or "Team Premium"), status pill, session and weekly bars, one more bar per model-specific weekly window on Claude Code (for example "Weekly (Fable)"), reset countdowns in your local time zone.
 - System notifications, deduplicated per window so a restart never repeats one.
 - Codex keeps working offline from its local rollout logs when the usage endpoint fails.
 - Menu items: Refresh now, Launch at Login, Quit.
