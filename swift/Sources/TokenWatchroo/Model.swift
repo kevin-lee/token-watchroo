@@ -133,6 +133,8 @@ struct AlertPayload: Decodable {
     let window: WindowId
     let kind: String
     let windowResetsAt: Int64
+    /// Optional so an older library still decodes.
+    let usedPercent: Double?
     let title: String
     let body: String
     let identifier: String

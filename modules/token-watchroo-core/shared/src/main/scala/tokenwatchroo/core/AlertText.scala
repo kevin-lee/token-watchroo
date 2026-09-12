@@ -43,5 +43,5 @@ object AlertText {
     title: String,
     body: String,
   ): Alert =
-    Alert(agent, window.id, kind, window.resetsAt.getOrElse(now), title, body)
+    Alert(agent, window.id, kind, window.resetsAt.getOrElse(now), window.usedPercent, title, body)
 }

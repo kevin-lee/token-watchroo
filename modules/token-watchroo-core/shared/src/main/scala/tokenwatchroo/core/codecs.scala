@@ -112,7 +112,15 @@ object codecs {
     mapped[AlertPayload, Alert](
       _.toAlert,
       AlertPayload.fromAlert,
-      Alert(AgentId.ClaudeCode, WindowId.Session, AlertKind.Warning80, EpochSeconds(0L), "", ""),
+      Alert(
+        AgentId.ClaudeCode,
+        WindowId.Session,
+        AlertKind.Warning80,
+        EpochSeconds(0L),
+        UsedPercent.clamp(0.0d),
+        "",
+        ""
+      ),
     )
 
   /* Config: the JSON key is `refreshIntervalSeconds`, the field is `refreshInterval`. */

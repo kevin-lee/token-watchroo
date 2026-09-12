@@ -147,6 +147,7 @@ object CodecsSpec extends Properties {
       List(
         jsons.map(_.startsWith("""{"version":1,"type":""")) ==== List(true, true, true),
         jsons.lift(1).exists(_.contains(""""identifier":"codex.session.1789187040.threshold80"""")) ==== true,
+        jsons.lift(1).exists(_.contains(""""usedPercent":82.0""")) ==== true,
         jsons.lift(2) ==== Some("""{"version":1,"type":"error","seq":44,"message":"boom"}"""),
         jsons.map(codecs.readEither[Envelope](_)) ==== envelopes.map(Right(_)),
       )

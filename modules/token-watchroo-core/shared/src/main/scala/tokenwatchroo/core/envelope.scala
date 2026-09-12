@@ -34,12 +34,15 @@ object Envelope {
   }
 }
 
-/** JSON shape of an alert: the identifier is added so the shell never has to compute it. */
+/** JSON shape of an alert: the identifier is added so the shell never has to compute it. `usedPercent` is additive for
+  * the shell, which treats it as optional.
+  */
 final case class AlertPayload(
   agent: AgentId,
   window: WindowId,
   kind: AlertKind,
   windowResetsAt: EpochSeconds,
+  usedPercent: UsedPercent,
   title: String,
   body: String,
   identifier: String,
@@ -49,12 +52,29 @@ final case class AlertPayload(
 
 object AlertPayload {
   def fromAlert(alert: tokenwatchroo.core.Alert): AlertPayload =
-    AlertPayload(alert.agent, alert.window, alert.kind, alert.windowResetsAt, alert.title, alert.body, alert.identifier)
+    AlertPayload(
+      alert.agent,
+      alert.window,
+      alert.kind,
+      alert.windowResetsAt,
+      alert.usedPercent,
+      alert.title,
+      alert.body,
+      alert.identifier,
+    )
 
   extension (payload: AlertPayload) {
     def toAlert: tokenwatchroo.core.Alert =
       tokenwatchroo
         .core
-        .Alert(payload.agent, payload.window, payload.kind, payload.windowResetsAt, payload.title, payload.body)
+        .Alert(
+          payload.agent,
+          payload.window,
+          payload.kind,
+          payload.windowResetsAt,
+          payload.usedPercent,
+          payload.title,
+          payload.body,
+        )
   }
 }

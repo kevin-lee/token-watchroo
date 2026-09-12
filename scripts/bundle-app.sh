@@ -5,7 +5,8 @@
 #
 # A real .app bundle is mandatory: UNUserNotificationCenter aborts the process outside a bundle, and
 # SMAppService (Launch at Login) needs one too. Ad-hoc signing means the keychain "Always Allow" grant is
-# asked again after a rebuild of the binary (see the design doc, section 9).
+# asked again after a rebuild of the binary (see the design doc, section 9). The app icon comes from assets/,
+# regenerated with scripts/generate-icons.sh.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -22,6 +23,16 @@ APP_NAME="Token Watchroo"
 EXEC_NAME="TokenWatchroo"
 MIN_OS="14.0"
 APP="$OUT_DIR/$APP_NAME.app"
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ICON_ICNS="$ROOT/assets/AppIcon.icns"
+ICON_CAR="$ROOT/assets/Assets.car"
+for icon in "$ICON_ICNS" "$ICON_CAR"; do
+  if [ ! -f "$icon" ]; then
+    echo "error: app icon missing, run scripts/generate-icons.sh: $icon" >&2
+    exit 1
+  fi
+done
 
 # CFBundleShortVersionString must be dotted numbers: strip a leading v and any dynver suffix.
 SHORT_VERSION="${VERSION#v}"
@@ -42,6 +53,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$EXECUTABLE" "$APP/Contents/MacOS/$EXEC_NAME"
 chmod +x "$APP/Contents/MacOS/$EXEC_NAME"
 
+echo "==> app icon"
+cp "$ICON_ICNS" "$APP/Contents/Resources/AppIcon.icns"
+cp "$ICON_CAR" "$APP/Contents/Resources/Assets.car"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -55,6 +70,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>$APP_NAME</string>
     <key>CFBundleDisplayName</key>
     <string>$APP_NAME</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
