@@ -1,6 +1,7 @@
 import AppKit
 
-/// The panel from `design/Main.dc.html` as an `NSMenu`: a header item, one card per agent, then the actions.
+/// The panel from `.ai/docs/design/ui/Main.dc.html` as an `NSMenu`: a header item, one card per agent, then the
+/// actions.
 @MainActor
 final class MenuBuilder {
 
@@ -75,7 +76,8 @@ final class MenuBuilder {
     }
 }
 
-/// "Token Watchroo" with "Updated N s ago" and a refresh glyph, per the panel header of `design/Main.dc.html`.
+/// "Token Watchroo" with "Updated N s ago" and a refresh glyph, per the panel header of
+/// `.ai/docs/design/ui/Main.dc.html`.
 final class HeaderView: NSView {
 
     private let updated = NSTextField(labelWithString: "")

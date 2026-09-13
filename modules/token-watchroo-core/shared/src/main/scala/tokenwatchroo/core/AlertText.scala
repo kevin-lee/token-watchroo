@@ -2,8 +2,8 @@ package tokenwatchroo.core
 
 import extras.render.syntax.*
 
-/** Notification copy, following `design/Alerts.dc.html`. Per-model rows read "Claude Code is near its weekly Fable
-  * limit" and "68% of the weekly Fable window used. Resets in 2 hours."
+/** Notification copy, following `.ai/docs/design/ui/Alerts.dc.html`. Per-model rows read "Claude Code is near its
+  * weekly Fable limit" and "68% of the weekly Fable window used. Resets in 2 hours."
   */
 object AlertText {
 

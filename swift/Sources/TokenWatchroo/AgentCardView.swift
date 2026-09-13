@@ -1,8 +1,8 @@
 import AppKit
 
-/// The per-agent card from `design/Main.dc.html`, drawn directly: 328 wide, corner radius 10, half-point border,
-/// 12 pt padding, name, plan badge, status pill, and one row plus bar per window. Per-model rows follow Weekly in the
-/// order received.
+/// The per-agent card from `.ai/docs/design/ui/Main.dc.html`, drawn directly: 328 wide, corner radius 10, half-point
+/// border, 12 pt padding, name, plan badge, status pill, and one row plus bar per window. Per-model rows follow
+/// Weekly in the order received.
 final class AgentCardView: NSView {
 
     static let width: CGFloat = 328
