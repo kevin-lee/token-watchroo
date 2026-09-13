@@ -77,8 +77,10 @@ jobs:
           swift --version
           clang --version
 
+      # --server runs sbt in the foreground instead of the sbtn client: no background server is left behind for the
+      # bundle step to reuse with this step's (identity-less) environment.
       - name: Test
-        run: sbt "coreJvm/test; providers/test; app/test"
+        run: sbt --server "coreJvm/test; providers/test; app/test"
 
       # The certificate is imported only after the tests, so the keychain is unlocked for as few steps as possible.
       - name: Import the signing certificate
@@ -87,9 +89,22 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: scripts/ci-import-certificate.sh
 
-      # TW_SIGNING_IDENTITY is in the job environment from the certificate import step.
+      # TW_SIGNING_IDENTITY is in the job environment from the certificate import step. It only reaches bundle-app.sh
+      # when sbt runs the task in a JVM started by this step: an sbt 2 background server keeps the environment of
+      # whichever invocation started it, so a reused one would silently produce an ad-hoc signature. --server runs sbt
+      # in the foreground with this step's environment.
       - name: Bundle (Developer ID)
-        run: sbt bundleApp
+        run: sbt --server bundleApp
+
+      # Two notary round trips take minutes, so an ad-hoc or unsigned bundle fails here rather than there.
+      - name: Check the app signature
+        run: |
+          set -euo pipefail
+          APP="dist/Token Watchroo.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dvvv "$APP" 2>&1 | grep "Authority=Developer ID Application"
+          codesign -dvvv "$APP" 2>&1 | grep "flags=.*runtime"
+          codesign -dvvv "$APP" 2>&1 | grep "^Timestamp="
 
       - name: Write the notary API key
         env:
