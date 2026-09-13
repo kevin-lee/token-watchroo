@@ -4,9 +4,10 @@
 # usage: scripts/bundle-app.sh <executable> <out-dir> <version> <bundle-id>
 #
 # A real .app bundle is mandatory: UNUserNotificationCenter aborts the process outside a bundle, and
-# SMAppService (Launch at Login) needs one too. Ad-hoc signing means the keychain "Always Allow" grant is
-# asked again after a rebuild of the binary (see the design doc, section 9). The app icon comes from assets/,
-# regenerated with scripts/generate-icons.sh.
+# SMAppService (Launch at Login) needs one too. Signing: with TW_SIGNING_IDENTITY set to a Developer ID Application
+# identity the bundle is signed with hardened runtime and a timestamp (releases, see scripts/notarize.sh). Unset, the
+# bundle is ad-hoc signed, which re-asks the keychain "Always Allow" grant after every rebuild (local builds, see the
+# design doc, section 9). The app icon comes from assets/, regenerated with scripts/generate-icons.sh.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -92,7 +93,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "==> ad-hoc codesign"
-codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP"
+if [ -n "${TW_SIGNING_IDENTITY:-}" ]; then
+  echo "==> codesign with hardened runtime: $TW_SIGNING_IDENTITY"
+  codesign --force --options runtime --timestamp --sign "$TW_SIGNING_IDENTITY" --identifier "$BUNDLE_ID" "$APP"
+  codesign --verify --deep --strict "$APP"
+else
+  echo "==> ad-hoc codesign"
+  codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP"
+fi
 
 echo "==> done: $APP"

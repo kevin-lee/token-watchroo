@@ -1,0 +1,247 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# Read by default. The release job alone gets contents: write, for the GitHub release.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      # Each architecture builds on its own runner because Scala Native and swift build produce host-architecture
+      # binaries. One architecture failing must not cancel the other: the surviving log tells whether a failure is
+      # architecture-specific or common to both (claude-proxymate's lesson).
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            arch: arm64
+            expected: arm64
+          - runner: macos-26-intel
+            arch: x64
+            expected: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      # sbt-dynver derives the version from the tag, so the full history is needed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+
+      - uses: sbt/setup-sbt@82da71df4e122282484a99a8d70096bc2369dbd8 # v1.5.9
+
+      # A release is never shipped ad-hoc: the cask would hand every Homebrew user a Gatekeeper refusal.
+      - name: Require release secrets
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE_P12 APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
+            if [ -z "${!name}" ]; then
+              echo "error: repository secret $name is not set"
+              exit 1
+            fi
+          done
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+          clang --version
+
+      - name: Test
+        run: sbt "coreJvm/test; providers/test; app/test"
+
+      # The certificate is imported only after the tests, so the keychain is unlocked for as few steps as possible.
+      - name: Import the signing certificate
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: scripts/ci-import-certificate.sh
+
+      # TW_SIGNING_IDENTITY is in the job environment from the certificate import step.
+      - name: Bundle (Developer ID)
+        run: sbt bundleApp
+
+      - name: Write the notary API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY_P8_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - name: Notarize the app
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: scripts/notarize.sh "dist/Token Watchroo.app"
+
+      - name: Make the DMG
+        run: scripts/make-dmg.sh "dist/Token Watchroo.app" dist
+
+      - name: Notarize the DMG
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          DMGS=(dist/*.dmg)
+          if [ "${#DMGS[@]}" -ne 1 ]; then
+            echo "error: expected exactly one DMG, got: ${DMGS[*]}"
+            exit 1
+          fi
+          scripts/notarize.sh "${DMGS[0]}"
+
+      # Fail the release if the app inside the image is not Developer ID signed with hardened runtime, accepted by
+      # Gatekeeper, stapled, and built for this runner's architecture.
+      - name: Verify the DMG
+        run: |
+          set -euo pipefail
+          DMGS=(dist/*.dmg)
+          DMG="${DMGS[0]}"
+          hdiutil verify "$DMG"
+          MNT=$(hdiutil attach "$DMG" -nobrowse -readonly | awk -F'\t' '/\/Volumes\//{print $NF}')
+          trap 'hdiutil detach "$MNT" -quiet' EXIT
+          APP="$MNT/Token Watchroo.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dvvv "$APP" 2>&1 | grep "Authority=Developer ID Application"
+          codesign -dvvv "$APP" 2>&1 | grep "flags=.*runtime"
+          spctl --assess --type execute -vvv "$APP"
+          xcrun stapler validate "$APP"
+          xcrun stapler validate "$DMG"
+          file "$APP/Contents/MacOS/TokenWatchroo" | grep -q "${{ matrix.expected }}"
+          (cd dist && shasum -a 256 -c ./*.sha256)
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.dmg.sha256
+
+      - name: Remove the signing keychain and key
+        if: always()
+        run: |
+          if [ -n "${TW_SIGNING_KEYCHAIN:-}" ]; then
+            security delete-keychain "$TW_SIGNING_KEYCHAIN"
+          fi
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Check the artifacts
+        run: |
+          set -euo pipefail
+          ls -la artifacts
+          for arch in arm64 x64; do
+            # shellcheck disable=SC2012
+            COUNT=$(ls artifacts/Token-Watchroo-*-"$arch".dmg 2>/dev/null | wc -l)
+            if [ "$COUNT" -ne 1 ]; then
+              echo "error: expected exactly one $arch DMG, found $COUNT"
+              exit 1
+            fi
+          done
+          (cd artifacts && sha256sum -c ./*.sha256)
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: |
+            artifacts/*.dmg
+            artifacts/*.sha256
+          generate_release_notes: true
+
+  tap:
+    needs: release
+    # brew style needs Homebrew.
+    runs-on: macos-26
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Require the tap token
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "error: repository secret HOMEBREW_TAP_TOKEN is not set"
+            exit 1
+          fi
+
+      # This repository, for scripts/update-cask.sh.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: kevin-lee/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Update the cask
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARM="$(awk '{print $1}' "artifacts/Token-Watchroo-$VERSION-arm64.dmg.sha256")"
+          X64="$(awk '{print $1}' "artifacts/Token-Watchroo-$VERSION-x64.dmg.sha256")"
+          scripts/update-cask.sh "$VERSION" "$ARM" "$X64" tap
+
+      # brew style only inspects casks that live inside a tap directory, so the checkout is linked into Homebrew's
+      # taps folder under the real tap name and the casks are named by token.
+      - name: Check the cask style
+        run: |
+          set -euo pipefail
+          TAP_DIR="$(brew --repository)/Library/Taps/kevin-lee/homebrew-tap"
+          mkdir -p "$(dirname "$TAP_DIR")"
+          ln -sfn "$GITHUB_WORKSPACE/tap" "$TAP_DIR"
+          TOKENS=()
+          for cask in tap/Casks/token-watchroo*.rb; do
+            TOKENS+=("kevin-lee/tap/$(basename "$cask" .rb)")
+          done
+          brew style --cask "${TOKENS[@]}"
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks
+          VERSION="${GITHUB_REF_NAME#v}"
+          MESSAGE="Update \`token-watchroo\` to \`$VERSION\`"
+          PREVIOUS_FILE=$(git diff --cached --name-only --diff-filter=A | grep 'Casks/token-watchroo@' | sort -V | tail -n 1 || true)
+          if [ -n "$PREVIOUS_FILE" ]; then
+            PREVIOUS=$(basename "$PREVIOUS_FILE" .rb)
+            PREVIOUS="${PREVIOUS#token-watchroo@}"
+            MESSAGE="$MESSAGE and add versioned cask for \`$PREVIOUS\`"
+          fi
+          git commit -m "$MESSAGE"
+          git push origin HEAD:main

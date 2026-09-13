@@ -20,13 +20,13 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 
 - The usage endpoints are undocumented and may change. When they do, the card says "Unexpected response" instead of crashing.
 - The app never refreshes tokens. When a token expires, run `claude` or `codex` once and the card recovers on the next refresh.
-- The bundle is ad-hoc signed, so macOS asks to allow keychain access again after each rebuild. Click "Always Allow" once per build.
+- A build from source is ad-hoc signed, so macOS asks to allow keychain access again after each rebuild. Click "Always Allow" once per build. Releases are Developer ID signed and notarized, so an upgrade does not ask again.
 - No settings window, thresholds fixed at 80% and 95%, refresh every 60 seconds.
-- Cursor, Gemini CLI, API-budget agents, notarization, and a DMG are on the roadmap in `.ai/docs/design/token-watchroo-design.md`.
+- Cursor, Gemini CLI, and API-budget agents are on the roadmap in `.ai/docs/design/token-watchroo-design.md`.
 
 ## Requirements
 
-- macOS 14 or later on Apple Silicon (the build is host-architecture only).
+- macOS 14 or later on Apple Silicon or Intel. A build from source is host-architecture only.
 - Xcode command line tools with Swift 6 (`swift build`).
 - JDK 17 or later and sbt 2 for the build only. LLVM/Clang from Xcode is used by Scala Native.
 - Full Xcode 26 only to regenerate the app icon (`scripts/generate-icons.sh` uses actool). The build itself needs the Command Line Tools only.
@@ -34,7 +34,26 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 
 ## Install
 
-Build from source:
+### Homebrew (recommended)
+
+```bash
+brew install --cask kevin-lee/tap/token-watchroo
+```
+
+Or tap first, then install:
+
+```bash
+brew tap kevin-lee/tap
+brew install --cask token-watchroo
+```
+
+Upgrade with `brew upgrade --cask token-watchroo`. Uninstall with `brew uninstall --cask token-watchroo`, and add `--zap` to remove the state directory too.
+
+### Disk image
+
+Download `Token-Watchroo-<version>-arm64.dmg` (Apple Silicon) or `Token-Watchroo-<version>-x64.dmg` (Intel) from the [Releases](https://github.com/kevin-lee/token-watchroo/releases) page, open it, and drag Token Watchroo to Applications. The builds are Developer ID signed and notarized, so macOS opens them without a Gatekeeper step.
+
+### From source
 
 ```bash
 sbt buildApp
@@ -56,7 +75,7 @@ sbt app/test
 # the static library only
 sbt app/nativeLink
 
-# stage the library, build the Swift shell, assemble and ad-hoc sign the bundle
+# stage the library, build the Swift shell, assemble and sign the bundle (ad-hoc unless TW_SIGNING_IDENTITY is set)
 sbt bundleApp
 
 # assemble and open
@@ -71,6 +90,67 @@ Set `TW_NETWORK_TESTS=1` to include the libcurl smoke test against example.com.
 ## App icon
 
 The sources are the kangaroo artwork under `design/logo/`: `token-watchroo-logo.png` for the light appearance and `token-watchroo-logo-dark.png` for the dark one. `design/AppIcon.icon` is an Icon Composer package (it opens in Icon Composer from Xcode 26) that uses both PNGs as one layer specialised per appearance. `scripts/generate-icons.sh` resizes the sources into the package and compiles it with actool into `assets/Assets.car` and `assets/AppIcon.icns`. Both files are committed and `sbt bundleApp` only copies them into the bundle, so a normal build needs no Xcode. On macOS 26 the dark kangaroo appears when System Settings > Appearance > "Icon & widget style" is set to Dark (or to Automatic, at night). With the Default style the light kangaroo stays even in Dark Mode, which is how macOS 26 treats every app icon. macOS 14 and 15 always show the light one from the `.icns`.
+
+## Release
+
+### Local signed build
+
+`scripts/bundle-app.sh` signs with hardened runtime and a timestamp when `TW_SIGNING_IDENTITY` names a Developer ID Application identity in the login keychain, and ad-hoc signs otherwise. Notarization uses an App Store Connect API key. The app is notarized and stapled first, then the disk image built from it, so both validate offline.
+
+```bash
+export TW_SIGNING_IDENTITY="Developer ID Application: <name> (<team>)"
+sbt bundleApp
+
+export APPLE_API_KEY_P8_PATH=/path/to/AuthKey_<KEYID>.p8
+export APPLE_API_KEY_ID=<KEYID>
+export APPLE_API_ISSUER_ID=<ISSUER-UUID>
+scripts/notarize.sh "dist/Token Watchroo.app"
+scripts/make-dmg.sh "dist/Token Watchroo.app" dist
+scripts/notarize.sh dist/Token-Watchroo-<version>-arm64.dmg
+
+# manual tap update in a checkout of kevin-lee/homebrew-tap
+scripts/update-cask.sh <version> <arm64-sha256> <x64-sha256> <tap-checkout>
+```
+
+### Continuous integration
+
+`.github/workflows/build.yml` runs on pull requests and on pushes to `main`: the tests, an ad-hoc bundle, and a zipped bundle artifact.
+
+`.github/workflows/release.yml` runs on a `vX.Y.Z` tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+It runs the tests, builds a signed and notarized DMG per architecture on `macos-26` and `macos-26-intel`, verifies each image (Developer ID signature, hardened runtime, Gatekeeper, stapled ticket, architecture, checksum), creates the GitHub release with the DMGs, their `.sha256` files, and generated notes, then pushes the cask to `kevin-lee/homebrew-tap` and keeps the previous version as `token-watchroo@<previous>`. The release fails, and nothing is published, when a secret is missing.
+
+### Secrets
+
+| Secret | Value |
+|---|---|
+| `APPLE_CERTIFICATE_P12` | base64 of the Developer ID Application certificate exported as `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | the password chosen at export |
+| `APPLE_API_KEY_P8` | base64 of the App Store Connect API key `.p8` |
+| `APPLE_API_KEY_ID` | its Key ID |
+| `APPLE_API_ISSUER_ID` | the Issuer ID of the team |
+| `HOMEBREW_TAP_TOKEN` | fine-grained token with Contents read and write on `kevin-lee/homebrew-tap` |
+
+Obtaining them:
+
+1. Certificate: Keychain Access, My Certificates, the Developer ID Application identity with its private key, Export as `.p12` with a password.
+2. API key: App Store Connect, Users and Access, Integrations, App Store Connect API, Team Keys, Generate API Key with the Developer role, download the `.p8` (offered once), note the Key ID and the Issuer ID.
+3. Tap token: GitHub Settings, Developer settings, Fine-grained personal access tokens, repository access `kevin-lee/homebrew-tap` only, Contents read and write.
+4. Store them:
+
+```bash
+gh secret set APPLE_CERTIFICATE_P12 --body "$(base64 -i DeveloperID.p12)"
+gh secret set APPLE_CERTIFICATE_PASSWORD
+gh secret set APPLE_API_KEY_P8 --body "$(base64 -i AuthKey_<KEYID>.p8)"
+gh secret set APPLE_API_KEY_ID --body "<KEYID>"
+gh secret set APPLE_API_ISSUER_ID --body "<ISSUER-UUID>"
+gh secret set HOMEBREW_TAP_TOKEN
+```
 
 ## Architecture
 
@@ -106,6 +186,8 @@ The sources are the kangaroo artwork under `design/logo/`: `token-watchroo-logo.
 | `modules/token-watchroo-app` | Scala Native static library | The exported C API (`tw_start`, `tw_refresh`, `tw_set_config`, `tw_shutdown`), the cats-effect runtime, the poll loop, state persistence. Tested with munit. |
 | `swift/` | Swift 6 package | `NSStatusItem`, `NSMenu` with custom card views, notifications, Launch at Login. Renders what the library sends. |
 | `assets/` | committed build inputs | `Assets.car` and `AppIcon.icns` generated by `scripts/generate-icons.sh`. |
+| `scripts/` | shell | `bundle-app.sh`, `notarize.sh`, `make-dmg.sh`, `ci-import-certificate.sh`, `update-cask.sh`, `generate-icons.sh`. |
+| `.github/workflows/` | GitHub Actions | `build.yml` (tests and an ad-hoc bundle on pull requests and `main`), `release.yml` (signed, notarized DMGs, the GitHub release, the cask). |
 
 The full design, including the threading and garbage-collector contract between Swift and Scala Native, the JSON contract, and the roadmap, is in `.ai/docs/design/token-watchroo-design.md`.
 

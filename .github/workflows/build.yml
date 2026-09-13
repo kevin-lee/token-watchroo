@@ -1,0 +1,62 @@
+name: Build
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The workflow needs nothing beyond reading the repository.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      # sbt-dynver derives the version from the nearest tag, so the full history is needed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+
+      - uses: sbt/setup-sbt@82da71df4e122282484a99a8d70096bc2369dbd8 # v1.5.9
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+          clang --version
+
+      # core is hedgehog on the JVM; providers and app are munit on Scala Native and need macOS.
+      - name: Test
+        run: sbt "coreJvm/test; providers/test; app/test"
+
+      - name: Bundle (ad-hoc)
+        run: sbt bundleApp
+
+      - name: Verify bundle
+        run: |
+          set -euo pipefail
+          codesign --verify --deep --strict --verbose=2 "dist/Token Watchroo.app"
+          plutil -p "dist/Token Watchroo.app/Contents/Info.plist"
+          file "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo" | grep -q arm64
+
+      # A directory artifact would drop the symlinks and modes inside the bundle.
+      - name: Zip bundle
+        run: ditto -c -k --keepParent "dist/Token Watchroo.app" "dist/Token-Watchroo-adhoc-arm64.zip"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: token-watchroo-adhoc-arm64
+          path: dist/Token-Watchroo-adhoc-arm64.zip
