@@ -137,6 +137,14 @@ jobs:
           fi
           scripts/notarize.sh "${DMGS[0]}"
 
+      # After stapling, never before: xcrun stapler rewrites the image to embed the ticket, so a checksum taken in
+      # make-dmg.sh would not match the bytes that are published.
+      - name: Write the DMG checksum
+        run: |
+          set -euo pipefail
+          DMGS=(dist/*.dmg)
+          scripts/checksum.sh "${DMGS[0]}"
+
       # Fail the release if the app inside the image is not Developer ID signed with hardened runtime, accepted by
       # Gatekeeper, stapled, and built for this runner's architecture.
       - name: Verify the DMG
