@@ -21,6 +21,10 @@ A macOS menubar app that shows how much of each AI agent's usage window you have
 
 All business logic is Scala 3 compiled by Scala Native into a static library. A small Swift shell hosts it and owns the menubar item, the menu, notifications, and timers. There is **NO JVM at runtime**.
 
+<img width="394" height="460" alt="Screenshot 2026-09-14 at 9 15 37 am" src="https://github.com/user-attachments/assets/411a5a6a-a96e-417e-a34d-b6b28a01c195" />
+<img width="394" height="460" alt="Screenshot 2026-09-14 at 9 14 50 am" src="https://github.com/user-attachments/assets/19545607-7235-4529-898a-2bbe0a51d6a6" />
+
+
 ## Features (v1)
 
 - Agents: Claude Code (subscription plan) and Codex (ChatGPT plan), auto-detected from the credentials the CLIs already store. No sign-in inside the app.
