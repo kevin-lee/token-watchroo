@@ -123,7 +123,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-It runs the tests, builds a signed and notarized DMG per architecture on `macos-26` and `macos-26-intel`, verifies each image (Developer ID signature, hardened runtime, Gatekeeper, stapled ticket, architecture, checksum), creates the GitHub release with the DMGs, their `.sha256` files, and generated notes, then pushes the cask to `kevin-lee/homebrew-tap` and keeps the previous version as `token-watchroo@<previous>`. The release fails, and nothing is published, when a secret is missing.
+The release note comes from `changelogs/<version>.md`, so that file has to exist before the tag is pushed: the build job checks for it before anything is signed.
+
+It runs the tests, builds a signed and notarized DMG per architecture on `macos-26` and `macos-26-intel`, verifies each image (Developer ID signature, hardened runtime, Gatekeeper, stapled ticket, architecture, checksum), creates the GitHub release with the DMGs, their `.sha256` files, and `changelogs/<version>.md` followed by the generated notes, then pushes the cask to `kevin-lee/homebrew-tap` and keeps the previous version as `token-watchroo@<previous>`. The release fails, and nothing is published, when a secret is missing.
 
 ### Secrets
 
