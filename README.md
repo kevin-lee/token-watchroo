@@ -1,10 +1,25 @@
-# Token Watchroo
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="design/logo/token-watchroo-logo-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="design/logo/token-watchroo-logo.png">
+  <img alt="Token Watchroo logo" src="design/logo/token-watchroo-logo.png" width="200" height="200">
+</picture>
+</p>
 
-TokenWatchroo - Track your tokens. Get warned before they run out.
+<h1 align="center">Token Watchroo</h1>
+
+<p align="center"><strong>TokenWatchroo - Track your tokens. Get warned before they run out.</strong></p>
+
+<p align="center">
+  <img alt="Build" src="https://github.com/kevin-lee/token-watchroo/actions/workflows/build.yml/badge.svg"><a href="https://github.com/kevin-lee/token-watchroo/actions/workflows/build.yml" /></img>
+  <img alt="Release" src="https://github.com/kevin-lee/token-watchroo/actions/workflows/release.yml/badge.svg"><a href="https://github.com/kevin-lee/token-watchroo/actions/workflows/release.yml" /></img>
+  <img alt="GitHub Release" src="https://img.shields.io/github/v/release/kevin-lee/token-watchroo">
+</p>
+
 
 A macOS menubar app that shows how much of each AI agent's usage window you have used and warns you before a window runs out. The ring in the menubar fills with the highest usage across your agents. Click it for a card per agent with session and weekly windows, per-model weekly windows for Claude Code, percentages, and reset times. Notifications fire once at 80% and once at 95% of a window, and once more when the window resets.
 
-All business logic is Scala 3 compiled by Scala Native into a static library. A small Swift shell hosts it and owns the menubar item, the menu, notifications, and timers. There is no JVM at runtime.
+All business logic is Scala 3 compiled by Scala Native into a static library. A small Swift shell hosts it and owns the menubar item, the menu, notifications, and timers. There is **NO JVM at runtime**.
 
 ## Features (v1)
 
