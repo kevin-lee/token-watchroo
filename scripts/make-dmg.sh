@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Builds Token-Watchroo-<version>-<arch>.dmg holding the app and an Applications symlink with hdiutil, signs the image
-# when TW_SIGNING_IDENTITY is set, and writes a SHA-256 checksum next to it.
+# Builds Token-Watchroo-<version>-<arch>.dmg holding the app and an Applications symlink with hdiutil and signs the
+# image when TW_SIGNING_IDENTITY is set.
 #
 # usage: scripts/make-dmg.sh <app-bundle> <out-dir>
 #
 # The app should already be signed and stapled (scripts/notarize.sh). The version comes from the bundle's
 # CFBundleShortVersionString and the architecture from the executable (arm64 or x64), so the name matches what the
-# Homebrew cask expects.
+# Homebrew cask expects. No checksum is written here: the image is notarized next and xcrun stapler rewrites it, so a
+# checksum taken now would never match what is published. Take it with scripts/checksum.sh after stapling.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -57,8 +58,4 @@ else
   echo "==> TW_SIGNING_IDENTITY is not set: the image is not signed"
 fi
 
-(cd "$OUT_DIR" && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
-
-echo "Done. Generated:"
-echo "  - $DMG"
-echo "  - $DMG.sha256"
+echo "Done. Generated: $DMG"

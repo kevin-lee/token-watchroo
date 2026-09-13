@@ -108,6 +108,9 @@ scripts/notarize.sh "dist/Token Watchroo.app"
 scripts/make-dmg.sh "dist/Token Watchroo.app" dist
 scripts/notarize.sh dist/Token-Watchroo-<version>-arm64.dmg
 
+# after stapling, which rewrites the image
+scripts/checksum.sh dist/Token-Watchroo-<version>-arm64.dmg
+
 # manual tap update in a checkout of kevin-lee/homebrew-tap
 scripts/update-cask.sh <version> <arm64-sha256> <x64-sha256> <tap-checkout>
 ```
