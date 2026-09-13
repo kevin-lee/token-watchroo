@@ -1,7 +1,8 @@
 import AppKit
 
-/// The 16 by 16 menubar ring from `design/MenubarStates.dc.html`: radius 6 at the centre, stroke 2, a track at 30%
-/// opacity, and an arc from 12 o'clock clockwise by the used percent. Exhausted is a filled disc with a clock glyph.
+/// The 16 by 16 menubar ring from `.ai/docs/design/ui/MenubarStates.dc.html`: radius 6 at the centre, stroke 2, a
+/// track at 30% opacity, and an arc from 12 o'clock clockwise by the used percent. Exhausted is a filled disc with a
+/// clock glyph.
 enum RingIcon {
 
     static let warningColor = NSColor(srgbRed: 0xF0 / 255, green: 0xB7 / 255, blue: 0x3A / 255, alpha: 1)

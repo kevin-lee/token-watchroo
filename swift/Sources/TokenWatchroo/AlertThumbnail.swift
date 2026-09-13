@@ -1,9 +1,9 @@
 import AppKit
 import UserNotifications
 
-/// The Alerts artboard tile from `design/Alerts.dc.html`: a dark rounded square with the ring in the alert's colour,
-/// drawn per alert at the alert's percent and attached to the notification. The app icon on the left of the banner is
-/// the bundle icon and cannot change, so the tile appears on the right.
+/// The Alerts artboard tile from `.ai/docs/design/ui/Alerts.dc.html`: a dark rounded square with the ring in the
+/// alert's colour, drawn per alert at the alert's percent and attached to the notification. The app icon on the left
+/// of the banner is the bundle icon and cannot change, so the tile appears on the right.
 enum AlertThumbnail {
 
     private static let size: CGFloat = 256

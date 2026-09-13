@@ -1,9 +1,9 @@
 import Foundation
 import UserNotifications
 
-/// System notifications per `design/Alerts.dc.html`. `UNUserNotificationCenter` aborts the process outside an app
-/// bundle, so everything is gated on a bundle identifier being present. The ring thumbnail is attached on the right of
-/// the banner, the app icon stays on the left.
+/// System notifications per `.ai/docs/design/ui/Alerts.dc.html`. `UNUserNotificationCenter` aborts the process outside
+/// an app bundle, so everything is gated on a bundle identifier being present. The ring thumbnail is attached on the
+/// right of the banner, the app icon stays on the left.
 @MainActor
 final class Notifier {
 
