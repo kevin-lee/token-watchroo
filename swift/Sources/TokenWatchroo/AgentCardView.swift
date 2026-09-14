@@ -23,6 +23,9 @@ final class AgentCardView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: AgentCardView.width, height: AgentCardView.height(for: agent)))
     }
 
+    /// The agent this card draws, used by `MenuBuilder` to match cards to agents and by tests.
+    var agentId: AgentId { agent.id }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
@@ -38,6 +41,8 @@ final class AgentCardView: NSView {
         return padding + headerHeight + blockGap + body + padding
     }
 
+    /// Swaps the model and redraws. The frame keeps the height from `init`, so `MenuBuilder` calls this only for the
+    /// same agent at the same `height(for:)`.
     func update(agent: AgentSnapshot, now: Date) {
         self.agent = agent
         self.now = now

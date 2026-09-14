@@ -69,6 +69,7 @@ lazy val providers = module("providers")
     libraryDependencies ++= List(
       libs.catsEffect.value,
       libs.extrasCats.value,
+      libs.osLib.value,
     ) ++ libs.tests.munit.value,
     nativeConfig ~= commonNativeConfig,
   )
@@ -96,6 +97,7 @@ lazy val app = module("app")
 
 lazy val stageNativeLib = taskKey[String]("Copy the Scala Native static library into swift/lib/")
 lazy val swiftBuild     = taskKey[String]("Build the Swift shell against the staged static library")
+lazy val swiftTest      = taskKey[Unit]("Run the Swift shell tests against the staged static library")
 lazy val bundleApp      = taskKey[String]("Assemble dist/Token Watchroo.app")
 lazy val runApp         = taskKey[Unit]("Assemble and open the app bundle")
 
@@ -128,6 +130,16 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     if (exit != 0) sys.error(s"swift build failed with exit code $exit") else ()
     IO.write(hashFile, newHash)
     executable.getAbsolutePath
+  },
+
+  swiftTest := Def.uncached {
+    val log      = streams.value.log
+    val swiftDir = baseDirectory.value / "swift"
+    val archive  = stageNativeLib.value
+    /* The tests never start the library, so SwiftPM not relinking after an archive change leaves them valid. */
+    log.info(s"Swift tests against $archive")
+    val exit     = Process(Seq("swift", "test"), swiftDir).!
+    if (exit != 0) sys.error(s"swift test failed with exit code $exit") else ()
   },
 
   bundleApp := Def.uncached {

@@ -19,6 +19,7 @@ object CodecsSpec extends Properties {
     example("alert state round-trips", testAlertState),
     example("config decodes the documented JSON", testConfig),
     example("envelopes carry version, type, seq and round-trip", testEnvelope),
+    example("an empty snapshot and an unavailable agent write agents and windows as empty arrays", testEmptyLists),
   )
 
   def testEpochRoundTrip: Property =
@@ -150,6 +151,25 @@ object CodecsSpec extends Properties {
         jsons.lift(1).exists(_.contains(""""usedPercent":82.0""")) ==== true,
         jsons.lift(2) ==== Some("""{"version":1,"type":"error","seq":44,"message":"boom"}"""),
         jsons.map(codecs.readEither[Envelope](_)) ==== envelopes.map(Right(_)),
+      )
+    )
+  }
+
+  def testEmptyLists: Result = {
+    val at          = EpochSeconds(1789185600L)
+    val empty       = codecs.write(Envelope.snapshot(SequenceNumber(1L), Snapshot.of(at, Nil)))
+    val unavailable = codecs.write(
+      Snapshot.of(
+        at,
+        List(
+          AgentSnapshot.unavailable(AgentId.Codex, at, ErrorMessage(NonEmptyString("Not signed in. Run codex once.")))
+        )
+      )
+    )
+    Result.all(
+      List(
+        empty.contains(""""agents":[]""") ==== true,
+        unavailable.contains(""""windows":[]""") ==== true,
       )
     )
   }

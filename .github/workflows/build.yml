@@ -45,6 +45,10 @@ jobs:
       - name: Bundle (ad-hoc)
         run: sbt bundleApp
 
+      # The Swift shell tests link the static library that bundleApp staged.
+      - name: Swift tests
+        run: sbt swiftTest
+
       - name: Verify bundle
         run: |
           set -euo pipefail

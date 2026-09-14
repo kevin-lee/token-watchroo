@@ -2,7 +2,7 @@
 import PackageDescription
 
 // The Scala Native static library must be staged first: `sbt stageNativeLib` copies it to lib/libtokenwatchroo.a.
-// `swift build` must run from this directory so the relative archive path resolves.
+// `swift build` and `swift test` must run from this directory so the relative archive path resolves.
 let package = Package(
     name: "TokenWatchroo",
     platforms: [.macOS(.v14)],
@@ -24,5 +24,6 @@ let package = Package(
                 .linkedFramework("ServiceManagement"),
             ]
         ),
+        .testTarget(name: "TokenWatchrooTests", dependencies: ["TokenWatchroo"], path: "Tests/TokenWatchrooTests"),
     ]
 )

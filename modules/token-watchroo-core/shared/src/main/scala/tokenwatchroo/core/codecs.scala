@@ -100,12 +100,14 @@ object codecs {
 
   given usageWindowCodec: JsonValueCodec[UsageWindow]     =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
+  /* Empty lists are written, not left out, because the shell requires `agents` and `windows` (issue #32). */
   given agentSnapshotCodec: JsonValueCodec[AgentSnapshot] =
-    JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
+    JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true).withTransientEmpty(false))
   given menubarStateCodec: JsonValueCodec[MenubarState]   =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
-  given snapshotCodec: JsonValueCodec[Snapshot] = JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
-  given alertPayloadCodec: JsonValueCodec[AlertPayload] =
+  given snapshotCodec: JsonValueCodec[Snapshot]           =
+    JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true).withTransientEmpty(false))
+  given alertPayloadCodec: JsonValueCodec[AlertPayload]   =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
 
   given alertCodec: JsonValueCodec[Alert] =

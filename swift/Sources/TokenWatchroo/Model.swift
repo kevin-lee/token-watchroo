@@ -116,6 +116,25 @@ struct AgentSnapshot: Decodable {
     var renderedWindows: [UsageWindow] { windows.filter { $0.id.isRendered } }
 }
 
+extension AgentSnapshot {
+
+    private enum CodingKeys: String, CodingKey {
+        case id, planLabel, status, windows, source, fetchedAt, error
+    }
+
+    /// A missing `windows` decodes as no windows, as for `Snapshot.agents`.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(AgentId.self, forKey: .id)
+        planLabel = try container.decodeIfPresent(String.self, forKey: .planLabel)
+        status = try container.decode(AgentStatus.self, forKey: .status)
+        windows = try container.decodeIfPresent([UsageWindow].self, forKey: .windows) ?? []
+        source = try container.decodeIfPresent(Source.self, forKey: .source)
+        fetchedAt = try container.decode(Int64.self, forKey: .fetchedAt)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
 struct MenubarState: Decodable {
     let kind: MenubarKind
     let usedPercent: Double?
@@ -126,6 +145,21 @@ struct Snapshot: Decodable {
     let updatedAt: Int64
     let agents: [AgentSnapshot]
     let menubar: MenubarState
+}
+
+extension Snapshot {
+
+    private enum CodingKeys: String, CodingKey {
+        case updatedAt, agents, menubar
+    }
+
+    /// A missing `agents` decodes as no agents, because libraries before issue #32 left an empty list out.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        updatedAt = try container.decode(Int64.self, forKey: .updatedAt)
+        agents = try container.decodeIfPresent([AgentSnapshot].self, forKey: .agents) ?? []
+        menubar = try container.decode(MenubarState.self, forKey: .menubar)
+    }
 }
 
 struct AlertPayload: Decodable {

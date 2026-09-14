@@ -91,6 +91,9 @@ sbt coreJvm/test
 sbt providers/test
 sbt app/test
 
+# Swift shell: XCTest against the staged static library
+sbt swiftTest
+
 # the static library only
 sbt app/nativeLink
 
@@ -105,6 +108,8 @@ scripts/generate-icons.sh
 ```
 
 Set `TW_NETWORK_TESTS=1` to include the libcurl smoke test against example.com.
+
+To test a sign-out without signing out of Claude Code or Codex, launch a local build with `TW_DEBUG_CLAUDE_SIGNED_OUT_FILE` set to an absolute file path. While that file holds `signed-out`, Claude Code reads as not signed in and the keychain is not read. For Codex, point `CODEX_HOME` at a folder without `auth.json`, for example `open --env TW_DEBUG_CLAUDE_SIGNED_OUT_FILE=/tmp/tw/claude --env CODEX_HOME=/tmp/tw/codex "dist/Token Watchroo.app"`.
 
 ## App icon
 
