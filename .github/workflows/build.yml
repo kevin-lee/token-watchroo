@@ -44,6 +44,13 @@ jobs:
       - name: Test
         run: sbt "coreJvm/test; providers/test; app/test"
 
+      # The Scala Native test runner names only the failed suite in the log. The JUnit reports name each test case.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: test-reports
+          path: target/out/**/test-reports/*.xml
+
       - name: Bundle (ad-hoc)
         run: sbt bundleApp
 
