@@ -21,11 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         core.snapshotHandler = { [weak controller] snapshot in controller?.apply(snapshot: snapshot) }
         core.alertHandler = { alert in Notifier.shared.post(alert) }
-        core.errorHandler = { message in NSLog("[token-watchroo] library error: %@", message) }
 
         let code = core.start(config: config)
         if code != 0 {
-            NSLog("[token-watchroo] tw_start failed with code %d, quitting", code)
+            Log.app.error("tw_start failed with code \(code), quitting")
             NSApp.terminate(nil)
             return
         }

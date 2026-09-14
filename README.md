@@ -111,6 +111,56 @@ Set `TW_NETWORK_TESTS=1` to include the libcurl smoke test against example.com.
 
 To test a sign-out without signing out of Claude Code or Codex, launch a local build with `TW_DEBUG_CLAUDE_SIGNED_OUT_FILE` set to an absolute file path. While that file holds `signed-out`, Claude Code reads as not signed in and the keychain is not read. For Codex, point `CODEX_HOME` at a folder without `auth.json`, for example `open --env TW_DEBUG_CLAUDE_SIGNED_OUT_FILE=/tmp/tw/claude --env CODEX_HOME=/tmp/tw/codex "dist/Token Watchroo.app"`.
 
+To test the logs without a real failure, set `TW_DEBUG_ENVELOPES_FILE` to an absolute file path: every refresh passes each line of that file to the shell as an envelope, so a broken or stale envelope is logged as dropped. While the file named by `TW_DEBUG_ENTRY_FAILURE_FILE` holds `fail`, a refresh fails inside the library and the failure is written to the log file.
+
+For example, with scratch files under `/tmp/tw`:
+
+```bash
+mkdir -p /tmp/tw/codex
+printf 'signed-out\n' > /tmp/tw/claude
+printf '%s\n' \
+  '{"version":1,"type":"snapshot","seq":1000000000,"data":{"updatedAt":1}}' \
+  '{"version":1,"type":"snapshot","seq":0,"data":{"updatedAt":1,"menubar":{"kind":"unavailable"}}}' \
+  > /tmp/tw/envelopes
+printf 'ok\n' > /tmp/tw/entry-failure
+
+open \
+  --env TW_DEBUG_CLAUDE_SIGNED_OUT_FILE=/tmp/tw/claude \
+  --env CODEX_HOME=/tmp/tw/codex \
+  --env TW_DEBUG_ENVELOPES_FILE=/tmp/tw/envelopes \
+  --env TW_DEBUG_ENTRY_FAILURE_FILE=/tmp/tw/entry-failure \
+  "dist/Token Watchroo.app"
+
+# Claude Code signs out and back in on the next refresh
+printf 'signed-out\n' > /tmp/tw/claude
+printf 'signed-in\n' > /tmp/tw/claude
+
+# the next "Refresh now" fails inside the library, then works again
+printf 'fail\n' > /tmp/tw/entry-failure
+printf 'ok\n' > /tmp/tw/entry-failure
+
+# stop injecting envelopes without deleting the file
+: > /tmp/tw/envelopes
+```
+
+With these files, every refresh logs an undecodable body (seq 1000000000) and a stale `seq` (seq 0) under the subsystem, as shown in [Logs](#logs).
+
+## Logs
+
+The app logs under the subsystem `io.kevinlee.tokenwatchroo`. In zsh `log` is a builtin, so spell out `/usr/bin/log`:
+
+```bash
+# the last hour
+/usr/bin/log show --last 1h --predicate 'subsystem == "io.kevinlee.tokenwatchroo"'
+
+# live
+/usr/bin/log stream --level info --predicate 'subsystem == "io.kevinlee.tokenwatchroo"'
+```
+
+Console shows the same lines when filtered by that subsystem.
+
+The bundled app, started with `open` or from Finder, also keeps its stderr in `~/Library/Logs/Token Watchroo/token-watchroo.log`, including the errors of the Scala Native library. At launch a file above 1 MiB is moved to `token-watchroo.log.1`. A build run from a terminal keeps stderr on the terminal.
+
 ## App icon
 
 The sources are the kangaroo artwork under `design/logo/`: `token-watchroo-logo.png` for the light appearance and `token-watchroo-logo-dark.png` for the dark one. `design/AppIcon.icon` is an Icon Composer package (it opens in Icon Composer from Xcode 26) that uses both PNGs as one layer specialised per appearance. `scripts/generate-icons.sh` resizes the sources into the package and compiles it with actool into `assets/Assets.car` and `assets/AppIcon.icns`. Both files are committed and `sbt bundleApp` only copies them into the bundle, so a normal build needs no Xcode. On macOS 26 the dark kangaroo appears when System Settings > Appearance > "Icon & widget style" is set to Dark (or to Automatic, at night). With the Default style the light kangaroo stays even in Dark Mode, which is how macOS 26 treats every app icon. macOS 14 and 15 always show the light one from the `.icns`.

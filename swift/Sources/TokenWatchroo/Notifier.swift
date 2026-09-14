@@ -19,9 +19,9 @@ final class Notifier {
         authorizationRequested = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
-                NSLog("[token-watchroo] notification authorization failed: %@", error.localizedDescription)
+                Log.notifications.error("notification authorization failed: \(error.localizedDescription)")
             } else if !granted {
-                NSLog("[token-watchroo] notifications not granted")
+                Log.notifications.notice("notifications not granted")
             }
         }
     }
@@ -29,7 +29,7 @@ final class Notifier {
     /// The identifier comes from the library, so macOS replaces a pending notification with the same identifier.
     func post(_ alert: AlertPayload) {
         guard available else {
-            NSLog("[token-watchroo] alert (no bundle, not shown): %@ - %@", alert.title, alert.body)
+            Log.notifications.notice("alert (no bundle, not shown): \(alert.title) - \(alert.body)")
             return
         }
         let content = UNMutableNotificationContent()
@@ -42,7 +42,7 @@ final class Notifier {
         let request = UNNotificationRequest(identifier: alert.identifier, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
-                NSLog("[token-watchroo] notification failed: %@", error.localizedDescription)
+                Log.notifications.error("notification failed: \(error.localizedDescription)")
             }
         }
     }

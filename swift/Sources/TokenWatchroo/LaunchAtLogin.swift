@@ -20,7 +20,7 @@ enum LaunchAtLogin {
                 try SMAppService.mainApp.register()
             }
         } catch {
-            NSLog("[token-watchroo] launch at login change failed: %@", error.localizedDescription)
+            Log.launch.error("launch at login change failed: \(error.localizedDescription)")
         }
     }
 }
