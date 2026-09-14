@@ -17,6 +17,8 @@ permissions:
 jobs:
   build:
     runs-on: macos-26
+    # A passing build takes about 5 minutes. Without a limit a hung test holds the runner for the 6-hour default.
+    timeout-minutes: 20
     steps:
       # sbt-dynver derives the version from the nearest tag, so the full history is needed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -11,6 +11,11 @@ import tokenwatchroo.providers.UsageProvider
 
 class PollerSpec extends munit.FunSuite {
 
+  /** Fails a hung test by name instead of blocking the run. `timeoutAndForget` does not wait for an uninterruptible
+    * `IO.blocking` to finish, which `timeout` would.
+    */
+  private val TestTimeout = 30.seconds
+
   private val now      = EpochSeconds(1789185600L)
   private val resetsAt = EpochSeconds(1789189920L)
   private val config   =
@@ -124,7 +129,7 @@ class PollerSpec extends munit.FunSuite {
                    Poller.tick(config, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
              }
       all <- ref.get
-    } yield all).unsafeRunSync()
+    } yield all).timeoutAndForget(TestTimeout).unsafeRunSync()
 
   test("one tick emits one snapshot for the detected providers, then the alerts, and the second tick only a snapshot") {
     val program         =
@@ -136,7 +141,7 @@ class PollerSpec extends munit.FunSuite {
         _      <- Poller.tick(config, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
         second <- ref.get
       } yield (first, second)
-    val (first, second) = program.unsafeRunSync()
+    val (first, second) = program.timeoutAndForget(TestTimeout).unsafeRunSync()
     assertEquals(first.map(_.wire), List("snapshot", "alert"))
     assertEquals(snapshots(first).flatMap(_.agents.map(_.id)), List(AgentId.ClaudeCode, AgentId.Codex))
     assertEquals(snapshots(first).map(_.menubar.kind), List(MenubarKind.Warning))
@@ -167,7 +172,7 @@ class PollerSpec extends munit.FunSuite {
         all   <- ref.get
         seen  <- triggers.get
       } yield (all, seen)
-    val (all, seen) = program.unsafeRunSync()
+    val (all, seen) = program.timeoutAndForget(TestTimeout).unsafeRunSync()
     assertEquals(snapshots(all).size, 2)
     assertEquals(alerts(all), Nil)
     assertEquals(seen, List(FetchTrigger.Scheduled, FetchTrigger.Manual))
@@ -203,7 +208,7 @@ class PollerSpec extends munit.FunSuite {
                                 .traverse_(_ => Poller.tick(config, List(gcHeavy), sink, store, IO.pure(now), FetchTrigger.Scheduled))
         all                <- ref.get
       } yield all
-    val all                    = program.unsafeRunSync()
+    val all                    = program.timeoutAndForget(TestTimeout).unsafeRunSync()
     assertEquals(snapshots(all).size, 5)
     assertEquals(alerts(all).map(_.kind), List(AlertKind.Critical95))
   }
@@ -220,7 +225,7 @@ class PollerSpec extends munit.FunSuite {
         _   <- Poller.tick(config, List(claudeAt(10.0d)), sink, broken, IO.pure(now), FetchTrigger.Scheduled)
         all <- ref.get
       } yield all
-    val all                = program.unsafeRunSync()
+    val all                = program.timeoutAndForget(TestTimeout).unsafeRunSync()
     assertEquals(all.map(_.wire), List("error"))
     assert(all.collect { case Envelope.Error(_, message) => message }.exists(_.contains("disk gone")))
   }
