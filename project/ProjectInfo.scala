@@ -39,6 +39,7 @@ object ProjectInfo {
     val ExtrasVersion        = "0.56.0"
     val JustSemVerVersion    = "1.3.0"
     val JsoniterScalaVersion = "2.40.1"
+    val OsLibVersion         = "0.11.8"
 
     val HedgehogVersion      = "0.14.0"
     val HedgehogExtraVersion = "0.24.0"
@@ -67,6 +68,8 @@ object ProjectInfo {
       Def.setting(
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % props.JsoniterScalaVersion % Provided
       )
+
+    lazy val osLib = Def.setting("com.lihaoyi" %% "os-lib" % props.OsLibVersion)
 
     object tests {
 

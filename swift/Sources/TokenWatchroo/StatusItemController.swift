@@ -1,7 +1,8 @@
 import AppKit
 
-/// Owns the `NSStatusItem`: ring image, label, and the menu. Rebuilds the menu on every snapshot (deferred while it
-/// is open), refreshes when the menu opens on a stale snapshot, and keeps the exhausted countdown label current.
+/// Owns the `NSStatusItem`: ring image, label, and the menu. Rebuilds the menu on every snapshot while it is closed.
+/// While it is open the builder keeps the cards in step with each snapshot, and the menu is rebuilt once more when it
+/// closes. Refreshes when the menu opens on a stale snapshot, and keeps the exhausted countdown label current.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
 
@@ -101,6 +102,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
     }
+
+    // MARK: test access
+
+    /// The installed menu, for tests.
+    var statusMenu: NSMenu? { item.menu }
+
+    /// The menubar label text, for tests.
+    var menubarLabel: String { item.button?.attributedTitle.string ?? "" }
 
     // MARK: actions
 

@@ -32,6 +32,21 @@ class PollerSpec extends munit.FunSuite {
       fetchResult(now, trigger)
   }
 
+  /** A provider whose detection a test flips between ticks. A fetch while not detected fails the tick. */
+  final private class Switchable(agent: AgentId, detection: Ref[IO, Detection], percent: Double) extends UsageProvider {
+    override def id: AgentId                                                                        = agent
+    override def detect(config: Config): IO[Detection]                                              = detection.get
+    override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
+      detection.get.flatMap {
+        case Detection.Detected =>
+          IO.pure(
+            AgentSnapshot.available(agent, none[PlanLabel], List(window(percent)), Source.Api, now, none[ErrorMessage])
+          )
+        case Detection.NotDetected =>
+          IO.raiseError(new IllegalStateException(s"${agent.displayName} must not be fetched"))
+      }
+  }
+
   final private class RecordingSink(ref: Ref[IO, List[Envelope]]) extends EnvelopeSink {
     override def emit(build: SequenceNumber => Envelope): IO[Unit] =
       ref.update(envelopes => envelopes :+ build(SequenceNumber(envelopes.size.toLong + 1L)))
@@ -81,6 +96,21 @@ class PollerSpec extends munit.FunSuite {
 
   private def alerts(envelopes: List[Envelope]): List[Alert] =
     envelopes.collect { case Envelope.Alert(_, data) => data }
+
+  /** Sets Claude Code and Codex detection before each tick and returns every envelope. */
+  private def ticks(steps: List[(Detection, Detection)]): List[Envelope] =
+    (for {
+      (ref, sink, store) <- setup
+      claude             <- Ref.of[IO, Detection](Detection.Detected)
+      codex              <- Ref.of[IO, Detection](Detection.Detected)
+      providers = List(new Switchable(AgentId.ClaudeCode, claude, 10.0d), new Switchable(AgentId.Codex, codex, 40.0d))
+      _   <- steps.traverse_ {
+               case (claudeDetection, codexDetection) =>
+                 claude.set(claudeDetection) >> codex.set(codexDetection) >>
+                   Poller.tick(config, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
+             }
+      all <- ref.get
+    } yield all).unsafeRunSync()
 
   test("one tick emits one snapshot for the detected providers, then the alerts, and the second tick only a snapshot") {
     val program         =
@@ -172,5 +202,48 @@ class PollerSpec extends munit.FunSuite {
     val all                = program.unsafeRunSync()
     assertEquals(all.map(_.wire), List("error"))
     assert(all.collect { case Envelope.Error(_, message) => message }.exists(_.contains("disk gone")))
+  }
+
+  test("an agent that is no longer detected drops out of the next snapshot, whichever one signs out") {
+    val all = ticks(
+      List(
+        (Detection.Detected, Detection.Detected),
+        (Detection.NotDetected, Detection.Detected),
+        (Detection.Detected, Detection.Detected),
+        (Detection.Detected, Detection.NotDetected),
+      )
+    )
+    assertEquals(all.map(_.wire), List.fill(4)("snapshot"))
+    assertEquals(
+      snapshots(all).map(_.agents.map(_.id)),
+      List(
+        List(AgentId.ClaudeCode, AgentId.Codex),
+        List(AgentId.Codex),
+        List(AgentId.ClaudeCode, AgentId.Codex),
+        List(AgentId.ClaudeCode),
+      ),
+    )
+  }
+
+  test(
+    "with no agent detected the snapshot is empty with an unavailable menubar, and agents that sign in again come back"
+  ) {
+    val all = ticks(
+      List(
+        (Detection.Detected, Detection.Detected),
+        (Detection.NotDetected, Detection.NotDetected),
+        (Detection.NotDetected, Detection.Detected),
+        (Detection.Detected, Detection.Detected),
+      )
+    )
+    assertEquals(all.map(_.wire), List.fill(4)("snapshot"))
+    assertEquals(
+      snapshots(all).map(_.agents.map(_.id)),
+      List(List(AgentId.ClaudeCode, AgentId.Codex), Nil, List(AgentId.Codex), List(AgentId.ClaudeCode, AgentId.Codex)),
+    )
+    assertEquals(
+      snapshots(all).map(_.menubar.kind),
+      List(MenubarKind.Normal, MenubarKind.Unavailable, MenubarKind.Normal, MenubarKind.Normal),
+    )
   }
 }
