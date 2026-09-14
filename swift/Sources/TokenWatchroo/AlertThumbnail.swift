@@ -23,7 +23,7 @@ enum AlertThumbnail {
                 options: [UNNotificationAttachmentOptionsTypeHintKey: "public.png"]
             )
         } catch {
-            NSLog("[token-watchroo] alert thumbnail failed: %@", error.localizedDescription)
+            Log.notifications.error("alert thumbnail failed: \(error.localizedDescription)")
             return nil
         }
     }

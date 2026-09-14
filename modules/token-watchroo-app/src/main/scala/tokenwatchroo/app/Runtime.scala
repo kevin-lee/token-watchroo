@@ -9,7 +9,7 @@ import scala.concurrent.duration.*
 import scala.scalanative.unsafe.*
 import tokenwatchroo.core.*
 import tokenwatchroo.core.codecs.given
-import tokenwatchroo.providers.{CurlHttp, Providers}
+import tokenwatchroo.providers.{CurlHttp, Env, Providers}
 
 /** The running library: the cats-effect runtime, the command queue, and the runtime shutdown thunk. */
 final class Started(val runtime: IORuntime, val queue: Queue[IO, Command], val shutdownRuntime: () => Unit)
@@ -24,6 +24,8 @@ object AppRuntime {
   private val ComputeThreads = 2
 
   private val clock: IO[EpochSeconds] = IO.realTime.map(d => EpochSeconds(d.toSeconds))
+
+  private val entryFailureFile: Option[os.Path] = SimulatedEntryFailure.flagFile(Env.system)
 
   def start(configJson: String, callback: CFuncPtr2[CString, Ptr[Byte], Unit], ctx: Ptr[Byte]): Int =
     if (Thread.currentThread().threadId() =!= 0L) Entry.WrongThread
@@ -49,7 +51,10 @@ object AppRuntime {
           Entry.Ok
       }
 
-  def refresh(): Int = offer(Command.refresh)
+  def refresh(): Int = {
+    SimulatedEntryFailure.check(entryFailureFile)
+    offer(Command.refresh)
+  }
 
   def setConfig(configJson: String): Int =
     codecs.readEither[Config](configJson) match {
