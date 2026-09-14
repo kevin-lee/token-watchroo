@@ -2,7 +2,8 @@ import AppKit
 
 /// The per-agent card from `.ai/docs/design/ui/Main.dc.html`, drawn directly: 328 wide, corner radius 10, half-point
 /// border, 12 pt padding, name, plan badge, status pill, and one row plus bar per window. Per-model rows follow
-/// Weekly in the order received.
+/// Weekly in the order received. A spend limit (issue #33) is one more row after the windows, and a spend-only agent
+/// has only that row.
 final class AgentCardView: NSView {
 
     static let width: CGFloat = 328
@@ -34,8 +35,8 @@ final class AgentCardView: NSView {
         if agent.status == .unavailable {
             body = noteHeight * 2
         } else {
-            let windows = CGFloat(max(agent.renderedWindows.count, 1))
-            body = windows * (rowHeight + rowGap + barHeight) + (windows - 1) * blockGap
+            let rows = CGFloat(max(agent.renderedWindows.count + (agent.spend == nil ? 0 : 1), 1))
+            body = rows * (rowHeight + rowGap + barHeight) + (rows - 1) * blockGap
                 + (agent.source == .localLog || agent.error != nil ? rowGap + noteHeight : 0)
         }
         return padding + headerHeight + blockGap + body + padding
@@ -74,6 +75,12 @@ final class AgentCardView: NSView {
         for (index, window) in agent.renderedWindows.enumerated() {
             if index > 0 { y += AgentCardView.blockGap }
             drawWindow(window, at: y)
+            y += AgentCardView.rowHeight + AgentCardView.rowGap + AgentCardView.barHeight
+        }
+
+        if let spend = agent.spend {
+            if !agent.renderedWindows.isEmpty { y += AgentCardView.blockGap }
+            drawSpend(spend, at: y)
             y += AgentCardView.rowHeight + AgentCardView.rowGap + AgentCardView.barHeight
         }
 
@@ -143,14 +150,45 @@ final class AgentCardView: NSView {
         }
         right.draw(at: NSPoint(x: bounds.width - p - right.size().width, y: y))
 
-        let barY = y + AgentCardView.rowHeight + AgentCardView.rowGap
+        drawBar(percent: window.usedPercent, normalFill: window.id == .session ? Palette.sessionFill : Palette.weeklyFill,
+                at: y + AgentCardView.rowHeight + AgentCardView.rowGap)
+    }
+
+    /// "$0.05 of $200.00 spent" on the left, the percent and the reset date on the right, then the bar. The right text is
+    /// measured first, and the left text is truncated to keep an 8 pt gap before it.
+    private func drawSpend(_ spend: Spend, at y: CGFloat) {
+        let p = AgentCardView.padding
+        let right = NSMutableAttributedString(string: Formatting.percent(spend.usedPercent), attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: Palette.percentText(for: spend.usedPercent),
+        ])
+        if let resetsAt = spend.resetsAt {
+            right.append(NSAttributedString(string: " · \(Formatting.resetsOn(epoch: resetsAt))", attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: Palette.secondaryText,
+            ]))
+        }
+        right.draw(at: NSPoint(x: bounds.width - p - right.size().width, y: y))
+
+        let left = NSAttributedString(string: Formatting.spendSummary(spend), attributes: [
+            .font: NSFont.systemFont(ofSize: 12), .foregroundColor: Palette.primaryText,
+        ])
+        let leftWidth = bounds.width - 2 * p - right.size().width - 8
+        left.draw(with: NSRect(x: p, y: y, width: leftWidth, height: AgentCardView.rowHeight),
+                  options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+
+        drawBar(percent: spend.usedPercent, normalFill: Palette.sessionFill, at: y + AgentCardView.rowHeight + AgentCardView.rowGap)
+    }
+
+    private func drawBar(percent: Double, normalFill: NSColor, at barY: CGFloat) {
+        let p = AgentCardView.padding
         let track = NSRect(x: p, y: barY, width: bounds.width - 2 * p, height: AgentCardView.barHeight)
         Palette.barTrack.setFill()
         NSBezierPath(roundedRect: track, xRadius: 3, yRadius: 3).fill()
-        let fraction = min(max(window.usedPercent / 100, 0), 1)
+        let fraction = min(max(percent / 100, 0), 1)
         if fraction > 0 {
             let fill = NSRect(x: track.minX, y: barY, width: track.width * fraction, height: AgentCardView.barHeight)
-            Palette.barFill(for: window).setFill()
+            Palette.barFill(percent: percent, normal: normalFill).setFill()
             NSBezierPath(roundedRect: fill, xRadius: 3, yRadius: 3).fill()
         }
     }
@@ -223,8 +261,12 @@ enum Palette {
     }
 
     static func barFill(for window: UsageWindow) -> NSColor {
-        if window.usedPercent >= 95 { return red }
-        if window.usedPercent >= 80 { return amber }
-        return window.id == .session ? sessionFill : weeklyFill
+        barFill(percent: window.usedPercent, normal: window.id == .session ? sessionFill : weeklyFill)
+    }
+
+    static func barFill(percent: Double, normal: NSColor) -> NSColor {
+        if percent >= 95 { return red }
+        if percent >= 80 { return amber }
+        return normal
     }
 }

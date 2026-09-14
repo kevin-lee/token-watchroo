@@ -12,6 +12,9 @@ object AgentStatusSpec extends Properties {
     example("thresholds", testThresholds),
     example("no windows is unavailable", testEmpty),
     property("per-model windows count towards the status", testPerModel),
+    example("spend thresholds", testSpendThresholds),
+    example("no windows and no spend is unavailable", testNoWindowsNoSpend),
+    property("status over windows and spend equals the status over the maximum percent", testWindowsAndSpend),
   )
 
   private val now = EpochSeconds(1789185600L)
@@ -24,19 +27,21 @@ object AgentStatusSpec extends Properties {
     case AgentStatus.Exhausted => 3
   }
 
+  private def ofWindows(windows: List[UsageWindow]): AgentStatus = AgentStatus.of(windows, none[Spend])
+
   def testMonotonic: Property =
     for {
       a <- Fixtures.genPercent.log("a")
       b <- Fixtures.genPercent.log("b")
     } yield {
       val (lo, hi) = if (a <= b) (a, b) else (b, a)
-      val statusLo = AgentStatus.of(List(Fixtures.window(WindowId.Session, lo.value, now.some)))
-      val statusHi = AgentStatus.of(List(Fixtures.window(WindowId.Session, hi.value, now.some)))
+      val statusLo = ofWindows(List(Fixtures.window(WindowId.Session, lo.value, now.some)))
+      val statusHi = ofWindows(List(Fixtures.window(WindowId.Session, hi.value, now.some)))
       Result.assert(rank(statusLo) <= rank(statusHi)).log(s"lo=$lo hi=$hi statusLo=$statusLo statusHi=$statusHi")
     }
 
   def testThresholds: Result = {
-    def at(p: Double): AgentStatus = AgentStatus.of(List(Fixtures.window(WindowId.Session, p, now.some)))
+    def at(p: Double): AgentStatus = ofWindows(List(Fixtures.window(WindowId.Session, p, now.some)))
     Result.all(
       List(
         at(79.9d) ==== AgentStatus.Ok,
@@ -45,14 +50,14 @@ object AgentStatusSpec extends Properties {
         at(95.0d) ==== AgentStatus.Critical,
         at(99.9d) ==== AgentStatus.Critical,
         at(100.0d) ==== AgentStatus.Exhausted,
-        AgentStatus.of(
+        ofWindows(
           List(Fixtures.window(WindowId.Session, 10.0d, now.some), Fixtures.window(WindowId.Weekly, 96.0d, now.some))
         ) ==== AgentStatus.Critical,
       )
     )
   }
 
-  def testEmpty: Result = AgentStatus.of(Nil) ==== AgentStatus.Unavailable
+  def testEmpty: Result = ofWindows(Nil) ==== AgentStatus.Unavailable
 
   def testPerModel: Property =
     for {
@@ -68,6 +73,42 @@ object AgentStatusSpec extends Properties {
         Fixtures.window(opus, b.value, now.some),
       )
       val max     = if (a >= b) a else b
-      AgentStatus.of(windows) ==== AgentStatus.of(List(Fixtures.window(WindowId.Session, max.value, now.some)))
+      ofWindows(windows) ==== ofWindows(List(Fixtures.window(WindowId.Session, max.value, now.some)))
+    }
+
+  def testSpendThresholds: Result = {
+    def spendOf(spent: String, limit: String): AgentStatus =
+      AgentStatus.of(
+        Nil,
+        Spend(
+          Currency.iso(CurrencyCode.unsafeFrom("USD")),
+          Fixtures.amount(spent),
+          Fixtures.amount(limit),
+          none[EpochSeconds],
+        ).some,
+      )
+    Result.all(
+      List(
+        spendOf("0.05", "200.00") ==== AgentStatus.Ok,
+        spendOf("160", "200") ==== AgentStatus.Warning,
+        spendOf("190", "200") ==== AgentStatus.Critical,
+        spendOf("200", "200") ==== AgentStatus.Exhausted,
+        spendOf("0", "0") ==== AgentStatus.Exhausted,
+      )
+    )
+  }
+
+  def testNoWindowsNoSpend: Result = AgentStatus.of(Nil, none[Spend]) ==== AgentStatus.Unavailable
+
+  def testWindowsAndSpend: Property =
+    for {
+      windows <- Fixtures.genAgentWindows.log("windows")
+      spend   <- Fixtures.genSpend.option.log("spend")
+    } yield {
+      val percents = windows.map(_.usedPercent) ++ spend.map(_.usedPercent).toList
+      val expected = percents
+        .maxOption(using cats.Order[UsedPercent].toOrdering)
+        .fold(AgentStatus.unavailable)(max => ofWindows(List(Fixtures.window(WindowId.Session, max.value, now.some))))
+      AgentStatus.of(windows, spend) ==== expected
     }
 }

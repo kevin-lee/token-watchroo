@@ -1,5 +1,6 @@
 package tokenwatchroo.core
 
+import cats.syntax.all.*
 import hedgehog.*
 import hedgehog.runner.*
 
@@ -13,7 +14,41 @@ object Iso8601Spec extends Properties {
     example("fractional seconds are ignored", testFractionalSeconds),
     example("known instants", testKnownInstants),
     example("garbage is rejected", testGarbage),
+    property(
+      "start of next UTC month is after now, at most 31 days later, and on day 1 at midnight",
+      testStartOfNextUtcMonth,
+    ),
+    example("start of next UTC month for known instants", testStartOfNextUtcMonthKnown),
   )
+
+  def testStartOfNextUtcMonth: Property =
+    for {
+      epoch <- Fixtures.genEpoch.log("epoch")
+    } yield {
+      val next = Iso8601.startOfNextUtcMonth(epoch)
+      Result.all(
+        List(
+          Result.assert(next > epoch).log(s"next=$next"),
+          Result.assert(epoch.secondsUntil(next) <= 31L * 86400L).log(s"next=$next"),
+          Result.assert(Iso8601.format(next).endsWith("-01T00:00:00Z")).log(Iso8601.format(next)),
+        )
+      )
+    }
+
+  def testStartOfNextUtcMonthKnown: Result = {
+    def next(s: String): Either[Iso8601Error, String] =
+      Iso8601.parseToEpochSeconds(s).map(epoch => Iso8601.format(Iso8601.startOfNextUtcMonth(epoch)))
+    Result.all(
+      List(
+        Iso8601.parseToEpochSeconds("2026-09-14T06:29:07Z").map(Iso8601.startOfNextUtcMonth) ==== Right(
+          EpochSeconds(1790812800L)
+        ),
+        next("2026-10-01T00:00:00Z") ==== Right("2026-11-01T00:00:00Z"),
+        next("2026-12-31T23:59:59Z") ==== Right("2027-01-01T00:00:00Z"),
+        next("2028-02-29T12:00:00Z") ==== Right("2028-03-01T00:00:00Z"),
+      )
+    )
+  }
 
   def testRoundTrip: Property =
     for {

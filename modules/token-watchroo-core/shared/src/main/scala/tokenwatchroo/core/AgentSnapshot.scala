@@ -9,6 +9,7 @@ final case class AgentSnapshot(
   planLabel: Option[PlanLabel],
   status: AgentStatus,
   windows: List[UsageWindow],
+  spend: Option[Spend],
   source: Option[Source],
   fetchedAt: EpochSeconds,
   error: Option[ErrorMessage],
@@ -18,22 +19,31 @@ final case class AgentSnapshot(
 
 object AgentSnapshot {
 
-  /** A readable agent. `status` is derived from the windows. `error` carries a non-fatal note, such as the API error
-    * when the local-log fallback was used.
+  /** A readable agent. `status` is derived from the windows and the spend. `error` carries a non-fatal note, such as
+    * the API error when the local-log fallback was used.
     */
   def available(
     id: AgentId,
     planLabel: Option[PlanLabel],
-    windows: List[UsageWindow],
+    meters: UsageMeters,
     source: Source,
     fetchedAt: EpochSeconds,
     error: Option[ErrorMessage],
   ): AgentSnapshot =
-    AgentSnapshot(id, planLabel, AgentStatus.of(windows), windows, source.some, fetchedAt, error)
+    AgentSnapshot(
+      id,
+      planLabel,
+      AgentStatus.of(meters.windows, meters.spend),
+      meters.windows,
+      meters.spend,
+      source.some,
+      fetchedAt,
+      error,
+    )
 
-  /** An agent that could not be read. It carries no windows, so it can never look like 0% usage. */
+  /** An agent that could not be read. It carries no windows and no spend, so it can never look like 0% usage. */
   def unavailable(id: AgentId, fetchedAt: EpochSeconds, error: ErrorMessage): AgentSnapshot =
-    AgentSnapshot(id, none[PlanLabel], AgentStatus.Unavailable, Nil, none[Source], fetchedAt, error.some)
+    AgentSnapshot(id, none[PlanLabel], AgentStatus.Unavailable, Nil, none[Spend], none[Source], fetchedAt, error.some)
 
   extension (snapshot: AgentSnapshot) {
     def isAvailable: Boolean = snapshot.status match {

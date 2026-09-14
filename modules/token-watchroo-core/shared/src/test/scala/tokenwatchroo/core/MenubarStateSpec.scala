@@ -13,9 +13,49 @@ object MenubarStateSpec extends Properties {
     example("unavailable agents are ignored", testUnavailableIgnored),
     example("no available agent gives the unavailable state", testNoAgents),
     example("an exhausted per-model window drives the ring", testExhaustedPerModel),
+    property("the ring shows the maximum over windows and spends of available agents", testMaximumWithSpends),
+    example("an exhausted spend drives the ring and carries its reset", testExhaustedSpend),
   )
 
   private val now = EpochSeconds(1789185600L)
+
+  def testMaximumWithSpends: Property =
+    for {
+      claude      <- Fixtures.genAgentWindows.log("claude")
+      claudeSpend <- Fixtures.genSpend.option.log("claudeSpend")
+      codexSpend  <- Fixtures.genSpend.log("codexSpend")
+    } yield {
+      val agents   = List(
+        AgentSnapshot.available(
+          AgentId.ClaudeCode,
+          none[PlanLabel],
+          UsageMeters(claude, claudeSpend),
+          Source.Api,
+          now,
+          none[ErrorMessage],
+        ),
+        Fixtures.withSpend(AgentId.Codex, now, codexSpend),
+      )
+      val percents = claude.map(_.usedPercent) ++ claudeSpend.map(_.usedPercent).toList :+ codexSpend.usedPercent
+      MenubarState.derive(agents).usedPercent ==== percents.maxOption(using cats.Order[UsedPercent].toOrdering)
+    }
+
+  def testExhaustedSpend: Result = {
+    val spend   =
+      Spend(Currency.credits, Fixtures.amount("25000"), Fixtures.amount("25000"), EpochSeconds(1790812800L).some)
+    val agents  = List(
+      Fixtures.available(AgentId.ClaudeCode, now, Fixtures.window(WindowId.Session, 40.0d, now.some)),
+      Fixtures.withSpend(AgentId.Codex, now, spend),
+    )
+    val derived = MenubarState.derive(agents)
+    Result.all(
+      List(
+        derived.kind ==== MenubarKind.Exhausted,
+        derived.usedPercent ==== Some(UsedPercent.clamp(100.0d)),
+        derived.resetsAt ==== Some(EpochSeconds(1790812800L)),
+      )
+    )
+  }
 
   def testMaximum: Property =
     for {

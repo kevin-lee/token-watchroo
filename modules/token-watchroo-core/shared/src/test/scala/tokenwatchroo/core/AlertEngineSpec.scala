@@ -18,7 +18,15 @@ object AlertEngineSpec extends Properties {
     example("an unavailable snapshot in between does not reset", testUnavailableInBetween),
     example("records older than 8 days are pruned", testPrune),
     example("per-model windows alert with their own copy and identifier", testPerModelCopy),
+    example("a spend-only agent emits no alerts and keeps no records", testSpendOnly),
   )
+
+  def testSpendOnly: Result = {
+    val spend           = Spend(Currency.credits, Fixtures.amount("24000"), Fixtures.amount("25000"), resetsAt.some)
+    val snapshot        = Fixtures.snapshot(now, Fixtures.withSpend(AgentId.Codex, now, spend))
+    val (state, alerts) = AlertEngine.step(AlertState.empty, snapshot, now)
+    Result.all(List(alerts ==== Nil, state ==== AlertState.empty))
+  }
 
   private val now      = EpochSeconds(1789185600L)
   private val resetsAt = EpochSeconds(1789189920L)

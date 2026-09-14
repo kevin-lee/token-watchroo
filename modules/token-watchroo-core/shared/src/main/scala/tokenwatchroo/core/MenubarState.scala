@@ -52,22 +52,26 @@ object MenubarState {
 
   val unavailable: MenubarState = MenubarState(MenubarKind.Unavailable, none[UsedPercent], none[EpochSeconds])
 
-  /** The ring shows the highest usage across the available agents. An exhausted window wins and carries the soonest
-    * reset among exhausted windows.
+  /** The ring shows the highest usage across the windows and spends of the available agents. An exhausted window or
+    * spend wins and carries the soonest reset among the exhausted ones.
     */
   def derive(agents: List[AgentSnapshot]): MenubarState = {
-    val windows = agents.filter(_.isAvailable).flatMap(_.windows)
-    windows match {
+    val available = agents.filter(_.isAvailable)
+    val windows   = available.flatMap(_.windows)
+    val spends    = available.flatMap(_.spend.toList)
+    (windows.map(_.usedPercent) ++ spends.map(_.usedPercent)) match {
       case Nil => unavailable
       case first :: rest =>
-        val maxPercent = rest.foldLeft(first.usedPercent)((acc, w) => if (w.usedPercent > acc) w.usedPercent else acc)
-        val exhaustedResets = windows.filter(_.isExhausted).flatMap(_.resetsAt)
+        val maxPercent      = rest.foldLeft(first)((acc, p) => if (p > acc) p else acc)
+        val anyExhausted    = windows.exists(_.isExhausted) || spends.exists(_.isExhausted)
+        val exhaustedResets =
+          windows.filter(_.isExhausted).flatMap(_.resetsAt) ++ spends.filter(_.isExhausted).flatMap(_.resetsAt)
         exhaustedResets match {
           case soonest :: others =>
             val earliest = others.foldLeft(soonest)((acc, r) => if (r < acc) r else acc)
             MenubarState(MenubarKind.Exhausted, maxPercent.some, earliest.some)
           case Nil =>
-            if (windows.exists(_.isExhausted)) MenubarState(MenubarKind.Exhausted, maxPercent.some, none[EpochSeconds])
+            if (anyExhausted) MenubarState(MenubarKind.Exhausted, maxPercent.some, none[EpochSeconds])
             else if (maxPercent >= Thresholds.critical)
               MenubarState(MenubarKind.Critical, maxPercent.some, none[EpochSeconds])
             else if (maxPercent >= Thresholds.warning)

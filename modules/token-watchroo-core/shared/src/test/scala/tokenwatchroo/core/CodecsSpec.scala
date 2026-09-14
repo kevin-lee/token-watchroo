@@ -20,7 +20,70 @@ object CodecsSpec extends Properties {
     example("config decodes the documented JSON", testConfig),
     example("envelopes carry version, type, seq and round-trip", testEnvelope),
     example("an empty snapshot and an unavailable agent write agents and windows as empty arrays", testEmptyLists),
+    property("spend round-trips with string amounts and a used percent", testSpendRoundTrip),
+    example("amounts write plain decimals and reject negatives and non-numbers", testAmounts),
+    example("currency encodes as the code or credits and rejects lower-case codes", testCurrency),
+    example("an agent without spend leaves spend out of the JSON", testSpendOmitted),
   )
+
+  def testSpendRoundTrip: Property =
+    for {
+      spend <- Fixtures.genSpend.log("spend")
+    } yield {
+      val json = codecs.write(spend)
+      Result.all(
+        List(
+          codecs.readEither[Spend](json) ==== Right(spend),
+          json.contains(s""""spent":"${spend.spent.plainString}"""") ==== true,
+          json.contains(s""""limit":"${spend.limit.plainString}"""") ==== true,
+          json.contains(""""usedPercent":""") ==== true,
+        )
+      )
+    }
+
+  def testAmounts: Result =
+    Result.all(
+      List(
+        codecs.readEither[Amount](""""0.05"""") ==== Right(Fixtures.amount("0.05")),
+        codecs.readEither[Amount](""""-1"""").isLeft ==== true,
+        codecs.readEither[Amount](""""abc"""").isLeft ==== true,
+        Amount.fromMinorUnits(20000L, 2).map(codecs.write(_)) ==== Right(""""200.00""""),
+        Amount.fromMinorUnits(5L, 2).map(codecs.write(_)) ==== Right(""""0.05""""),
+        Amount.fromMinorUnits(5L, 19).isLeft ==== true,
+      )
+    )
+
+  def testCurrency: Result =
+    Result.all(
+      List(
+        codecs.write(Currency.iso(CurrencyCode.unsafeFrom("USD"))) ==== "\"USD\"",
+        codecs.write(Currency.credits) ==== "\"credits\"",
+        codecs.readEither[Currency]("\"EUR\"") ==== Right(Currency.iso(CurrencyCode.unsafeFrom("EUR"))),
+        codecs.readEither[Currency]("\"credits\"") ==== Right(Currency.credits),
+        codecs.readEither[Currency]("\"usd\"").isLeft ==== true,
+        codecs.readEither[Currency]("\"USDT\"").isLeft ==== true,
+      )
+    )
+
+  def testSpendOmitted: Result = {
+    val at = EpochSeconds(1789185600L)
+    Result.all(
+      List(
+        codecs
+          .write(Fixtures.available(AgentId.Codex, at, Fixtures.window(WindowId.Session, 10.0d, at.some)))
+          .contains(""""spend"""") ==== false,
+        codecs
+          .write(
+            Fixtures.withSpend(
+              AgentId.ClaudeCode,
+              at,
+              Spend(Currency.credits, Fixtures.amount("1"), Fixtures.amount("2"), none[EpochSeconds]),
+            )
+          )
+          .contains(""""spend":{"currency":"credits","spent":"1","limit":"2","usedPercent":50.0}""") ==== true,
+      )
+    )
+  }
 
   def testEpochRoundTrip: Property =
     for {
@@ -86,10 +149,18 @@ object CodecsSpec extends Properties {
     for {
       now     <- Fixtures.genEpoch.log("now")
       windows <- Fixtures.genAgentWindows.log("windows")
+      spend   <- Fixtures.genSpend.option.log("spend")
     } yield {
       val snapshot = Fixtures.snapshot(
         now,
-        Fixtures.available(AgentId.Codex, now, windows*),
+        AgentSnapshot.available(
+          AgentId.Codex,
+          none[PlanLabel],
+          UsageMeters(windows, spend),
+          Source.Api,
+          now,
+          none[ErrorMessage],
+        ),
         Fixtures.unavailable(AgentId.ClaudeCode, now)
       )
       codecs.readEither[Snapshot](codecs.write(snapshot)) ==== Right(snapshot)

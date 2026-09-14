@@ -12,7 +12,8 @@ import tokenwatchroo.core.providers.{ClaudeOAuth, ClaudeProfileResponse, ClaudeU
 /** Claude Code on a subscription plan: keychain token, then the OAuth usage endpoint, with the profile endpoint called
   * next to it for the plan badge. The profile result is cached per access token for `ProfileTtl` on scheduled ticks
   * and refetched on a manual refresh, and a profile failure of any kind never affects availability. Badge order:
-  * profile, keychain tier, keychain subscription type. Never refreshes the token.
+  * profile, keychain tier, keychain subscription type. Never refreshes the token. A usage-based Enterprise response
+  * gives a spend meter instead of windows, and a response with neither is unavailable.
   */
 final class ClaudeCodeProvider private (
   http: HttpClient,
@@ -55,12 +56,13 @@ final class ClaudeCodeProvider private (
                      .map { case (usage, label) => usage.map(response => (response, label)) }
                      .eitherT
         (response, label) = pair
-        usage   <- codecs
-                     .readEither[ClaudeUsageResponse](response.body)
-                     .leftMap(e => ProviderError.decode(e.message))
-                     .eitherT[IO]
-        windows <- usage.toWindows.leftMap(e => ProviderError.decode(e.message)).eitherT[IO]
-      } yield AgentSnapshot.available(id, label.orElse(oauth.planLabel), windows, Source.Api, now, none[ErrorMessage])
+        usage  <- codecs
+                    .readEither[ClaudeUsageResponse](response.body)
+                    .leftMap(e => ProviderError.decode(e.message))
+                    .eitherT[IO]
+        meters <- usage.toMeters(now).leftMap(e => ProviderError.decode(e.message)).eitherT[IO]
+        _      <- Either.cond(!meters.isEmpty, (), ProviderError.noUsageLimit).eitherT[IO]
+      } yield AgentSnapshot.available(id, label.orElse(oauth.planLabel), meters, Source.Api, now, none[ErrorMessage])
     result
       .value
       .map(_.fold(error => AgentSnapshot.unavailable(id, now, error.toErrorMessage(ClaudeCodeProvider.Cli)), identity))

@@ -39,6 +39,32 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
   private def manual(p: ClaudeCodeProvider, now: EpochSeconds): IO[AgentSnapshot] =
     p.fetch(now, Fakes.config, FetchTrigger.Manual)
 
+  private def fetchUsage(usage: String): AgentSnapshot =
+    (for {
+      http     <- Fakes.RoutingHttp.make(Fakes.claudeRoutesWith(usage, Fakes.ok(Fakes.claudeProfile20x)))
+      p        <- make(http, new Fakes.FakeKeychain(Fakes.claudeBlob.asRight))
+      snapshot <- scheduled(p, Fakes.now)
+    } yield snapshot).unsafeRunSync()
+
+  test("an Enterprise spend-only payload gives a spend meter and no windows") {
+    val snapshot = fetchUsage(Fakes.claudeEnterpriseUsage)
+    assertEquals(snapshot.status, AgentStatus.Ok)
+    assertEquals(snapshot.windows, Nil)
+    assertEquals(
+      snapshot.spend.map(s => (s.currency.wire, s.spent.plainString, s.limit.plainString)),
+      Some(("USD", "0.05", "200.00"))
+    )
+    assertEquals(snapshot.spend.flatMap(_.resetsAt), Iso8601.parseToEpochSeconds("2026-10-01T00:00:00Z").toOption)
+  }
+
+  test("null windows without a usable spend give an unavailable card") {
+    val snapshot = fetchUsage(Fakes.claudeWindowsNullNoSpend)
+    assertEquals(snapshot.status, AgentStatus.Unavailable)
+    assertEquals(snapshot.windows, Nil)
+    assertEquals(snapshot.spend, None)
+    assertEquals(snapshot.error.map(_.value.value), Some("No usage limit reported by the usage API"))
+  }
+
   test("a readable keychain and a 200 give an available snapshot from the API") {
     val (snapshot, detection, usageCalls, profileCalls) =
       withRoutes(Fakes.ok(Fakes.claudeProfile20x), new Fakes.FakeKeychain(Fakes.claudeBlob.asRight)) { (p, http) =>

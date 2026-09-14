@@ -104,11 +104,48 @@ struct UsageWindow: Decodable {
     var isIdle: Bool { resetsAt == nil }
 }
 
+/// Mirrors `Spend` in the core (issue #33). Amounts are decimal strings on the wire so they never pass through a
+/// `Double`. `currency` is an ISO 4217 code or `credits`. `usedPercent` is computed by the core.
+struct Spend: Decodable {
+    let currency: String
+    let spent: Decimal
+    let limit: Decimal
+    let usedPercent: Double
+    let resetsAt: Int64?
+
+    var isCredits: Bool { currency == "credits" }
+}
+
+extension Spend {
+
+    private enum CodingKeys: String, CodingKey {
+        case currency, spent, limit, usedPercent, resetsAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        currency = try container.decode(String.self, forKey: .currency)
+        spent = try Spend.decimal(in: container, forKey: .spent)
+        limit = try Spend.decimal(in: container, forKey: .limit)
+        usedPercent = try container.decode(Double.self, forKey: .usedPercent)
+        resetsAt = try container.decodeIfPresent(Int64.self, forKey: .resetsAt)
+    }
+
+    private static func decimal(in container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) throws -> Decimal {
+        let text = try container.decode(String.self, forKey: key)
+        guard let value = Decimal(string: text, locale: Locale(identifier: "en_US_POSIX")) else {
+            throw DecodingError.dataCorruptedError(forKey: key, in: container, debugDescription: "not a decimal amount: \(text)")
+        }
+        return value
+    }
+}
+
 struct AgentSnapshot: Decodable {
     let id: AgentId
     let planLabel: String?
     let status: AgentStatus
     let windows: [UsageWindow]
+    let spend: Spend?
     let source: Source?
     let fetchedAt: Int64
     let error: String?
@@ -119,16 +156,17 @@ struct AgentSnapshot: Decodable {
 extension AgentSnapshot {
 
     private enum CodingKeys: String, CodingKey {
-        case id, planLabel, status, windows, source, fetchedAt, error
+        case id, planLabel, status, windows, spend, source, fetchedAt, error
     }
 
-    /// A missing `windows` decodes as no windows, as for `Snapshot.agents`.
+    /// A missing `windows` decodes as no windows, as for `Snapshot.agents`. A missing `spend` is no spend.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(AgentId.self, forKey: .id)
         planLabel = try container.decodeIfPresent(String.self, forKey: .planLabel)
         status = try container.decode(AgentStatus.self, forKey: .status)
         windows = try container.decodeIfPresent([UsageWindow].self, forKey: .windows) ?? []
+        spend = try container.decodeIfPresent(Spend.self, forKey: .spend)
         source = try container.decodeIfPresent(Source.self, forKey: .source)
         fetchedAt = try container.decode(Int64.self, forKey: .fetchedAt)
         error = try container.decodeIfPresent(String.self, forKey: .error)
