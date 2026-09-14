@@ -47,6 +47,14 @@ object ResponseDecodingSpec extends Properties {
     example("Claude profile response without an organization falls back to the account flags", testClaudeProfileFlags),
     example("Claude profile response with missing or unknown fields gives no plan", testClaudeProfileUnknown),
     example("Codex usage response becomes session and weekly windows", testCodexUsage),
+    example("the verified Claude Enterprise response gives a USD spend meter and no windows", testClaudeEnterprise),
+    example("the verified Claude Max response keeps its windows and has no spend", testClaudeMax),
+    example("Claude null windows without a usable spend give empty meters", testClaudeWindowsNullNoSpend),
+    example("a Claude spend with different currencies is rejected", testClaudeSpendCurrencyMismatch),
+    example("the Codex Enterprise response gives a credits spend meter and no windows", testCodexEnterprise),
+    example("Codex amounts sent as numbers give the same spend meter", testCodexEnterpriseNumeric),
+    example("Codex rate_limit null without a spend control gives empty meters", testCodexRateLimitNullNoSpend),
+    example("Codex with rate_limit keeps the windows and has no spend", testCodexMetersWithRateLimit),
     example("Codex auth file gives token and account id", testCodexAuth),
     example("Codex auth file in API-key mode is rejected", testCodexAuthApiKey),
   )
@@ -155,7 +163,14 @@ object ResponseDecodingSpec extends Properties {
         )
       }
       val response =
-        ClaudeUsageResponse(none[ClaudeLimit], none[ClaudeLimit], none[ClaudeLimit], none[ClaudeLimit], entries.some)
+        ClaudeUsageResponse(
+          none[ClaudeLimit],
+          none[ClaudeLimit],
+          none[ClaudeLimit],
+          none[ClaudeLimit],
+          entries.some,
+          none[ClaudeSpend],
+        )
       response.toWindows.map(_.drop(2).map(_.id)) ==== Right(names.sortBy(_.value.value).map(WindowId.model))
     }
 
@@ -255,6 +270,74 @@ object ResponseDecodingSpec extends Properties {
         parsed.map(_.planLabel.map(_.value.value)) ==== Right(Some("Plus")),
       )
     )
+  }
+
+  /** 2026-09-14T06:29:07Z, when the verified responses were captured. */
+  private val capturedAt = EpochSeconds(1789367347L)
+
+  private val usd = Currency.iso(CurrencyCode.unsafeFrom("USD"))
+
+  private def claudeMeters(json: String): Either[String, UsageMeters] =
+    codecs.readEither[ClaudeUsageResponse](json).flatMap(_.toMeters(capturedAt)).leftMap(_.message)
+
+  private def codexMeters(json: String): Either[String, UsageMeters] =
+    codecs.readEither[CodexUsageResponse](json).flatMap(_.toMeters).leftMap(_.message)
+
+  def testClaudeEnterprise: Result = {
+    val meters = claudeMeters(UsageFixtures.claudeEnterpriseUsage)
+    Result.all(
+      List(
+        meters ==== Right(
+          UsageMeters(
+            Nil,
+            Some(Spend(usd, Fixtures.amount("0.05"), Fixtures.amount("200.00"), Some(EpochSeconds(1790812800L)))),
+          )
+        ),
+        meters.map(_.spend.map(_.usedPercent)) ==== Right(Some(UsedPercent.clamp(0.025d))),
+        meters.map(_.spend.map(s => (s.spent.plainString, s.limit.plainString))) ==== Right(Some(("0.05", "200.00"))),
+      )
+    )
+  }
+
+  def testClaudeMax: Result = {
+    val meters = claudeMeters(UsageFixtures.claudeMaxUsage)
+    Result.all(
+      List(
+        meters.map(_.windows.map(w => (w.id, w.usedPercent))) ==== Right(
+          List(
+            (WindowId.Session, UsedPercent.clamp(10.0d)),
+            (WindowId.Weekly, UsedPercent.clamp(7.0d)),
+            (model("Fable"), UsedPercent.clamp(9.0d)),
+          )
+        ),
+        meters.map(_.spend) ==== Right(None),
+      )
+    )
+  }
+
+  def testClaudeWindowsNullNoSpend: Result =
+    claudeMeters(UsageFixtures.claudeWindowsNullNoSpend) ==== Right(UsageMeters.empty)
+
+  def testClaudeSpendCurrencyMismatch: Result =
+    claudeMeters(
+      """{"five_hour":null,"seven_day":null,"spend":{"used":{"amount_minor":5,"currency":"USD","exponent":2},"limit":{"amount_minor":20000,"currency":"EUR","exponent":2},"enabled":true}}"""
+    ).isLeft ==== true
+
+  private val codexEnterpriseSpend =
+    Spend(Currency.credits, Fixtures.amount("8000"), Fixtures.amount("25000"), Some(EpochSeconds(1778137680L)))
+
+  def testCodexEnterprise: Result =
+    codexMeters(UsageFixtures.codexEnterpriseUsage) ==== Right(UsageMeters(Nil, Some(codexEnterpriseSpend)))
+
+  def testCodexEnterpriseNumeric: Result =
+    codexMeters(UsageFixtures.codexEnterpriseNumericAmounts) ==== Right(UsageMeters(Nil, Some(codexEnterpriseSpend)))
+
+  def testCodexRateLimitNullNoSpend: Result =
+    codexMeters(UsageFixtures.codexRateLimitNullNoSpend) ==== Right(UsageMeters.empty)
+
+  def testCodexMetersWithRateLimit: Result = {
+    val parsed = codecs.readEither[CodexUsageResponse](codexUsage)
+    parsed.flatMap(_.toMeters) ==== parsed.map(response => UsageMeters(response.toWindows, None))
   }
 
   private val codexAuth =

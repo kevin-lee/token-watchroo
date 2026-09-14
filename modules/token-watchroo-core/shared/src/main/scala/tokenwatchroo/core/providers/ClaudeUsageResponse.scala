@@ -69,9 +69,25 @@ object ClaudeLimitKind {
   }
 }
 
+/** An amount of the usage response's `spend`: 5 minor units at exponent 2 in USD is $0.05. */
+final case class ClaudeMoney(amountMinor: Option[Long], currency: Option[String], exponent: Option[Int])
+    derives CanEqual,
+      Eq,
+      Show
+
+/** The usage response's `spend`, verified 2026-09-14 (issue #33). A usage-based Enterprise account had `used`
+  * {5, USD, 2}, `limit` {20000, USD, 2}, and `enabled` true, matching "$0.05 of $200.00" on the Claude usage page. A Max
+  * account had `limit` null and `enabled` false. `percent` is a rounded integer and is not decoded, and neither are
+  * `severity`, `cap`, `balance`, and the rest.
+  */
+final case class ClaudeSpend(used: Option[ClaudeMoney], limit: Option[ClaudeMoney], enabled: Option[Boolean])
+    derives CanEqual,
+      Eq,
+      Show
+
 /** `GET https://api.anthropic.com/api/oauth/usage`. Every field is optional because the endpoint is undocumented.
   * `limits` is the primary source of per-model windows, the fixed `seven_day_opus` and `seven_day_sonnet` keys the
-  * fallback when it is absent or null.
+  * fallback when it is absent or null. `spend` carries the monthly spend limit of a usage-based Enterprise plan.
   */
 final case class ClaudeUsageResponse(
   fiveHour: Option[ClaudeLimit],
@@ -79,6 +95,7 @@ final case class ClaudeUsageResponse(
   sevenDayOpus: Option[ClaudeLimit],
   sevenDaySonnet: Option[ClaudeLimit],
   limits: Option[List[ClaudeLimitEntry]],
+  spend: Option[ClaudeSpend],
 ) derives CanEqual,
       Eq,
       Show
@@ -106,7 +123,49 @@ object ClaudeUsageResponse {
         weekly  <- window(WindowId.Weekly, response.sevenDay, WeeklyLength)
         models  <- modelWindows(response)
       } yield session :: weekly :: models
+
+    /** The layout comes from the response, not the plan. When `five_hour` and `seven_day` are both absent or null,
+      * the meters are the per-model rows plus the spend when `spend` is enabled with a `used` and a `limit`, else no
+      * spend. The response has no reset time, so the spend resets at the start of the next UTC month after `now`.
+      * When either window key is present, the meters are `toWindows` and no spend.
+      */
+    def toMeters(now: EpochSeconds): Either[DecodeError, UsageMeters] =
+      if (response.fiveHour.isEmpty && response.sevenDay.isEmpty) {
+        for {
+          models <- modelWindows(response).leftMap(timestampError)
+          spend  <- usableSpend(response).traverse { case (used, limit) => toSpend(used, limit, now) }
+        } yield UsageMeters(models, spend)
+      } else {
+        response.toWindows.leftMap(timestampError).map(windows => UsageMeters(windows, none[Spend]))
+      }
   }
+
+  /** The parts of a `ClaudeMoney` that must all be present. */
+  final private case class MoneyParts(minor: Long, currency: String, exponent: Int)
+
+  private def timestampError(error: Iso8601Error): DecodeError = DecodeError.invalid(error.message)
+
+  private def usableSpend(response: ClaudeUsageResponse): Option[(ClaudeMoney, ClaudeMoney)] =
+    response.spend.filter(_.enabled.exists(identity)).flatMap(spend => (spend.used, spend.limit).tupled)
+
+  private def moneyParts(money: ClaudeMoney): Either[DecodeError, MoneyParts] =
+    (money.amountMinor, money.currency, money.exponent)
+      .mapN(MoneyParts.apply)
+      .toRight(DecodeError.invalid("Spend is missing amount_minor, exponent, or currency"))
+
+  private def toSpend(used: ClaudeMoney, limit: ClaudeMoney, now: EpochSeconds): Either[DecodeError, Spend] =
+    for {
+      usedParts   <- moneyParts(used)
+      limitParts  <- moneyParts(limit)
+      _           <- Either.cond(
+                       usedParts.currency === limitParts.currency,
+                       (),
+                       DecodeError.invalid(s"Spend currencies differ: ${usedParts.currency} and ${limitParts.currency}"),
+                     )
+      currency    <- Currency.parse(usedParts.currency).leftMap(DecodeError.invalid)
+      spent       <- Amount.fromMinorUnits(usedParts.minor, usedParts.exponent).leftMap(DecodeError.invalid)
+      limitAmount <- Amount.fromMinorUnits(limitParts.minor, limitParts.exponent).leftMap(DecodeError.invalid)
+    } yield Spend(currency, spent, limitAmount, Iso8601.startOfNextUtcMonth(now).some)
 
   private def window(
     id: WindowId,

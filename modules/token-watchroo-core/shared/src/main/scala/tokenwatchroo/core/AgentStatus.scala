@@ -38,14 +38,17 @@ object AgentStatus {
     case unknown => s"Unknown AgentStatus: $unknown".asLeft[AgentStatus]
   }
 
-  /** Status rules: no windows is Unavailable, any exhausted window is Exhausted, then the thresholds on the maximum. */
-  def of(windows: List[UsageWindow]): AgentStatus = windows match {
-    case Nil => AgentStatus.Unavailable
-    case first :: rest =>
-      val maxPercent = rest.foldLeft(first.usedPercent)((acc, w) => if (w.usedPercent > acc) w.usedPercent else acc)
-      if (windows.exists(_.isExhausted)) AgentStatus.Exhausted
-      else if (maxPercent >= Thresholds.critical) AgentStatus.Critical
-      else if (maxPercent >= Thresholds.warning) AgentStatus.Warning
-      else AgentStatus.Ok
-  }
+  /** Status rules: no windows and no spend is Unavailable, any exhausted window or an exhausted spend is Exhausted,
+    * then the thresholds on the maximum over the window percents and the spend percent.
+    */
+  def of(windows: List[UsageWindow], spend: Option[Spend]): AgentStatus =
+    (windows.map(_.usedPercent) ++ spend.map(_.usedPercent).toList) match {
+      case Nil => AgentStatus.Unavailable
+      case first :: rest =>
+        val maxPercent = rest.foldLeft(first)((acc, p) => if (p > acc) p else acc)
+        if (windows.exists(_.isExhausted) || spend.exists(_.isExhausted)) AgentStatus.Exhausted
+        else if (maxPercent >= Thresholds.critical) AgentStatus.Critical
+        else if (maxPercent >= Thresholds.warning) AgentStatus.Warning
+        else AgentStatus.Ok
+    }
 }

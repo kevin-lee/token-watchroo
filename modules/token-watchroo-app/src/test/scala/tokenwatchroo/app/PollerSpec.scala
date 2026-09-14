@@ -40,7 +40,14 @@ class PollerSpec extends munit.FunSuite {
       detection.get.flatMap {
         case Detection.Detected =>
           IO.pure(
-            AgentSnapshot.available(agent, none[PlanLabel], List(window(percent)), Source.Api, now, none[ErrorMessage])
+            AgentSnapshot.available(
+              agent,
+              none[PlanLabel],
+              UsageMeters(List(window(percent)), none[Spend]),
+              Source.Api,
+              now,
+              none[ErrorMessage],
+            )
           )
         case Detection.NotDetected =>
           IO.raiseError(new IllegalStateException(s"${agent.displayName} must not be fetched"))
@@ -57,7 +64,14 @@ class PollerSpec extends munit.FunSuite {
 
   private def claudeSnapshot(percent: Double, at: EpochSeconds): AgentSnapshot =
     AgentSnapshot
-      .available(AgentId.ClaudeCode, none[PlanLabel], List(window(percent)), Source.Api, at, none[ErrorMessage])
+      .available(
+        AgentId.ClaudeCode,
+        none[PlanLabel],
+        UsageMeters(List(window(percent)), none[Spend]),
+        Source.Api,
+        at,
+        none[ErrorMessage],
+      )
 
   private def claudeAt(percent: Double): UsageProvider =
     new Stub(AgentId.ClaudeCode, Detection.Detected, (at, _) => IO.pure(claudeSnapshot(percent, at)))
@@ -171,7 +185,14 @@ class PollerSpec extends munit.FunSuite {
             junk.size
           }.map(_ =>
             AgentSnapshot
-              .available(AgentId.ClaudeCode, none[PlanLabel], List(window(96.0d)), Source.Api, at, none[ErrorMessage])
+              .available(
+                AgentId.ClaudeCode,
+                none[PlanLabel],
+                UsageMeters(List(window(96.0d)), none[Spend]),
+                Source.Api,
+                at,
+                none[ErrorMessage],
+              )
           ),
       )
     val program                =

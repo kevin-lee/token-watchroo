@@ -46,6 +46,31 @@ enum Formatting {
         "\(Int(value.rounded()))%"
     }
 
+    /// "$0.05" for an ISO currency code, "8,000" for credits. The narrow symbol matches the Claude usage page in every
+    /// locale, where the standard style gives "USD 0.05" in en_AU.
+    static func money(_ amount: Decimal, currency: String, locale: Locale = .current) -> String {
+        if currency == "credits" {
+            return amount.formatted(Decimal.FormatStyle(locale: locale).precision(.fractionLength(0...2)))
+        }
+        return amount.formatted(Decimal.FormatStyle.Currency(code: currency, locale: locale).presentation(.narrow))
+    }
+
+    /// "$0.05 of $200.00 spent", or "8,000 of 25,000 credits spent".
+    static func spendSummary(_ spend: Spend, locale: Locale = .current) -> String {
+        let spent = money(spend.spent, currency: spend.currency, locale: locale)
+        let limit = money(spend.limit, currency: spend.currency, locale: locale)
+        return spend.isCredits ? "\(spent) of \(limit) credits spent" : "\(spent) of \(limit) spent"
+    }
+
+    /// "resets Thu, Oct 1", the date only, as the Claude usage page shows a spend limit reset.
+    static func resetsOn(epoch: Int64, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.setLocalizedDateFormatFromTemplate("EEEMMMd")
+        return "resets \(formatter.string(from: Date(timeIntervalSince1970: TimeInterval(epoch))))"
+    }
+
     private static let localTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale.current

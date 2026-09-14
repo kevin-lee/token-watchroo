@@ -57,6 +57,16 @@ object Iso8601 {
     s"${four(y)}-${two(mo)}-${two(d)}T${two(hour)}:${two(minute)}:${two(second)}Z"
   }
 
+  /** 00:00 UTC on the first day of the calendar month after the one holding `epoch`, so the start of a month gives the
+    * next month. Claude Enterprise spend resets then: "monthly spend resets at 00:00 UTC on the first of each calendar
+    * month" (https://platform.claude.com/docs/en/manage-claude/spend-limits-api).
+    */
+  def startOfNextUtcMonth(epoch: EpochSeconds): EpochSeconds = {
+    val (year, month, _)      = civilFromDays(Math.floorDiv(epoch.value, 86400L))
+    val (nextYear, nextMonth) = if (month === 12L) (year + 1L, 1L) else (year, month + 1L)
+    EpochSeconds(daysFromCivil(nextYear, nextMonth, 1L) * 86400L)
+  }
+
   private def offsetSeconds(zone: String): Long = zone match {
     case "Z" | "z" => 0L
     case other =>

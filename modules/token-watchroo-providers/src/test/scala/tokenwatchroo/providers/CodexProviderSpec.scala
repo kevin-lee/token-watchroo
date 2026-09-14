@@ -11,6 +11,47 @@ class CodexProviderSpec extends munit.FunSuite {
   private def provider(http: HttpClient, auth: CodexAuthReader, rollouts: RolloutFiles): CodexProvider =
     new CodexProvider(http, auth, rollouts, Fakes.env, "0.1.0")
 
+  test("an Enterprise payload with rate_limit null gives a credits spend meter") {
+    val p        = provider(
+      new Fakes.FakeHttp(Fakes.ok(Fakes.codexEnterpriseUsage)),
+      new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
+      new Fakes.FakeRollouts(None)
+    )
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    assertEquals(snapshot.status, AgentStatus.Ok)
+    assertEquals(snapshot.source, Some(Source.Api))
+    assertEquals(snapshot.planLabel.map(_.value.value), Some("Enterprise"))
+    assertEquals(snapshot.windows, Nil)
+    assertEquals(
+      snapshot.spend.map(s => (s.currency, s.spent.plainString, s.limit.plainString, s.resetsAt)),
+      Some((Currency.credits, "8000", "25000", Some(EpochSeconds(1778137680L))))
+    )
+  }
+
+  test("rate_limit null without a spend control and without a rollout log is unavailable with the no-limit message") {
+    val p        = provider(
+      new Fakes.FakeHttp(Fakes.ok(Fakes.codexRateLimitNullNoSpend)),
+      new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
+      new Fakes.FakeRollouts(None)
+    )
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    assertEquals(snapshot.status, AgentStatus.Unavailable)
+    assertEquals(snapshot.error.map(_.value.value), Some("No usage limit reported by the usage API"))
+  }
+
+  test("rate_limit null without a spend control falls back to the rollout log") {
+    val p        = provider(
+      new Fakes.FakeHttp(Fakes.ok(Fakes.codexRateLimitNullNoSpend)),
+      new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
+      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine)))
+    )
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    assertEquals(snapshot.source, Some(Source.LocalLog))
+    assertEquals(snapshot.windows.map(_.usedPercent.value), List(17.0d, 6.0d))
+    assertEquals(snapshot.spend, None)
+    assertEquals(snapshot.error.map(_.value.value), Some("No usage limit reported by the usage API"))
+  }
+
   test("a readable auth file and a 200 give an available snapshot from the API") {
     val p        = provider(
       new Fakes.FakeHttp(Fakes.ok(Fakes.codexUsage)),

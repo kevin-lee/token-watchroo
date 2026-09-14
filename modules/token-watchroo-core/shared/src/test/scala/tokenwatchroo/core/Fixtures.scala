@@ -34,7 +34,47 @@ object Fixtures {
     UsageWindow.clamped(id, percent, resetsAt, Seconds(18000L).some)
 
   def available(id: AgentId, now: EpochSeconds, windows: UsageWindow*): AgentSnapshot =
-    AgentSnapshot.available(id, none[PlanLabel], windows.toList, Source.Api, now, none[ErrorMessage])
+    AgentSnapshot.available(
+      id,
+      none[PlanLabel],
+      UsageMeters(windows.toList, none[Spend]),
+      Source.Api,
+      now,
+      none[ErrorMessage]
+    )
+
+  def withSpend(id: AgentId, now: EpochSeconds, spend: Spend, windows: UsageWindow*): AgentSnapshot =
+    AgentSnapshot.available(
+      id,
+      none[PlanLabel],
+      UsageMeters(windows.toList, spend.some),
+      Source.Api,
+      now,
+      none[ErrorMessage]
+    )
+
+  /** Test input only: the literal must be a non-negative decimal. */
+  def amount(s: String): Amount = Amount.unsafeFrom(BigDecimal(s))
+
+  val genAmount: Gen[Amount] =
+    for {
+      minor    <- Gen.long(Range.linear(0L, 10000000L))
+      exponent <- Gen.int(Range.linear(0, 4))
+    } yield Amount.unsafeFrom(BigDecimal(BigInt(minor), exponent))
+
+  val genCurrency: Gen[Currency] =
+    Gen.choice1(
+      Gen.constant(Currency.credits),
+      Gen.element1("USD", "EUR", "AUD").map(code => Currency.iso(CurrencyCode.unsafeFrom(code))),
+    )
+
+  val genSpend: Gen[Spend] =
+    for {
+      currency <- genCurrency
+      spent    <- genAmount
+      limit    <- genAmount
+      resetsAt <- genEpoch.option
+    } yield Spend(currency, spent, limit, resetsAt)
 
   def unavailable(id: AgentId, now: EpochSeconds): AgentSnapshot =
     AgentSnapshot.unavailable(id, now, ErrorMessage(NonEmptyString("down")))

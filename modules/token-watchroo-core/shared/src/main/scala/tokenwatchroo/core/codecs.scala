@@ -75,6 +75,25 @@ object codecs {
       RefreshIntervalSeconds.default,
     )
 
+  /* Amounts are decimal strings on the wire, so no digit passes through a binary floating-point number. */
+  given amountCodec: JsonValueCodec[Amount] =
+    validating[String, Amount](Amount.fromDecimalString, _.plainString, Amount.zero)
+
+  /* A provider amount may arrive as a string or a number: both are kept as decimal text. */
+  given decimalTextCodec: JsonValueCodec[DecimalText] =
+    new JsonValueCodec[DecimalText] {
+      override def decodeValue(in: JsonReader, default: DecimalText): DecimalText =
+        if (in.isNextToken('"')) {
+          in.rollbackToken()
+          DecimalText(in.readString(null))
+        } else {
+          in.rollbackToken()
+          DecimalText(in.readBigDecimal(null).bigDecimal.toPlainString)
+        }
+      override def encodeValue(x: DecimalText, out: JsonWriter): Unit             = out.writeVal(x.value)
+      override def nullValue: DecimalText                                         = DecimalText("")
+    }
+
   given planLabelCodec: JsonValueCodec[PlanLabel]       = nonEmpty(PlanLabel(_), _.value)
   given errorMessageCodec: JsonValueCodec[ErrorMessage] = nonEmpty(ErrorMessage(_), _.value)
   given stateDirCodec: JsonValueCodec[StateDir]         = nonEmpty(StateDir(_), _.value)
@@ -95,12 +114,35 @@ object codecs {
   given sourceCodec: JsonValueCodec[Source]           = wireString(Source.parse, _.wire, Source.Api)
   given menubarKindCodec: JsonValueCodec[MenubarKind] = wireString(MenubarKind.parse, _.wire, MenubarKind.Unavailable)
   given alertKindCodec: JsonValueCodec[AlertKind]     = wireString(AlertKind.parse, _.wire, AlertKind.Warning80)
+  given currencyCodec: JsonValueCodec[Currency]       = wireString(Currency.parse, _.wire, Currency.Credits)
 
   /* Records. */
 
-  given usageWindowCodec: JsonValueCodec[UsageWindow]     =
+  given usageWindowCodec: JsonValueCodec[UsageWindow] =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
-  /* Empty lists are written, not left out, because the shell requires `agents` and `windows` (issue #32). */
+
+  /* Spend: `usedPercent` is written for the shell and recomputed from the amounts on read. */
+
+  final private case class SpendWire(
+    currency: Currency,
+    spent: Amount,
+    limit: Amount,
+    usedPercent: UsedPercent,
+    resetsAt: Option[EpochSeconds],
+  )
+
+  private given spendWireCodec: JsonValueCodec[SpendWire] =
+    JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
+
+  given spendCodec: JsonValueCodec[Spend] =
+    mapped[SpendWire, Spend](
+      w => Spend(w.currency, w.spent, w.limit, w.resetsAt),
+      s => SpendWire(s.currency, s.spent, s.limit, s.usedPercent, s.resetsAt),
+      Spend(Currency.Credits, Amount.zero, Amount.zero, none[EpochSeconds]),
+    )
+
+  /* Empty lists are written, not left out, because the shell requires `agents` and `windows` (issue #32). An absent
+   * `spend` is left out, which the shell decodes as no spend (issue #33). */
   given agentSnapshotCodec: JsonValueCodec[AgentSnapshot] =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true).withTransientEmpty(false))
   given menubarStateCodec: JsonValueCodec[MenubarState]   =

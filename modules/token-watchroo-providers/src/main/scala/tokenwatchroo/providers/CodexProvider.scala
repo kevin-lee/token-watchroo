@@ -8,7 +8,9 @@ import tokenwatchroo.core.*
 import tokenwatchroo.core.codecs.given
 import tokenwatchroo.core.providers.{CodexOAuth, CodexRollout, CodexUsageResponse}
 
-/** Codex on a ChatGPT plan: `auth.json` token, then the usage endpoint, with the rollout logs as a fallback. */
+/** Codex on a ChatGPT plan: `auth.json` token, then the usage endpoint, with the rollout logs as a fallback. A response
+  * without `rate_limit` gives a credits spend meter, and a response with neither windows nor spend falls back too.
+  */
 final class CodexProvider(
   http: HttpClient,
   auth: CodexAuthReader,
@@ -60,7 +62,9 @@ final class CodexProvider(
                       .eitherT
         usage    <-
           codecs.readEither[CodexUsageResponse](response.body).leftMap(e => ProviderError.decode(e.message)).eitherT[IO]
-      } yield AgentSnapshot.available(id, usage.planLabel, usage.toWindows, Source.Api, now, none[ErrorMessage])
+        meters   <- usage.toMeters.leftMap(e => ProviderError.decode(e.message)).eitherT[IO]
+        _        <- Either.cond(!meters.isEmpty, (), ProviderError.noUsageLimit).eitherT[IO]
+      } yield AgentSnapshot.available(id, usage.planLabel, meters, Source.Api, now, none[ErrorMessage])
     result.value
   }
 
@@ -75,7 +79,7 @@ final class CodexProvider(
           AgentSnapshot.available(
             id,
             rateLimits.planLabel,
-            rateLimits.toWindows,
+            UsageMeters(rateLimits.toWindows, none[Spend]),
             Source.LocalLog,
             now,
             apiError.toErrorMessage(CodexProvider.Cli).some,

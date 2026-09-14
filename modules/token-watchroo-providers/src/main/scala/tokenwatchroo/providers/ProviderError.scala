@@ -29,6 +29,9 @@ object ProviderError {
   def timeout: ProviderError                               = ProviderError.Timeout
   def unsupported(message: String): ProviderError          = ProviderError.Unsupported(message)
 
+  /** A readable response with no window and no spend limit, so the card is unavailable instead of OK at 0%. */
+  def noUsageLimit: ProviderError = ProviderError.Unsupported("No usage limit reported by the usage API")
+
   extension (error: ProviderError) {
 
     /** The text shown on an unavailable card. `cli` is the command the user runs to sign in. */

@@ -19,13 +19,13 @@ final class StatusItemControllerTests: XCTestCase {
     private static func claude(session: Double, weekly: Double, opus: Double) -> AgentSnapshot {
         AgentSnapshot(id: .claudeCode, planLabel: "Max 5x", status: .ok,
                       windows: [window(.session, session), window(.weekly, weekly), window(.model("Opus"), opus)],
-                      source: .api, fetchedAt: 1, error: nil)
+                      spend: nil, source: .api, fetchedAt: 1, error: nil)
     }
 
     private static func codex() -> AgentSnapshot {
         AgentSnapshot(id: .codex, planLabel: "Team", status: .ok,
                       windows: [window(.session, 20), window(.weekly, 10)],
-                      source: .localLog, fetchedAt: 1, error: "Network error: curl 6")
+                      spend: nil, source: .localLog, fetchedAt: 1, error: "Network error: curl 6")
     }
 
     private static func snapshot(_ agents: [AgentSnapshot]) -> Snapshot {
