@@ -59,6 +59,13 @@ lazy val core = crossModule("core", crossProject(JVMPlatform, NativePlatform).cr
   )
   .nativeSettings(nativeSettings)
   .nativeSettings(nativeConfig ~= commonNativeConfig)
+  .nativeSettings(
+    /* native/src/main/scala/java/lang/impl/PosixThread.scala is upstream Scala Native code, compiled without `-Werror`
+     * there. Its warnings (discarded `CInt` results, a non-exhaustive `@switch`) are silenced instead of fixed, so that
+     * the diff against upstream stays small. */
+    // TODO: REVIEWME: It should be reviewed by Kevin.
+    Compile / scalacOptions += "-Wconf:src=java/lang/impl/.*:silent"
+  )
 
 lazy val coreJvm    = core.jvm
 lazy val coreNative = core.native
@@ -209,7 +216,9 @@ def commonNativeConfig(c: NativeConfig): NativeConfig = {
   val deploymentTarget = s"-mmacosx-version-min=${props.MinimumMacOsVersion}"
   /* The interflow optimiser in release-fast mode miscompiles the poller's first tick since issue #3: the app never
    * emitted a snapshot, deterministically, while the same code works with the optimiser off, in debug mode, and in
-   * release-full mode (verified 2026-09-12). The optimiser stays off until the trigger is bisected. */
+   * release-full mode (verified 2026-09-12). The optimiser stays off until the trigger is bisected (#20). The optimiser
+   * does not remove the allocation behind #43 either, which is fixed by the patched `PosixThread` copy in
+   * `modules/token-watchroo-core/native/src/main/scala/java/lang/impl/`. */
   c.withLTO(LTO.none)
     .withMode(Mode.releaseFast)
     .withOptimize(false)
