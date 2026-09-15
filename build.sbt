@@ -1,6 +1,5 @@
 import ProjectInfo.*
 import scala.scalanative.build.*
-import sbtcrossproject.CrossProject
 import scala.sys.process.Process
 
 ThisBuild / scalaVersion := props.ScalaVersion
@@ -34,10 +33,10 @@ lazy val tokenWatchroo = (project in file("."))
       baseDirectory.value / "swift" / "lib",
     )
   )
-  .aggregate(coreJvm, coreNative, providers, app)
+  .aggregate(core, providers, app)
 
-lazy val core = crossModule("core", crossProject(JVMPlatform, NativePlatform).crossType(CrossType.Full))
-  .enablePlugins(BuildInfoPlugin)
+lazy val core = module("core")
+  .enablePlugins(ScalaNativePlugin, BuildInfoPlugin)
   .settings(
     buildInfoKeys := List[BuildInfoKey](name, version, scalaVersion, sbtVersion),
     buildInfoObject := "TokenWatchrooInfo",
@@ -55,22 +54,15 @@ lazy val core = crossModule("core", crossProject(JVMPlatform, NativePlatform).cr
     ) ++
       libs.tests.hedgehog.value ++
       libs.tests.hedgehogExtra.value,
+    nativeConfig ~= commonNativeConfig,
   )
-  .jvmSettings(
-    libraryDependencies ++= libs.tests.hedgehog.value ++ libs.tests.hedgehogExtra.value
-  )
-  .nativeSettings(nativeSettings)
-  .nativeSettings(nativeConfig ~= commonNativeConfig)
-  .nativeSettings(
-    /* native/src/main/scala/java/lang/impl/PosixThread.scala is upstream Scala Native code, compiled without `-Werror`
+  .settings(nativeSettings)
+  .settings(
+    /* src/main/scala/java/lang/impl/PosixThread.scala is upstream Scala Native code, compiled without `-Werror`
      * there. Its warnings (discarded `CInt` results, a non-exhaustive `@switch`) are silenced instead of fixed, so that
      * the diff against upstream stays small. */
-    // TODO: REVIEWME: It should be reviewed by Kevin.
     Compile / scalacOptions += "-Wconf:src=java/lang/impl/.*:silent"
   )
-
-lazy val coreJvm    = core.jvm
-lazy val coreNative = core.native
 
 lazy val providers = module("providers")
   .enablePlugins(ScalaNativePlugin)
@@ -84,7 +76,7 @@ lazy val providers = module("providers")
   )
   .settings(nativeSettings)
   .settings(noPublish)
-  .dependsOn(coreNative)
+  .dependsOn(core % "compile->compile;test->test")
 
 lazy val app = module("app")
   .enablePlugins(ScalaNativePlugin)
@@ -193,25 +185,6 @@ def module(projectName: String): Project = {
     )
 }
 
-def crossModule(projectName: String, crossProject: CrossProject.Builder): CrossProject = {
-  val prefixedName = prefixedProjectName(projectName)
-  val modulePath   = file(s"modules/$prefixedName")
-  List(
-    modulePath / "shared" / "src" / "main" / "scala",
-    modulePath / "shared" / "src" / "test" / "scala",
-  ).foreach(IO.createDirectory)
-  crossProject
-    .in(modulePath)
-    .jvmConfigure(_.withId(s"${projectName}Jvm"))
-    .nativeConfigure(_.withId(s"${projectName}Native"))
-    .settings(
-      name := prefixedName,
-      fork := true,
-      scalacOptions ++= List("-no-indent", "-explain"),
-      licenses := props.licenses,
-    )
-}
-
 lazy val nativeSettings: SettingsDefinition = List(Test / fork := false)
 
 def commonNativeConfig(c: NativeConfig): NativeConfig = {
@@ -220,7 +193,7 @@ def commonNativeConfig(c: NativeConfig): NativeConfig = {
    * emitted a snapshot, deterministically, while the same code works with the optimiser off, in debug mode, and in
    * release-full mode (verified 2026-09-12). The optimiser stays off until the trigger is bisected (#20). The optimiser
    * does not remove the allocation behind #43 either, which is fixed by the patched `PosixThread` copy in
-   * `modules/token-watchroo-core/native/src/main/scala/java/lang/impl/`. */
+   * `modules/token-watchroo-core/src/main/scala/java/lang/impl/`. */
   c.withLTO(LTO.none)
     .withMode(Mode.releaseFast)
     .withOptimize(false)

@@ -1,8 +1,6 @@
 package tokenwatchroo.core
 
-/** Usage responses for issue #33. The providers tests keep copies in `Fakes`, because the core tests compile only on
-  * the JVM.
-  */
+/** Usage responses for issue #33, shared with the providers tests. */
 object UsageFixtures {
 
   /** Verified 2026-09-14 on a usage-based Claude Enterprise account, nothing to redact. The Claude usage page showed

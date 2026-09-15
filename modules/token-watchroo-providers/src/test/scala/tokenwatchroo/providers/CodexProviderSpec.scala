@@ -13,7 +13,7 @@ class CodexProviderSpec extends munit.FunSuite {
 
   test("an Enterprise payload with rate_limit null gives a credits spend meter") {
     val p        = provider(
-      new Fakes.FakeHttp(Fakes.ok(Fakes.codexEnterpriseUsage)),
+      new Fakes.FakeHttp(Fakes.ok(UsageFixtures.codexEnterpriseUsage)),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(None)
     )
@@ -30,7 +30,7 @@ class CodexProviderSpec extends munit.FunSuite {
 
   test("rate_limit null without a spend control and without a rollout log is unavailable with the no-limit message") {
     val p        = provider(
-      new Fakes.FakeHttp(Fakes.ok(Fakes.codexRateLimitNullNoSpend)),
+      new Fakes.FakeHttp(Fakes.ok(UsageFixtures.codexRateLimitNullNoSpend)),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(None)
     )
@@ -41,7 +41,7 @@ class CodexProviderSpec extends munit.FunSuite {
 
   test("rate_limit null without a spend control falls back to the rollout log") {
     val p        = provider(
-      new Fakes.FakeHttp(Fakes.ok(Fakes.codexRateLimitNullNoSpend)),
+      new Fakes.FakeHttp(Fakes.ok(UsageFixtures.codexRateLimitNullNoSpend)),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine)))
     )
