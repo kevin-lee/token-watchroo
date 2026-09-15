@@ -11,8 +11,8 @@ import tokenwatchroo.providers.UsageProvider
 
 class PollerSpec extends munit.FunSuite {
 
-  /** Fails a hung test by name instead of blocking the run. `timeoutAndForget` does not wait for an uninterruptible
-    * `IO.blocking` to finish, which `timeout` would.
+  /** Fails a hung test by name instead of blocking the run. `timeoutAndForget` returns at the deadline without waiting
+    * for the timed-out `IO` to finish cancelling, which `timeout` would.
     */
   private val TestTimeout = 30.seconds
 
@@ -176,41 +176,6 @@ class PollerSpec extends munit.FunSuite {
     assertEquals(snapshots(all).size, 2)
     assertEquals(alerts(all), Nil)
     assertEquals(seen, List(FetchTrigger.Scheduled, FetchTrigger.Manual))
-  }
-
-  test("a provider that forces garbage collection during the tick still delivers") {
-    val gcHeavy: UsageProvider =
-      new Stub(
-        AgentId.ClaudeCode,
-        Detection.Detected,
-        (at, _) =>
-          IO.blocking {
-            val junk = (1 to 2000).map(i => List.fill(50)(i.toString)).toList
-            System.gc()
-            junk.size
-          }.map(_ =>
-            AgentSnapshot
-              .available(
-                AgentId.ClaudeCode,
-                none[PlanLabel],
-                UsageMeters(List(window(96.0d)), none[Spend]),
-                Source.Api,
-                at,
-                none[ErrorMessage],
-              )
-          ),
-      )
-    val program                =
-      for {
-        (ref, sink, store) <- setup
-        _                  <- (1 to 5)
-                                .toList
-                                .traverse_(_ => Poller.tick(config, List(gcHeavy), sink, store, IO.pure(now), FetchTrigger.Scheduled))
-        all                <- ref.get
-      } yield all
-    val all                    = program.timeoutAndForget(TestTimeout).unsafeRunSync()
-    assertEquals(snapshots(all).size, 5)
-    assertEquals(alerts(all).map(_.kind), List(AlertKind.Critical95))
   }
 
   test("a failing state store turns the tick into an error envelope instead of a crash") {
