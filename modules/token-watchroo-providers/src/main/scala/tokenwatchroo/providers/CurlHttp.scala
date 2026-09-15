@@ -4,7 +4,6 @@ import cats.effect.IO
 import cats.syntax.all.*
 import java.nio.charset.StandardCharsets
 import scala.concurrent.duration.FiniteDuration
-import scala.scalanative.libc.{stdlib, string}
 import scala.scalanative.unsafe.*
 import scala.scalanative.unsigned.*
 import tokenwatchroo.core.*
@@ -12,45 +11,20 @@ import tokenwatchroo.core.*
 /** The libcurl `HttpClient`. Each request is one blocking `curl_easy_perform` inside `IO.blocking`. The timeout is
   * per request and clamped to at least one second, because libcurl reads 0 as no timeout.
   *
-  * Response bytes are collected by a C callback into a malloc-backed buffer described by a `CStruct3` of data pointer,
-  * length, and capacity. Invariant: the callback allocates no Scala objects and touches no Scala references, because
-  * `curl_easy_perform` is `@blocking` and the thread is in the unmanaged GC state while it runs. The buffer is turned
-  * into a Scala string only after `curl_easy_perform` returns.
+  * Response bytes are collected by the C write callback in `src/main/resources/scala-native/curl_write_buffer.c`
+  * into a malloc-backed buffer owned by C, reached through [[CurlBuffer]]. The callback is C because
+  * `curl_easy_perform` is `@blocking`, so the thread is in the unmanaged GC state while it runs, and a Scala
+  * `CFuncPtr` allocates boxes in its forwarder and `Tag` objects in its body while the optimiser is off (#41). The
+  * buffer becomes a Scala string only after `curl_easy_perform` returns.
   */
 object CurlHttp extends HttpClient {
 
-  private type Buffer = CStruct3[Ptr[Byte], CSize, CSize]
-
-  private val InitialCapacity: CSize = 8192.toCSize
-  private val ConnectTimeoutSeconds  = 10L
+  private val ConnectTimeoutSeconds = 10L
 
   /** Must run once before the first request. */
   val globalInit: IO[Unit] = IO.blocking {
     val _ = LibCurl.curl_global_init(CurlGlobal.Default)
   }
-
-  private val writeCallback: CFuncPtr4[Ptr[Byte], CSize, CSize, Ptr[Byte], CSize] =
-    CFuncPtr4.fromScalaFunction { (data: Ptr[Byte], size: CSize, count: CSize, userdata: Ptr[Byte]) =>
-      val buffer   = userdata.asInstanceOf[Ptr[Buffer]]
-      val incoming = size * count
-      val needed   = buffer._2 + incoming
-      val grown    =
-        if (needed > buffer._3) {
-          val capacity = if (needed > buffer._3 * 2.toCSize) needed else buffer._3 * 2.toCSize
-          val moved    = stdlib.realloc(buffer._1, capacity)
-          if (moved == null) false
-          else {
-            buffer._1 = moved
-            buffer._3 = capacity
-            true
-          }
-        } else true
-      if (grown) {
-        val _ = string.memcpy(buffer._1 + buffer._2, data, incoming)
-        buffer._2 = needed
-        incoming
-      } else 0.toCSize // tells libcurl to abort the transfer
-    }
 
   override def get(
     url: String,
@@ -71,22 +45,19 @@ object CurlHttp extends HttpClient {
       val curl         = LibCurl.curl_easy_init()
       if (curl == null) ProviderError.network("curl_easy_init failed").asLeft[HttpResponse]
       else {
-        val buffer     = alloc[Buffer]()
-        buffer._1 = stdlib.malloc(InitialCapacity)
-        buffer._2 = 0.toCSize
-        buffer._3 = InitialCapacity
+        val buffer     = CurlBuffer.create()
         val headerList = headers.foldLeft(null.asInstanceOf[LibCurl.SList]) {
           case (list, (name, value)) =>
             LibCurl.curl_slist_append(list, toCString(s"$name: $value"))
         }
         try {
-          if (buffer._1 == null) ProviderError.network("out of memory").asLeft[HttpResponse]
+          if (buffer == null) ProviderError.network("out of memory").asLeft[HttpResponse]
           else {
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.Url, toCString(url))
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.UserAgent, toCString(userAgent.value.value))
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.HttpHeader, headerList)
-            val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.WriteFunction, writeCallback)
-            val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.WriteData, buffer.asInstanceOf[Ptr[Byte]])
+            val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.WriteFunction, CurlBuffer.callback())
+            val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.WriteData, buffer)
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.Timeout, totalSeconds)
             val _    =
               LibCurl.curl_easy_setopt(curl, CurlOpt.ConnectTimeout, math.min(ConnectTimeoutSeconds, totalSeconds))
@@ -94,23 +65,25 @@ object CurlHttp extends HttpClient {
             val _    = LibCurl.curl_easy_setopt(curl, CurlOpt.FollowLocation, 0L)
             val code = LibCurl.curl_easy_perform(curl)
             if (code =!= 0) {
-              ProviderError
-                .network(s"curl $code: ${fromCString(LibCurl.curl_easy_strerror(code))}")
-                .asLeft[HttpResponse]
+              if (CurlBuffer.failed(buffer) =!= 0) ProviderError.network("out of memory").asLeft[HttpResponse]
+              else
+                ProviderError
+                  .network(s"curl $code: ${fromCString(LibCurl.curl_easy_strerror(code))}")
+                  .asLeft[HttpResponse]
             } else {
               val statusPtr: Ptr[CLong] = alloc[CLong]()
               val status                =
                 if (LibCurl.curl_easy_getinfo(curl, CurlInfo.ResponseCode, statusPtr) === 0) (!statusPtr).toInt else 0
-              val length                = buffer._2.toInt
+              val length                = CurlBuffer.length(buffer).toInt
               val bytes                 = new Array[Byte](length)
               if (length > 0) {
-                val _ = string.memcpy(bytes.at(0), buffer._1, buffer._2)
+                val _ = CurlBuffer.copy(buffer, bytes.at(0), length.toCSize)
               } else ()
               classify(HttpStatus(status), new String(bytes, StandardCharsets.UTF_8))
             }
           }
         } finally {
-          if (buffer._1 != null) stdlib.free(buffer._1) else ()
+          CurlBuffer.free(buffer)
           if (headerList != null) LibCurl.curl_slist_free_all(headerList) else ()
           LibCurl.curl_easy_cleanup(curl)
         }

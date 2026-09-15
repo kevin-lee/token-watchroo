@@ -6,7 +6,7 @@ import scala.scalanative.unsafe.*
   *
   * `curl_easy_perform` is `@blocking`: the calling thread leaves the managed GC state for the duration of the call, so
   * a slow request never stalls a collection. Consequently the write callback registered for it runs unmanaged and
-  * must not touch Scala memory (see `CurlHttp`).
+  * must not touch Scala memory: it is the C function in `curl_write_buffer.c` (see `CurlBuffer`).
   */
 @link("curl")
 @extern
