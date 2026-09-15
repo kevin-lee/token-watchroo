@@ -27,10 +27,11 @@ import tokenwatchroo.core.codecs.given
   *     `unsafeToFuture` and no `unsafeRunSync`. The body returns the `Future` at once, so munit's timeout applies. The
   *     runner thread waits in `Await.result`, which parks through `LockSupport.park` in a `@blocking` pthread call, and a
   *     parked thread is Unmanaged, so the wait never stalls a collection.
-  *   - Tagged flaky because of #44: the release-fast build without the optimiser corrupts an envelope's bytes before
-  *     the callback reads them in about 5 percent of runs. CI sets `MUNIT_FLAKY_OK`, so munit reports such a failure
-  *     as ignored there, while locally the test fails and its clue names the envelope, whether it was wrong on arrival
-  *     or changed while the callback ran, and the recorded and expected lines. Remove the tag with #44.
+  *   - `Bridge.send` verifies every conversion against the JSON bytes and redoes it on a mismatch (#44); the suite
+  *     reads the count of redone conversions and shows it in a failure clue.
+  *   - Tagged flaky because of #44: the Scala Native 0.5.12 GC can also corrupt other objects and abort or hang the
+  *     process under forced collections on small machines. CI sets `MUNIT_FLAKY_OK`, so munit reports such a failure
+  *     as ignored there, while locally the test fails with its clue. Remove the tag with #44.
   */
 class BridgeSpec extends munit.FunSuite {
 
@@ -162,12 +163,13 @@ class BridgeSpec extends munit.FunSuite {
           before <- collections.get
           _      <- builds.traverse_(bridge.emit)
           after  <- collections.get
+          redone <- bridge.corrupted
           count  <- IO(BridgeSpecRecorder.count(recorderPtr).toInt)
           failed <- IO(BridgeSpecRecorder.failed(recorderPtr))
           hashes <- IO(recordedHashes(recorderPtr, count, BridgeSpecRecorder.copyHashes))
           exits  <- IO(recordedHashes(recorderPtr, count, BridgeSpecRecorder.copyExitHashes))
           lines  <- IO(recorded(recorderPtr))
-        } yield BridgeSpec.Observed(count, failed, hashes, exits, lines, after - before)
+        } yield BridgeSpec.Observed(count, failed, hashes, exits, lines, redone, after - before)
     }
     program
       .timeout(ProgramTimeout)
@@ -186,7 +188,13 @@ class BridgeSpec extends munit.FunSuite {
           assertEquals(
             (corruptedOnArrival ++ changedDuringCallback).distinct.sorted,
             List.empty[Int],
-            BridgeSpec.corruptionClue(corruptedOnArrival, changedDuringCallback, observed.lines, expected),
+            BridgeSpec.corruptionClue(
+              observed.redone,
+              corruptedOnArrival,
+              changedDuringCallback,
+              observed.lines,
+              expected,
+            ),
           )
           assertEquals(observed.lines, expected, "corrupted after recording")
           assert(observed.collections > 0L, s"no collection completed while $EnvelopeCount envelopes were emitted")
@@ -198,13 +206,16 @@ class BridgeSpec extends munit.FunSuite {
 
 object BridgeSpec {
 
-  /** What the test reads back after the emits: the recorder state and the collections completed during the emits. */
+  /** What the test reads back after the emits: the recorder state, the conversions `Bridge` redone (#44), and the
+    * collections completed during the emits.
+    */
   final case class Observed(
     count: Int,
     failed: CInt,
     hashes: List[Long],
     exitHashes: List[Long],
     lines: List[String],
+    redone: Long,
     collections: Long,
   )
 
@@ -213,6 +224,7 @@ object BridgeSpec {
     */
   // TODO: REVIEWME: It should be reviewed by Kevin.
   def corruptionClue(
+    redone: Long,
     corruptedOnArrival: List[Int],
     changedDuringCallback: List[Int],
     recorded: List[String],
@@ -231,5 +243,5 @@ object BridgeSpec {
             .lift(index)
             .getOrElse("<missing>")}"
       }
-      .mkString("corrupted envelopes: ", "; ", "")
+      .mkString(s"conversions redone by Bridge: $redone; corrupted envelopes: ", "; ", "")
 }
