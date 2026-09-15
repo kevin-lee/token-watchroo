@@ -52,7 +52,9 @@ lazy val core = crossModule("core", crossProject(JVMPlatform, NativePlatform).cr
       libs.justSemVerCore.value,
       libs.jsoniterCore.value,
       libs.jsoniterMacros.value,
-    ),
+    ) ++
+      libs.tests.hedgehog.value ++
+      libs.tests.hedgehogExtra.value,
   )
   .jvmSettings(
     libraryDependencies ++= libs.tests.hedgehog.value ++ libs.tests.hedgehogExtra.value
