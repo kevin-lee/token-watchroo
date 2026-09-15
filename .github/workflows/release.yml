@@ -80,7 +80,7 @@ jobs:
       # --server runs sbt in the foreground instead of the sbtn client: no background server is left behind for the
       # bundle step to reuse with this step's (identity-less) environment.
       - name: Test
-        run: sbt --server "coreJvm/test; providers/test; app/test"
+        run: sbt --server "core/test; providers/test; app/test"
 
       # The certificate is imported only after the tests, so the keychain is unlocked for as few steps as possible.
       - name: Import the signing certificate

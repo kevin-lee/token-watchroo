@@ -77,22 +77,6 @@ object Fakes {
   ): Map[String, Either[ProviderError, HttpResponse]] =
     Map(ClaudeCodeProvider.UsageUrl -> ok(usage), ClaudeCodeProvider.ProfileUrl -> profile)
 
-  /* Copies of `UsageFixtures` in the core tests (issue #33), which compile only on the JVM. */
-
-  /** Verified 2026-09-14 on a usage-based Claude Enterprise account. */
-  val claudeEnterpriseUsage: String =
-    """{"five_hour":null,"seven_day":null,"seven_day_oauth_apps":null,"seven_day_opus":null,"seven_day_sonnet":null,"seven_day_cowork":null,"seven_day_omelette":null,"tangelo":null,"iguana_necktie":null,"omelette_promotional":null,"nimbus_quill":{"utilization":0.0,"resets_at":null,"limit_dollars":null,"used_dollars":null,"remaining_dollars":null,"locked_reason":null},"cinder_cove":null,"copper_kite":null,"harbor_lantern":null,"amber_ladder":null,"juniper_tide":null,"extra_usage":{"is_enabled":true,"monthly_limit":20000,"used_credits":5.0,"utilization":0.025,"currency":"USD","decimal_places":2,"disabled_reason":null,"user_disabled":false,"spend_limit_reached":false,"credits_ever_enabled":true,"daily":null,"weekly":null},"limits":[],"spend":{"used":{"amount_minor":5,"currency":"USD","exponent":2},"limit":{"amount_minor":20000,"currency":"USD","exponent":2},"percent":0,"severity":"normal","enabled":true,"disabled_reason":null,"cap":{"money":null,"credits":{"amount_minor":20000,"exponent":2}},"balance":null,"auto_reload":null,"disclaimer":"Usage credits cover you when you hit your plan limits. [Learn more](https://support.claude.com/articles/12429409)","can_purchase_credits":false,"can_toggle":false},"member_dashboard_available":true,"seven_day_breakdown":null}"""
-
-  val claudeWindowsNullNoSpend: String =
-    """{"five_hour":null,"seven_day":null,"limits":[],"spend":{"used":{"amount_minor":0,"currency":"USD","exponent":2},"limit":null,"enabled":false}}"""
-
-  /** UNVERIFIED, from alondero/buildmesh#1684. */
-  val codexEnterpriseUsage: String =
-    """{"plan_type":"enterprise","rate_limit":null,"credits":{"has_credits":true,"unlimited":false,"balance":"17000.50"},"spend_control":{"reached":false,"individual_limit":{"limit":"25000","used":"8000","remaining":"17000","used_percent":32,"reset_at":1778137680}},"additional_rate_limits":[{"limit_name":"codex_other","metered_feature":"codex_other","rate_limit":{"primary_window":{"used_percent":30.0,"limit_window_seconds":3600,"reset_at":1755288000}}}]}"""
-
-  val codexRateLimitNullNoSpend: String =
-    """{"plan_type":"enterprise","rate_limit":null,"credits":null,"spend_control":null}"""
-
   given Eq[FiniteDuration]   = Eq.fromUniversalEquals
   given Show[FiniteDuration] = Show.fromToString
 

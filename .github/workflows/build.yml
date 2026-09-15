@@ -40,7 +40,7 @@ jobs:
           swift --version
           clang --version
 
-      # core is hedgehog on the JVM; providers and app are munit on Scala Native and need macOS.
+      # core is hedgehog, providers and app are munit, all on Scala Native, which needs macOS.
       # A passing Test step takes about 3 minutes. A hung test fails this step instead of using the whole job limit.
       # Only BridgeSpec is tagged flaky (#44): munit reports its failure as ignored, so a known runtime corruption does
       # not fail the build. Every other test fails as usual.
@@ -48,7 +48,7 @@ jobs:
         timeout-minutes: 8
         env:
           MUNIT_FLAKY_OK: "true"
-        run: sbt "coreJvm/test; providers/test; app/test"
+        run: sbt "core/test; providers/test; app/test"
 
       # The Scala Native test runner names only the failed suite in the log. The JUnit reports name each test case.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

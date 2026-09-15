@@ -84,8 +84,8 @@ open "dist/Token Watchroo.app"
 ## Build and test
 
 ```bash
-# core: hedgehog property tests on the JVM
-sbt coreJvm/test
+# core: hedgehog property tests on Scala Native
+sbt core/test
 
 # providers and app: munit on Scala Native
 sbt providers/test
@@ -251,7 +251,7 @@ gh secret set HOMEBREW_TAP_TOKEN
 │                                          │  Claude Code and Codex providers   │    │
 │                                          └───────────────────────┬────────────┘    │
 │                                          ┌───────────────────────▼────────────┐    │
-│                                          │ token-watchroo-core (JVM + Native) │    │
+│                                          │ token-watchroo-core (Native)       │    │
 │                                          │  domain model, thresholds, alert   │    │
 │                                          │  engine, JSON codecs, parsers      │    │
 │                                          └────────────────────────────────────┘    │
@@ -260,7 +260,7 @@ gh secret set HOMEBREW_TAP_TOKEN
 
 | Module | Platform | What it holds |
 |---|---|---|
-| `modules/token-watchroo-core` | JVM and Scala Native, pure | Domain types (refined4s newtypes, Scala 3 enums), status and menubar rules, the alert engine, ISO-8601 parsing, notification copy, jsoniter-scala codecs, the Codex rollout parser. Tested with hedgehog on the JVM. |
+| `modules/token-watchroo-core` | Scala Native, pure | Domain types (refined4s newtypes, Scala 3 enums), status and menubar rules, the alert engine, ISO-8601 parsing, notification copy, jsoniter-scala codecs, the Codex rollout parser. Tested with hedgehog on Scala Native. |
 | `modules/token-watchroo-providers` | Scala Native | Keychain reader (`/usr/bin/security`), `auth.json` reader, libcurl HTTP client, the Claude Code and Codex providers. Tested with munit. |
 | `modules/token-watchroo-app` | Scala Native static library | The exported C API (`tw_start`, `tw_refresh`, `tw_set_config`, `tw_shutdown`), the cats-effect runtime, the poll loop, state persistence. Tested with munit. |
 | `swift/` | Swift 6 package | `NSStatusItem`, `NSMenu` with custom card views, notifications, Launch at Login. Renders what the library sends. |

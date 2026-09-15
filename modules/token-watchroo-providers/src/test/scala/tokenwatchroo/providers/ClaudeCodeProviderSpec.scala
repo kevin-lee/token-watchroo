@@ -47,7 +47,7 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
     } yield snapshot).unsafeRunSync()
 
   test("an Enterprise spend-only payload gives a spend meter and no windows") {
-    val snapshot = fetchUsage(Fakes.claudeEnterpriseUsage)
+    val snapshot = fetchUsage(UsageFixtures.claudeEnterpriseUsage)
     assertEquals(snapshot.status, AgentStatus.Ok)
     assertEquals(snapshot.windows, Nil)
     assertEquals(
@@ -58,7 +58,7 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
   }
 
   test("null windows without a usable spend give an unavailable card") {
-    val snapshot = fetchUsage(Fakes.claudeWindowsNullNoSpend)
+    val snapshot = fetchUsage(UsageFixtures.claudeWindowsNullNoSpend)
     assertEquals(snapshot.status, AgentStatus.Unavailable)
     assertEquals(snapshot.windows, Nil)
     assertEquals(snapshot.spend, None)
