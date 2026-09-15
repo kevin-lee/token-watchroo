@@ -13,7 +13,7 @@
 <p align="center">
   <img alt="Build" src="https://github.com/kevin-lee/token-watchroo/actions/workflows/build.yml/badge.svg"><a href="https://github.com/kevin-lee/token-watchroo/actions/workflows/build.yml" /></img>
   <img alt="Release" src="https://github.com/kevin-lee/token-watchroo/actions/workflows/release.yml/badge.svg"><a href="https://github.com/kevin-lee/token-watchroo/actions/workflows/release.yml" /></img>
-  <img alt="GitHub Release" src="https://img.shields.io/github/v/release/kevin-lee/token-watchroo">
+  <img alt="GitHub Release" src="https://img.shields.io/github/v/release/kevin-lee/token-watchroo?color=blue">
 </p>
 
 
