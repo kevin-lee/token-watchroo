@@ -1,6 +1,6 @@
 package tokenwatchroo.providers
 
-import cats.effect.IO
+import cats.effect.{IO, Ref}
 import cats.syntax.all.*
 import extras.cats.syntax.all.*
 import refined4s.types.all.*
@@ -9,14 +9,17 @@ import tokenwatchroo.core.codecs.given
 import tokenwatchroo.core.providers.{CodexOAuth, CodexRollout, CodexUsageResponse}
 
 /** Codex on a ChatGPT plan: `auth.json` token, then the usage endpoint, with the rollout logs as a fallback. A response
-  * without `rate_limit` gives a credits spend meter, and a response with neither windows nor spend falls back too.
+  * without `rate_limit` gives a credits spend meter, and a response with neither windows nor spend falls back too. On
+  * a 429 after a good fetch the last good API snapshot for the same token comes back with the rate-limit text in
+  * `error`, ahead of the rollout log; every other API error falls back to the log (issue #51).
   */
-final class CodexProvider(
+final class CodexProvider private (
   http: HttpClient,
   auth: CodexAuthReader,
   rollouts: RolloutFiles,
   env: Env,
   appVersion: String,
+  lastGood: Ref[IO, Option[LastGoodSnapshot]],
 ) extends UsageProvider {
 
   override def id: AgentId = AgentId.Codex
@@ -42,16 +45,32 @@ final class CodexProvider(
     CodexHomeResolver.resolve(config, env) match {
       case Left(error) => IO.pure(AgentSnapshot.unavailable(id, now, error.toErrorMessage(CodexProvider.Cli)))
       case Right(home) =>
-        fromApi(home, now).flatMap {
-          case Right(snapshot) => IO.pure(snapshot)
+        auth.read(home).flatMap {
           case Left(error) => fromLocalLog(home, now, error)
+          case Right(oauth) =>
+            fromApi(oauth, now).flatMap {
+              case Right(snapshot) => lastGood.set(LastGoodSnapshot(oauth.accessToken, snapshot).some).as(snapshot)
+              case Left(ProviderError.RateLimited) =>
+                lastGood.get.flatMap {
+                  _.flatMap(_.carriedFor(oauth.accessToken, CodexProvider.RateLimitedNote)) match {
+                    case Some(carried) => IO.pure(carried)
+                    case None => fromLocalLog(home, now, ProviderError.RateLimited)
+                  }
+                }
+              case Left(
+                     error @ (ProviderError.CredentialsMissing | ProviderError.CredentialsAccessDenied |
+                     ProviderError.CredentialsMalformed(_) | ProviderError.TokenExpired(_) | ProviderError.Http(_) |
+                     ProviderError.Network(_) | ProviderError.Decode(_) | ProviderError.Timeout |
+                     ProviderError.Unsupported(_))
+                   ) =>
+                fromLocalLog(home, now, error)
+            }
         }
     }
 
-  private def fromApi(home: CodexHome, now: EpochSeconds): IO[Either[ProviderError, AgentSnapshot]] = {
+  private def fromApi(oauth: CodexOAuth, now: EpochSeconds): IO[Either[ProviderError, AgentSnapshot]] = {
     val result =
       for {
-        oauth    <- auth.read(home).eitherT
         response <- http
                       .get(
                         CodexProvider.UsageUrl,
@@ -97,6 +116,19 @@ object CodexProvider {
   val Cli: String      = "codex"
   val UsageUrl: String = "https://chatgpt.com/backend-api/wham/usage"
 
+  private val RateLimitedNote: ErrorMessage = ProviderError.rateLimited.toErrorMessage(Cli)
+
   def userAgent(appVersion: String): UserAgent =
     UserAgent(NonEmptyString.unsafeFrom(s"token-watchroo/${appVersion.trim}"))
+
+  def make(
+    http: HttpClient,
+    auth: CodexAuthReader,
+    rollouts: RolloutFiles,
+    env: Env,
+    appVersion: String,
+  ): IO[CodexProvider] =
+    Ref
+      .of[IO, Option[LastGoodSnapshot]](none[LastGoodSnapshot])
+      .map(lastGood => new CodexProvider(http, auth, rollouts, env, appVersion, lastGood))
 }

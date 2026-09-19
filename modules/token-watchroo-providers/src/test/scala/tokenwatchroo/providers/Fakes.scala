@@ -139,6 +139,21 @@ object Fakes {
     override def read(codexHome: CodexHome): IO[Either[ProviderError, CodexOAuth]] = IO.pure(result)
   }
 
+  /** Each read returns the head of the list and drops it, keeping the last element forever. */
+  final class SequencedCodexAuth(results: Ref[IO, List[Either[ProviderError, CodexOAuth]]]) extends CodexAuthReader {
+    override def read(codexHome: CodexHome): IO[Either[ProviderError, CodexOAuth]] =
+      results.modify {
+        case head :: next :: rest => (next :: rest, head)
+        case head :: Nil => (head :: Nil, head)
+        case Nil => (Nil, ProviderError.credentialsMissing.asLeft[CodexOAuth])
+      }
+  }
+
+  object SequencedCodexAuth {
+    def make(results: List[Either[ProviderError, CodexOAuth]]): IO[SequencedCodexAuth] =
+      Ref.of[IO, List[Either[ProviderError, CodexOAuth]]](results).map(new SequencedCodexAuth(_))
+  }
+
   final class FakeRollouts(lines: Option[List[String]]) extends RolloutFiles {
     override def newest(codexHome: CodexHome): IO[Option[Path]] = IO.pure(lines.map(_ => Path.of("fake.jsonl")))
     override def readLines(path: Path): IO[List[String]]        = IO.pure(lines.getOrElse(Nil))
@@ -146,4 +161,7 @@ object Fakes {
 
   val codexOAuth: CodexOAuth =
     CodexOAuth(AccessToken(NonEmptyString("eyJ-access")), AccountId(NonEmptyString("acct-1")).some)
+
+  val codexOAuthOther: CodexOAuth =
+    CodexOAuth(AccessToken(NonEmptyString("eyJ-other")), AccountId(NonEmptyString("acct-2")).some)
 }

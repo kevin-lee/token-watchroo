@@ -9,8 +9,9 @@ import tokenwatchroo.core.*
 
 class ClaudeCodeProviderSpec extends munit.FunSuite {
 
-  private val UsageUrl   = ClaudeCodeProvider.UsageUrl
-  private val ProfileUrl = ClaudeCodeProvider.ProfileUrl
+  private val UsageUrl        = ClaudeCodeProvider.UsageUrl
+  private val ProfileUrl      = ClaudeCodeProvider.ProfileUrl
+  private val RateLimitedText = "Usage API rate limited. Retrying next refresh."
 
   private def make(http: HttpClient, keychain: KeychainReader): IO[ClaudeCodeProvider] =
     ClaudeCodeProvider
@@ -271,6 +272,100 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
     assertEquals(snapshot.status, AgentStatus.Unavailable)
     assertEquals(snapshot.planLabel, None)
     assertEquals(snapshot.error.map(_.value.value), Some("Token expired (HTTP 401). Run claude to sign in again."))
+  }
+
+  test("a usage 429 after a good fetch keeps the meters and carries the rate-limit note") {
+    val (first, second, usageCalls) =
+      withRoutes(Fakes.ok(Fakes.claudeProfile20x), new Fakes.FakeKeychain(Fakes.claudeBlobWithTier.asRight)) {
+        (p, http) =>
+          for {
+            first  <- scheduled(p, Fakes.now)
+            _      <- http.set(UsageUrl, ProviderError.rateLimited.asLeft)
+            second <- manual(p, at(5L))
+            usage  <- http.callsTo(UsageUrl)
+          } yield (first, second, usage)
+      }
+    assertEquals(second.status, AgentStatus.Ok)
+    assertEquals(second.windows, first.windows)
+    assertEquals(second.spend, None)
+    assertEquals(second.source, Some(Source.Api))
+    assertEquals(label(second), Some("Max 20x"))
+    assertEquals(second.error.map(_.value.value), Some(RateLimitedText))
+    assertEquals(second.fetchedAt, Fakes.now)
+    assertEquals(usageCalls, 2)
+  }
+
+  test("a usage 429 with no good fetch before it is unavailable") {
+    val snapshot =
+      (for {
+        http <- Fakes
+                  .RoutingHttp
+                  .make(
+                    Map(
+                      UsageUrl   -> ProviderError.rateLimited.asLeft[HttpResponse],
+                      ProfileUrl -> Fakes.ok(Fakes.claudeProfile20x),
+                    )
+                  )
+        p    <- make(http, new Fakes.FakeKeychain(Fakes.claudeBlobWithTier.asRight))
+        s    <- scheduled(p, Fakes.now)
+      } yield s).unsafeRunSync()
+    assertEquals(snapshot.status, AgentStatus.Unavailable)
+    assertEquals(snapshot.windows, Nil)
+    assertEquals(snapshot.planLabel, None)
+    assertEquals(snapshot.error.map(_.value.value), Some(RateLimitedText))
+  }
+
+  test("a usage 500 after a good fetch is unavailable, only a 429 carries") {
+    val second =
+      withRoutes(Fakes.ok(Fakes.claudeProfile20x), new Fakes.FakeKeychain(Fakes.claudeBlobWithTier.asRight)) {
+        (p, http) =>
+          scheduled(p, Fakes.now) >>
+            http.set(UsageUrl, ProviderError.http(HttpStatus(500)).asLeft) >>
+            manual(p, at(5L))
+      }
+    assertEquals(second.status, AgentStatus.Unavailable)
+    assertEquals(second.windows, Nil)
+    assertEquals(second.error.map(_.value.value), Some("Usage API error HTTP 500"))
+  }
+
+  test("a good fetch after a 429 replaces the carried meters and clears the note") {
+    val (second, third, fourth) =
+      withRoutes(Fakes.ok(Fakes.claudeProfile20x), new Fakes.FakeKeychain(Fakes.claudeBlobWithTier.asRight)) {
+        (p, http) =>
+          for {
+            _      <- scheduled(p, Fakes.now)
+            _      <- http.set(UsageUrl, ProviderError.rateLimited.asLeft)
+            second <- manual(p, at(5L))
+            _      <- http.set(UsageUrl, Fakes.ok(Fakes.claudeUsageWithLimits))
+            third  <- scheduled(p, at(10L))
+            _      <- http.set(UsageUrl, ProviderError.rateLimited.asLeft)
+            fourth <- scheduled(p, at(15L))
+          } yield (second, third, fourth)
+      }
+    assertEquals(second.windows.size, 2)
+    assertEquals(third.error, None)
+    assertEquals(third.windows.size, 4)
+    assertEquals(third.fetchedAt, at(10L))
+    assertEquals(fourth.windows, third.windows)
+    assertEquals(fourth.fetchedAt, at(10L))
+    assertEquals(fourth.error.map(_.value.value), Some(RateLimitedText))
+  }
+
+  test("a usage 429 after a token change does not carry the other account's meters") {
+    val (first, second) =
+      (for {
+        http     <- Fakes.RoutingHttp.make(Fakes.claudeRoutes(Fakes.ok(Fakes.claudeProfile20x)))
+        keychain <-
+          Fakes.SequencedKeychain.make(List(Fakes.claudeBlobWithTier.asRight, Fakes.claudeBlobOtherToken.asRight))
+        p        <- make(http, keychain)
+        first    <- scheduled(p, Fakes.now)
+        _        <- http.set(UsageUrl, ProviderError.rateLimited.asLeft)
+        second   <- scheduled(p, at(5L))
+      } yield (first, second)).unsafeRunSync()
+    assertEquals(first.status, AgentStatus.Ok)
+    assertEquals(second.status, AgentStatus.Unavailable)
+    assertEquals(second.windows, Nil)
+    assertEquals(second.error.map(_.value.value), Some(RateLimitedText))
   }
 
   test("a limits array gives per-model rows sorted by name that count towards the status") {
