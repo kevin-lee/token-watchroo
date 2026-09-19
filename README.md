@@ -75,11 +75,13 @@ Download `Token-Watchroo-<version>-arm64.dmg` (Apple Silicon) or `Token-Watchroo
 ### From source
 
 ```bash
-sbt buildApp
+sbt tokenWatchroo/bundleApp
 open "dist/Token Watchroo.app"
 ```
 
-`sbt runApp` does both. The app appears in the menubar, not in the Dock.
+`sbt tokenWatchroo/runApp` does both. The app appears in the menubar, not in the Dock.
+
+`bundleApp`, `runApp`, `swiftTest`, and the `buildApp` alias (`bundleApp`) are defined only on the root project, `tokenWatchroo`. The `sbt` command connects to a running sbt server, and that server remembers its current project between commands. After `sbt "project core"` (or any other module), `sbt buildApp`, `sbt bundleApp`, and `sbt runApp` fail with "Not a valid command". Either prefix the task with `tokenWatchroo/` as above, or switch the server back once with `sbt "project tokenWatchroo"`. `sbt projects` marks the current project with `*`.
 
 ## Build and test
 
@@ -92,16 +94,16 @@ sbt providers/test
 sbt app/test
 
 # Swift shell: XCTest against the staged static library
-sbt swiftTest
+sbt tokenWatchroo/swiftTest
 
 # the static library only
 sbt app/nativeLink
 
 # stage the library, build the Swift shell, assemble and sign the bundle (ad-hoc unless TW_SIGNING_IDENTITY is set)
-sbt bundleApp
+sbt tokenWatchroo/bundleApp
 
 # assemble and open
-sbt runApp
+sbt tokenWatchroo/runApp
 
 # regenerate the app icon (needs Xcode 26), outputs are committed
 scripts/generate-icons.sh
