@@ -66,7 +66,31 @@ class CodexProviderSpec extends munit.FunSuite {
       snapshot.windows.map(w => (w.id, w.usedPercent.value)),
       List((WindowId.Session, 82.0d), (WindowId.Weekly, 55.0d))
     )
+    assertEquals(
+      snapshot.windows.map(_.resetsAt),
+      List(Some(EpochSeconds(1789187040L)), Some(EpochSeconds(1789617600L)))
+    )
     assertEquals(p.detect(config).unsafeRunSync(), Detection.Detected)
+  }
+
+  test("the verified Team payload gives session and weekly windows with reset times") {
+    val p        = provider(
+      new Fakes.FakeHttp(Fakes.ok(UsageFixtures.codexTeamUsage)),
+      new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
+      new Fakes.FakeRollouts(None)
+    )
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    assertEquals(snapshot.status, AgentStatus.Ok)
+    assertEquals(snapshot.source, Some(Source.Api))
+    assertEquals(snapshot.planLabel.map(_.value.value), Some("Team"))
+    assertEquals(
+      snapshot.windows.map(w => (w.id, w.usedPercent.value, w.resetsAt)),
+      List(
+        (WindowId.Session, 74.0d, Some(EpochSeconds(1789801452L))),
+        (WindowId.Weekly, 27.0d, Some(EpochSeconds(1789807246L)))
+      )
+    )
+    assertEquals(snapshot.spend, None)
   }
 
   test("an API failure falls back to the rollout log and keeps the error") {

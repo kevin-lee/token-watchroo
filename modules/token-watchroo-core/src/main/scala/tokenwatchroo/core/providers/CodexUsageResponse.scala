@@ -7,10 +7,14 @@ import refined4s.*
 import refined4s.modules.cats.derivation.*
 import tokenwatchroo.core.*
 
-/** One window of the Codex usage response. `resets_at` is epoch seconds. */
+/** One window of the Codex usage response. `reset_at` is the reset time in epoch seconds, verified 2026-09-19 on a
+  * ChatGPT Team account (issue #53). `resets_at` is the older name used by the fixtures before that and by the rollout
+  * log, read only when `reset_at` is missing. `reset_after_seconds` is not decoded.
+  */
 final case class CodexWindow(
   usedPercent: Option[Double],
   limitWindowSeconds: Option[Long],
+  resetAt: Option[Long],
   resetsAt: Option[Long],
 ) derives CanEqual,
       Eq,
@@ -94,7 +98,7 @@ object CodexUsageResponse {
     UsageWindow.clamped(
       id,
       codexWindow.flatMap(_.usedPercent).getOrElse(0.0d),
-      codexWindow.flatMap(_.resetsAt).map(EpochSeconds(_)),
+      codexWindow.flatMap(w => w.resetAt.orElse(w.resetsAt)).map(EpochSeconds(_)),
       codexWindow.flatMap(_.limitWindowSeconds).map(Seconds(_)),
     )
 

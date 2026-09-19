@@ -1,6 +1,6 @@
 package tokenwatchroo.core
 
-/** Usage responses for issue #33, shared with the providers tests. */
+/** Usage responses for issues #33 and #53, shared with the providers tests. */
 object UsageFixtures {
 
   /** Verified 2026-09-14 on a usage-based Claude Enterprise account, nothing to redact. The Claude usage page showed
@@ -27,4 +27,8 @@ object UsageFixtures {
 
   val codexRateLimitNullNoSpend: String =
     """{"plan_type":"enterprise","rate_limit":null,"credits":null,"spend_control":null}"""
+
+  /** Verified 2026-09-19 on a ChatGPT Team account (issue #53). `user_id`, `account_id`, and `email` are redacted. */
+  val codexTeamUsage: String =
+    """{"user_id":"user-redacted","account_id":"acct-redacted","email":"user@example.com","plan_type":"team","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":74,"limit_window_seconds":18000,"reset_after_seconds":4879,"reset_at":1789801452},"secondary_window":{"used_percent":27,"limit_window_seconds":604800,"reset_after_seconds":10672,"reset_at":1789807246}},"code_review_rate_limit":null,"additional_rate_limits":null,"model_usage":{"gpt-6-astra":{"available":true,"available_at":null,"credits_would_enable":false}},"credits":{"has_credits":false,"unlimited":false,"overage_limit_reached":false,"balance":null,"approx_local_messages":null,"approx_cloud_messages":null},"spend_control":{"reached":false,"individual_limit":null},"rate_limit_reached_type":null,"promo":null,"rate_limit_reset_credits":{"available_count":2,"applicable_available_count":0}}"""
 }
