@@ -150,13 +150,13 @@ class PollerSpec extends munit.FunSuite {
     assertEquals(second.drop(2).map(_.wire), List("snapshot"))
   }
 
-  test("a refresh command shortens the wait and a shutdown command ends the loop") {
-    def awaitSnapshots(ref: Ref[IO, List[Envelope]], count: Int): IO[Unit] =
-      ref
-        .get
-        .map(envelopes => snapshots(envelopes).size >= count)
-        .ifM(IO.unit, IO.sleep(20.millis) >> awaitSnapshots(ref, count))
+  private def awaitSnapshots(ref: Ref[IO, List[Envelope]], count: Int): IO[Unit] =
+    ref
+      .get
+      .map(envelopes => snapshots(envelopes).size >= count)
+      .ifM(IO.unit, IO.sleep(20.millis) >> awaitSnapshots(ref, count))
 
+  test("a refresh command shortens the wait and a shutdown command ends the loop") {
     val program     =
       for {
         (ref, sink, store) <- setup
@@ -176,6 +176,48 @@ class PollerSpec extends munit.FunSuite {
     assertEquals(snapshots(all).size, 2)
     assertEquals(alerts(all), Nil)
     assertEquals(seen, List(FetchTrigger.Scheduled, FetchTrigger.Manual))
+  }
+
+  /** The `SetConfig` commands are barriers: their snapshot proves every command queued before them was processed, so a
+    * clock change cannot race a queued `Refresh`.
+    */
+  test("refresh commands inside the manual window are dropped and one after the window ticks again") {
+    val program     =
+      for {
+        (ref, sink, store) <- setup
+        triggers           <- Ref.of[IO, List[FetchTrigger]](Nil)
+        clock              <- Ref.of[IO, EpochSeconds](now)
+        queue              <- Queue.unbounded[IO, Command]
+        provider = claudeRecording(10.0d, triggers)
+        fiber <- Poller.run(config, List(provider), queue, sink, store, clock.get).start
+        _     <- awaitSnapshots(ref, 1).timeout(5.seconds)
+        _     <- queue.offer(Command.refresh) >> queue.offer(Command.refresh) >> queue.offer(Command.refresh)
+        _     <- queue.offer(Command.setConfig(config))
+        _     <- awaitSnapshots(ref, 3).timeout(5.seconds)
+        _     <- clock.set(EpochSeconds(now.value + 9L))
+        _     <- queue.offer(Command.refresh) >> queue.offer(Command.setConfig(config))
+        _     <- awaitSnapshots(ref, 4).timeout(5.seconds)
+        _     <- clock.set(EpochSeconds(now.value + Poller.ManualRefreshWindow.value))
+        _     <- queue.offer(Command.refresh)
+        _     <- awaitSnapshots(ref, 5).timeout(3.seconds)
+        _     <- queue.offer(Command.shutdown)
+        _     <- fiber.joinWithNever.timeout(5.seconds)
+        all   <- ref.get
+        seen  <- triggers.get
+      } yield (all, seen)
+    val (all, seen) = program.timeoutAndForget(TestTimeout).unsafeRunSync()
+    assertEquals(snapshots(all).size, 5)
+    assertEquals(alerts(all), Nil)
+    assertEquals(
+      seen,
+      List(
+        FetchTrigger.Scheduled,
+        FetchTrigger.Manual,
+        FetchTrigger.Scheduled,
+        FetchTrigger.Scheduled,
+        FetchTrigger.Manual,
+      ),
+    )
   }
 
   test("a failing state store turns the tick into an error envelope instead of a crash") {

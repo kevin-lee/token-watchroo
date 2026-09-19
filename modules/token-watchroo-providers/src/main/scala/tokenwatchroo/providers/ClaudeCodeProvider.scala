@@ -12,8 +12,10 @@ import tokenwatchroo.core.providers.{ClaudeOAuth, ClaudeProfileResponse, ClaudeU
 /** Claude Code on a subscription plan: keychain token, then the OAuth usage endpoint, with the profile endpoint called
   * next to it for the plan badge. The profile result is cached per access token for `ProfileTtl` on scheduled ticks
   * and refetched on a manual refresh, and a profile failure of any kind never affects availability. Badge order:
-  * profile, keychain tier, keychain subscription type. Never refreshes the token. A usage-based Enterprise response
-  * gives a spend meter instead of windows, and a response with neither is unavailable.
+  * profile, keychain tier, keychain subscription type. Never refreshes the token. A 429 on the usage call after a good
+  * fetch returns the last good snapshot for the same token with the rate-limit text in `error`, so the card keeps its
+  * meters (issue #51); every other error is unavailable. A usage-based Enterprise response gives a spend meter instead
+  * of windows, and a response with neither is unavailable.
   */
 final class ClaudeCodeProvider private (
   http: HttpClient,
@@ -22,6 +24,7 @@ final class ClaudeCodeProvider private (
   nowMillis: IO[Long],
   attempt: Ref[IO, ReadAttempt],
   profile: Ref[IO, Option[ProfileCacheEntry]],
+  lastGood: Ref[IO, Option[LastGoodSnapshot]],
 ) extends UsageProvider {
 
   override def id: AgentId = AgentId.ClaudeCode
@@ -38,10 +41,37 @@ final class ClaudeCodeProvider private (
       case Right(_) => Detection.Detected
     }
 
-  override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] = {
+  override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
+    readCredentials.flatMap {
+      case Left(error) => IO.pure(unavailable(now, error))
+      case Right(oauth) =>
+        fetchUsage(oauth, now, config, trigger).flatMap {
+          case Right(snapshot) => lastGood.set(LastGoodSnapshot(oauth.accessToken, snapshot).some).as(snapshot)
+          case Left(ProviderError.RateLimited) =>
+            lastGood
+              .get
+              .map(
+                _.flatMap(_.carriedFor(oauth.accessToken, ClaudeCodeProvider.RateLimitedNote))
+                  .getOrElse(unavailable(now, ProviderError.RateLimited))
+              )
+          case Left(
+                 error @ (ProviderError.CredentialsMissing | ProviderError.CredentialsAccessDenied |
+                 ProviderError.CredentialsMalformed(_) | ProviderError.TokenExpired(_) | ProviderError.Http(_) |
+                 ProviderError.Network(_) | ProviderError.Decode(_) | ProviderError.Timeout |
+                 ProviderError.Unsupported(_))
+               ) =>
+            IO.pure(unavailable(now, error))
+        }
+    }
+
+  private def fetchUsage(
+    oauth: ClaudeOAuth,
+    now: EpochSeconds,
+    config: Config,
+    trigger: FetchTrigger,
+  ): IO[Either[ProviderError, AgentSnapshot]] = {
     val result =
       for {
-        oauth   <- readCredentials.eitherT
         version <- resolveVersion(config).rightT[ProviderError]
         pair    <- IO
                      .both(
@@ -63,10 +93,11 @@ final class ClaudeCodeProvider private (
         meters <- usage.toMeters(now).leftMap(e => ProviderError.decode(e.message)).eitherT[IO]
         _      <- Either.cond(!meters.isEmpty, (), ProviderError.noUsageLimit).eitherT[IO]
       } yield AgentSnapshot.available(id, label.orElse(oauth.planLabel), meters, Source.Api, now, none[ErrorMessage])
-    result
-      .value
-      .map(_.fold(error => AgentSnapshot.unavailable(id, now, error.toErrorMessage(ClaudeCodeProvider.Cli)), identity))
+    result.value
   }
+
+  private def unavailable(now: EpochSeconds, error: ProviderError): AgentSnapshot =
+    AgentSnapshot.unavailable(id, now, error.toErrorMessage(ClaudeCodeProvider.Cli))
 
   private def readCredentials: IO[Either[ProviderError, ClaudeOAuth]] =
     for {
@@ -137,7 +168,10 @@ final class ClaudeCodeProvider private (
 
 object ClaudeCodeProvider {
 
-  val Cli: String        = "claude"
+  val Cli: String = "claude"
+
+  private val RateLimitedNote: ErrorMessage = ProviderError.rateLimited.toErrorMessage(Cli)
+
   val UsageUrl: String   = "https://api.anthropic.com/api/oauth/usage"
   val ProfileUrl: String = "https://api.anthropic.com/api/oauth/profile"
   val BetaHeader: String = "oauth-2025-04-20"
@@ -162,5 +196,6 @@ object ClaudeCodeProvider {
       memoized <- detectVersion.memoize
       attempt  <- Ref.of[IO, ReadAttempt](ReadAttempt.First)
       profile  <- Ref.of[IO, Option[ProfileCacheEntry]](none[ProfileCacheEntry])
-    } yield new ClaudeCodeProvider(http, credentials, memoized, nowMillis, attempt, profile)
+      lastGood <- Ref.of[IO, Option[LastGoodSnapshot]](none[LastGoodSnapshot])
+    } yield new ClaudeCodeProvider(http, credentials, memoized, nowMillis, attempt, profile, lastGood)
 }

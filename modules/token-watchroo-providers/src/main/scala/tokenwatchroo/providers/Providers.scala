@@ -31,16 +31,15 @@ object ProviderDeps {
 object Providers {
 
   def all(deps: ProviderDeps): IO[List[UsageProvider]] =
-    ClaudeCodeProvider
-      .make(
-        deps.http,
-        SimulatedClaudeSignOut.wrap(new ClaudeCredentials(deps.keychain), deps.env),
-        ClaudeCli.detectVersion(deps.env),
-        deps.nowMillis,
-      )
-      .map { claude =>
-        List(claude, new CodexProvider(deps.http, deps.codexAuth, deps.rollouts, deps.env, deps.appVersion))
-      }
+    for {
+      claude <- ClaudeCodeProvider.make(
+                  deps.http,
+                  SimulatedClaudeSignOut.wrap(new ClaudeCredentials(deps.keychain), deps.env),
+                  ClaudeCli.detectVersion(deps.env),
+                  deps.nowMillis,
+                )
+      codex  <- CodexProvider.make(deps.http, deps.codexAuth, deps.rollouts, deps.env, deps.appVersion)
+    } yield List(claude, codex)
 
   val live: IO[List[UsageProvider]] = all(ProviderDeps.live)
 }
