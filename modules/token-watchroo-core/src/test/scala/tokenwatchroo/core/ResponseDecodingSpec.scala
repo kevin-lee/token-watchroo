@@ -46,7 +46,13 @@ object ResponseDecodingSpec extends Properties {
     example("Claude profile response prefers the organization over the account flags", testClaudeProfileOrgWins),
     example("Claude profile response without an organization falls back to the account flags", testClaudeProfileFlags),
     example("Claude profile response with missing or unknown fields gives no plan", testClaudeProfileUnknown),
-    example("Codex usage response becomes session and weekly windows", testCodexUsage),
+    example(
+      "the verified Codex Team response becomes session and weekly windows with reset_at as the reset time",
+      testCodexUsage,
+    ),
+    example("a Codex window with only resets_at still gets its reset time", testCodexResetsAtOnly),
+    example("a Codex window with both reset_at and resets_at takes reset_at", testCodexBothResetKeys),
+    example("a Codex window without reset_at and resets_at is idle and keeps its percent", testCodexNoResetKey),
     example("the verified Claude Enterprise response gives a USD spend meter and no windows", testClaudeEnterprise),
     example("the verified Claude Max response keeps its windows and has no spend", testClaudeMax),
     example("Claude null windows without a usable spend give empty meters", testClaudeWindowsNullNoSpend),
@@ -255,22 +261,49 @@ object ResponseDecodingSpec extends Properties {
       )
     )
 
-  private val codexUsage =
+  /** The shape the fixtures used before issue #53, with `resets_at`. */
+  private val codexUsageResetsAt =
     """{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":33,"limit_window_seconds":18000,"resets_at":1789187040},"secondary_window":{"used_percent":12.0,"limit_window_seconds":604800,"resets_at":1789617600}},"credits":{"balance":"0"}}"""
 
   def testCodexUsage: Result = {
-    val parsed = codecs.readEither[CodexUsageResponse](codexUsage)
+    val parsed = codecs.readEither[CodexUsageResponse](UsageFixtures.codexTeamUsage)
+    Result.all(
+      List(
+        parsed.map(_.toWindows.map(_.usedPercent)) ==== Right(List(UsedPercent.clamp(74.0d), UsedPercent.clamp(27.0d))),
+        parsed.map(_.toWindows.flatMap(_.resetsAt)) ==== Right(
+          List(EpochSeconds(1789801452L), EpochSeconds(1789807246L))
+        ),
+        parsed.map(_.toWindows.flatMap(_.windowLength)) ==== Right(List(Seconds(18000L), Seconds(604800L))),
+        parsed.map(_.toWindows.map(_.isIdle)) ==== Right(List(false, false)),
+        parsed.map(_.planLabel.map(_.value.value)) ==== Right(Some("Team")),
+      )
+    )
+  }
+
+  def testCodexResetsAtOnly: Result = {
+    val parsed = codecs.readEither[CodexUsageResponse](codexUsageResetsAt)
     Result.all(
       List(
         parsed.map(_.toWindows.map(_.usedPercent)) ==== Right(List(UsedPercent.clamp(33.0d), UsedPercent.clamp(12.0d))),
         parsed.map(_.toWindows.flatMap(_.resetsAt)) ==== Right(
           List(EpochSeconds(1789187040L), EpochSeconds(1789617600L))
         ),
-        parsed.map(_.toWindows.flatMap(_.windowLength)) ==== Right(List(Seconds(18000L), Seconds(604800L))),
         parsed.map(_.planLabel.map(_.value.value)) ==== Right(Some("Plus")),
       )
     )
   }
+
+  def testCodexBothResetKeys: Result =
+    codexWindows(
+      """{"rate_limit":{"primary_window":{"used_percent":74,"limit_window_seconds":18000,"reset_at":1789801452,"resets_at":1789187040},"secondary_window":{"used_percent":27,"limit_window_seconds":604800,"resets_at":1789617600,"reset_at":1789807246}}}"""
+    ).map(_.map(_.resetsAt)) ==== Right(List(Some(EpochSeconds(1789801452L)), Some(EpochSeconds(1789807246L))))
+
+  def testCodexNoResetKey: Result =
+    codexWindows(
+      """{"rate_limit":{"primary_window":{"used_percent":74,"limit_window_seconds":18000,"reset_after_seconds":4879},"secondary_window":{"used_percent":27,"limit_window_seconds":604800}}}"""
+    ).map(_.map(w => (w.usedPercent, w.resetsAt, w.isIdle))) ==== Right(
+      List((UsedPercent.clamp(74.0d), None, true), (UsedPercent.clamp(27.0d), None, true))
+    )
 
   /** 2026-09-14T06:29:07Z, when the verified responses were captured. */
   private val capturedAt = EpochSeconds(1789367347L)
@@ -282,6 +315,9 @@ object ResponseDecodingSpec extends Properties {
 
   private def codexMeters(json: String): Either[String, UsageMeters] =
     codecs.readEither[CodexUsageResponse](json).flatMap(_.toMeters).leftMap(_.message)
+
+  private def codexWindows(json: String): Either[String, List[UsageWindow]] =
+    codecs.readEither[CodexUsageResponse](json).map(_.toWindows).leftMap(_.message)
 
   def testClaudeEnterprise: Result = {
     val meters = claudeMeters(UsageFixtures.claudeEnterpriseUsage)
@@ -336,7 +372,7 @@ object ResponseDecodingSpec extends Properties {
     codexMeters(UsageFixtures.codexRateLimitNullNoSpend) ==== Right(UsageMeters.empty)
 
   def testCodexMetersWithRateLimit: Result = {
-    val parsed = codecs.readEither[CodexUsageResponse](codexUsage)
+    val parsed = codecs.readEither[CodexUsageResponse](UsageFixtures.codexTeamUsage)
     parsed.flatMap(_.toMeters) ==== parsed.map(response => UsageMeters(response.toWindows, None))
   }
 

@@ -47,7 +47,7 @@ object Fakes {
     """{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"x","access_token":"eyJ-access","refresh_token":"r","account_id":"acct-1"},"last_refresh":"2026-09-10T00:00:00Z"}"""
 
   val codexUsage: String =
-    """{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":82,"limit_window_seconds":18000,"resets_at":1789187040},"secondary_window":{"used_percent":55,"limit_window_seconds":604800,"resets_at":1789617600}}}"""
+    """{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":82,"limit_window_seconds":18000,"reset_at":1789187040},"secondary_window":{"used_percent":55,"limit_window_seconds":604800,"reset_at":1789617600}}}"""
 
   val rolloutLine: String =
     """{"timestamp":"2026-04-29T07:59:08.887Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","primary":{"used_percent":17.0,"window_minutes":300,"resets_at":1777477636},"secondary":{"used_percent":6.0,"window_minutes":10080,"resets_at":1777960801},"plan_type":"prolite"}}}"""
