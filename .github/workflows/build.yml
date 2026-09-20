@@ -19,6 +19,12 @@ jobs:
     runs-on: macos-26
     # A passing build takes about 5 minutes. The limit ends a hung run early instead of holding the runner for the 6-hour default.
     timeout-minutes: 12
+    # Scala Native picks the GC yieldpoint mode at link time from this variable. The 0.5.12 GC loses a root of a thread
+    # stopped by a trap-based yieldpoint, the release default, and frees live objects (#44, upstream
+    # scala-native/scala-native#5046), so every binary is linked with conditional yieldpoints and build.sbt refuses to
+    # load without the variable. Remove it with the guards in build.sbt when a Scala Native release fixes #5046.
+    env:
+      SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS: "0"
     steps:
       # sbt-dynver derives the version from the nearest tag, so the full history is needed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,12 +48,8 @@ jobs:
 
       # core is hedgehog, providers and app are munit, all on Scala Native, which needs macOS.
       # A passing Test step takes about 3 minutes. A hung test fails this step instead of using the whole job limit.
-      # Only BridgeSpec is tagged flaky (#44): munit reports its failure as ignored, so a known runtime corruption does
-      # not fail the build. Every other test fails as usual.
       - name: Test
         timeout-minutes: 8
-        env:
-          MUNIT_FLAKY_OK: "true"
         run: sbt "core/test; providers/test; app/test"
 
       # The Scala Native test runner names only the failed suite in the log. The JUnit reports name each test case.
@@ -59,6 +61,15 @@ jobs:
 
       - name: Bundle (ad-hoc)
         run: sbt bundleApp
+
+      # The link-time mode is proved on the binaries themselves: the three test binaries through sbt, the staged archive
+      # and the bundle executable through the script. The script requires the GC to be present, so an empty or wrong
+      # file cannot pass (#44).
+      - name: Verify yieldpoint mode
+        run: |
+          set -euo pipefail
+          sbt checkYieldpoints
+          scripts/check-yieldpoints.sh conditional swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
 
       # The Swift shell tests link the static library that bundleApp staged.
       - name: Swift tests

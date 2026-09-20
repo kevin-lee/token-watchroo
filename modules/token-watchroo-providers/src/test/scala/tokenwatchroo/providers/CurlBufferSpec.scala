@@ -19,13 +19,18 @@ import scala.scalanative.unsigned.*
   *     collections land while the thread is Unmanaged inside the feed.
   *   - Waiting: the test runs on a runtime this suite owns, with a single `unsafeToFuture` and no `unsafeRunSync`, so
   *     munit's timeout applies and the parked runner thread never stalls a collection.
-  *   - Tagged flaky because of #44: the Scala Native 0.5.12 GC can corrupt other objects and abort or hang the process
-  *     under forced collections on small machines. CI sets `MUNIT_FLAKY_OK`, so munit reports such a failure as
-  *     ignored there, while locally the test fails with its clue.
+  *   - Linked with conditional GC yieldpoints for #44, like every binary of this build: the Scala Native 0.5.12 GC
+  *     loses a root of a thread stopped by a trap-based yieldpoint and frees live objects (upstream
+  *     scala-native/scala-native#5046). `BridgeSpec` keeps `Bridge.send`'s verify-and-retry as a second net, and this
+  *     suite checks every byte of the assembled body.
+  *   - Timeouts: the forced-collection storm runs several times slower under conditional yieldpoints on many-core
+  *     machines (measured 2.2 times in mean and 4 times in the worst run on an 18-core Mac, 2026-09-20: this suite
+  *     took 5.1 to 16.2 s against 3.8 to 4.9 s), while the app itself shows no cost, so `munitTimeout` is 120 s and
+  *     `ProgramTimeout` 90 s.
   */
 class CurlBufferSpec extends munit.FunSuite {
 
-  override def munitTimeout: Duration = 30.seconds
+  override def munitTimeout: Duration = 120.seconds
 
   private val BodySize         = 4 * 1024 * 1024
   private val MaxChunk         = 4096
@@ -37,7 +42,7 @@ class CurlBufferSpec extends munit.FunSuite {
   private val ComputeThreads = 2
 
   /** Shorter than `munitTimeout`, so a stuck run cancels the collection loop and the fibres before munit gives up. */
-  private val ProgramTimeout = 20.seconds
+  private val ProgramTimeout = 90.seconds
 
   private val runtime: IORuntime = {
     val (compute, poller, shutdown) =
@@ -90,7 +95,7 @@ class CurlBufferSpec extends munit.FunSuite {
   }
 
   test(
-    "the C write callback assembles a 4 MiB body fed in many uneven chunks while a fibre forces collections and fibres allocate".flaky
+    "the C write callback assembles a 4 MiB body fed in many uneven chunks while a fibre forces collections and fibres allocate"
   ) {
     val resources =
       for {
