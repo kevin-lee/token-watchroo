@@ -26,6 +26,12 @@ jobs:
             arch: x64
             expected: x86_64
     runs-on: ${{ matrix.runner }}
+    # Scala Native picks the GC yieldpoint mode at link time from this variable. The 0.5.12 GC loses a root of a thread
+    # stopped by a trap-based yieldpoint, the release default, and frees live objects (#44, upstream
+    # scala-native/scala-native#5046), so every binary is linked with conditional yieldpoints and build.sbt refuses to
+    # load without the variable. Remove it with the guards in build.sbt when a Scala Native release fixes #5046.
+    env:
+      SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS: "0"
     steps:
       # sbt-dynver derives the version from the tag, so the full history is needed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,6 +102,14 @@ jobs:
       - name: Bundle (Developer ID)
         run: sbt --server bundleApp
 
+      # The link-time mode is proved on the binaries themselves, as in build.yml (#44). --server, as for the other sbt
+      # steps of this job, so no background server is left behind.
+      - name: Verify yieldpoint mode
+        run: |
+          set -euo pipefail
+          sbt --server checkYieldpoints
+          scripts/check-yieldpoints.sh conditional swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
+
       # Two notary round trips take minutes, so an ad-hoc or unsigned bundle fails here rather than there.
       - name: Check the app signature
         run: |
@@ -146,7 +160,7 @@ jobs:
           scripts/checksum.sh "${DMGS[0]}"
 
       # Fail the release if the app inside the image is not Developer ID signed with hardened runtime, accepted by
-      # Gatekeeper, stapled, and built for this runner's architecture.
+      # Gatekeeper, stapled, built for this runner's architecture, and linked with conditional GC yieldpoints (#44).
       - name: Verify the DMG
         run: |
           set -euo pipefail
@@ -163,6 +177,7 @@ jobs:
           xcrun stapler validate "$APP"
           xcrun stapler validate "$DMG"
           file "$APP/Contents/MacOS/TokenWatchroo" | grep -q "${{ matrix.expected }}"
+          scripts/check-yieldpoints.sh conditional "$APP/Contents/MacOS/TokenWatchroo"
           (cd dist && shasum -a 256 -c ./*.sha256)
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

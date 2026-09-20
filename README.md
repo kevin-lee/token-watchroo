@@ -85,6 +85,20 @@ open "dist/Token Watchroo.app"
 
 ## Build and test
 
+Scala Native picks the Garbage Collector (GC) yieldpoint mode at link time from `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS`, and the 0.5.12 GC loses a root of a thread stopped by a trap-based yieldpoint, the release default, and frees live objects (#44, upstream [scala-native/scala-native#5046](https://github.com/scala-native/scala-native/issues/5046)). Every binary is therefore linked with conditional yieldpoints, and the build refuses to load unless the variable is `0` in the environment of the process that starts the sbt server. Nothing inside the build can set it, and that includes the server Metals starts.
+
+```bash
+# in the shell profile, so that every sbt server inherits it
+export SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0
+
+# a server started without it has to go, and a target linked in the other mode never relinks for the variable
+sbt --client shutdown
+rm -rf target/out/native0.5/scala-3.8.4/*/native target/out/native0.5/scala-3.8.4/*/native-test
+sbt
+```
+
+`stageNativeLib` checks the archive with `scripts/check-yieldpoints.sh` before staging it, so `bundleApp`, `runApp` and `swiftTest` fail on a trap-linked archive, and `sbt checkYieldpoints` checks the three test binaries, as the workflows do. `TW_ALLOW_TRAP_YIELDPOINTS=1` opts out of the load check and the archive gate for experiments that need a trap build. The variable, the checks and the script go together when a Scala Native release fixes #5046.
+
 ```bash
 # core: hedgehog property tests on Scala Native
 sbt core/test

@@ -28,14 +28,17 @@ import tokenwatchroo.core.codecs.given
   *     runner thread waits in `Await.result`, which parks through `LockSupport.park` in a `@blocking` pthread call, and a
   *     parked thread is Unmanaged, so the wait never stalls a collection.
   *   - `Bridge.send` verifies every conversion against the JSON bytes and redoes it on a mismatch (#44); the suite
-  *     reads the count of redone conversions and shows it in a failure clue.
-  *   - Tagged flaky because of #44: the Scala Native 0.5.12 GC can also corrupt other objects and abort or hang the
-  *     process under forced collections on small machines. CI sets `MUNIT_FLAKY_OK`, so munit reports such a failure
-  *     as ignored there, while locally the test fails with its clue. Remove the tag with #44.
+  *     reads the count of redone conversions and shows it in a failure clue. It stays as a second net: the library is
+  *     linked with conditional GC yieldpoints for #44, because the Scala Native 0.5.12 GC loses a root of a thread
+  *     stopped by a trap-based yieldpoint and frees live objects (upstream scala-native/scala-native#5046).
+  *   - Timeouts: the forced-collection storm runs several times slower under conditional yieldpoints on many-core
+  *     machines (measured 2.2 times in mean and 4 times in the worst run on an 18-core Mac, 2026-09-20, where this
+  *     suite timed out at 30 s in both modes), while the app itself shows no cost, so `munitTimeout` is 120 s and
+  *     `ProgramTimeout` 90 s.
   */
 class BridgeSpec extends munit.FunSuite {
 
-  override def munitTimeout: Duration = 30.seconds
+  override def munitTimeout: Duration = 120.seconds
 
   private val EnvelopeCount    = 200
   private val AllocatingFibres = 4
@@ -48,7 +51,7 @@ class BridgeSpec extends munit.FunSuite {
   private val ComputeThreads = 2
 
   /** Shorter than `munitTimeout`, so a stuck run cancels the collection loop and the fibres before munit gives up. */
-  private val ProgramTimeout = 20.seconds
+  private val ProgramTimeout = 90.seconds
 
   private val runtime: IORuntime = {
     val (compute, poller, shutdown) =
@@ -143,7 +146,7 @@ class BridgeSpec extends munit.FunSuite {
   }
 
   test(
-    "every envelope reaches the C callback in seq order while a fibre forces collections and fibres allocate".flaky
+    "every envelope reaches the C callback in seq order while a fibre forces collections and fibres allocate"
   ) {
     val builds         = List.tabulate(EnvelopeCount)(buildAt)
     val expected       = builds.zipWithIndex.map {
