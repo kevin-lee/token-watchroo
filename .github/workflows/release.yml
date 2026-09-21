@@ -102,13 +102,14 @@ jobs:
       - name: Bundle (Developer ID)
         run: sbt --server bundleApp
 
-      # The link-time mode is proved on the binaries themselves, as in build.yml (#44). --server, as for the other sbt
-      # steps of this job, so no background server is left behind.
-      - name: Verify yieldpoint mode
+      # The link-time mode and the patched RegistersCapture.h are proved on the binaries themselves, as in build.yml
+      # (#44, #63). --server, as for the other sbt steps of this job, so no background server is left behind.
+      - name: Verify yieldpoint mode and register capture
         run: |
           set -euo pipefail
-          sbt --server checkYieldpoints
+          sbt --server "checkYieldpoints; checkRegistersCapture"
           scripts/check-yieldpoints.sh conditional swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
+          scripts/check-registers-capture.sh swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
 
       # Two notary round trips take minutes, so an ad-hoc or unsigned bundle fails here rather than there.
       - name: Check the app signature
@@ -160,7 +161,8 @@ jobs:
           scripts/checksum.sh "${DMGS[0]}"
 
       # Fail the release if the app inside the image is not Developer ID signed with hardened runtime, accepted by
-      # Gatekeeper, stapled, built for this runner's architecture, and linked with conditional GC yieldpoints (#44).
+      # Gatekeeper, stapled, built for this runner's architecture, linked with conditional GC yieldpoints (#44), and
+      # compiled with the patched RegistersCapture.h (#63).
       - name: Verify the DMG
         run: |
           set -euo pipefail
@@ -178,6 +180,7 @@ jobs:
           xcrun stapler validate "$DMG"
           file "$APP/Contents/MacOS/TokenWatchroo" | grep -q "${{ matrix.expected }}"
           scripts/check-yieldpoints.sh conditional "$APP/Contents/MacOS/TokenWatchroo"
+          scripts/check-registers-capture.sh "$APP/Contents/MacOS/TokenWatchroo"
           (cd dist && shasum -a 256 -c ./*.sha256)
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
