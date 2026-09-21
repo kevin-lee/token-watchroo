@@ -28,6 +28,8 @@ final class Core {
         guard let data = try? JSONEncoder().encode(config), let json = String(data: data, encoding: .utf8) else {
             return -1
         }
+        GarbageCollectorSettings.apply()
+        Log.core.notice("GC_MAXIMUM_HEAP_SIZE=\(GarbageCollectorSettings.current("GC_MAXIMUM_HEAP_SIZE") ?? "unset")")
         let initCode = ScalaNativeInit()
         guard initCode == 0 else { return initCode }
         let context = Unmanaged.passUnretained(self).toOpaque()

@@ -101,6 +101,8 @@ sbt
 
 On x86 and x86_64 the 0.5.12 GC never saves the callee-saved registers of a thread that goes Unmanaged, because `RegistersCapture` takes its buffer by value, so an object that only a register refers to can be freed while in use (#63, upstream [scala-native/scala-native#5048](https://github.com/scala-native/scala-native/pull/5048)). `native-overrides/scala-native-0.5.12/` holds a patched copy of that header, and `build.sbt` puts it on the C include path ahead of Scala Native's own. `stageNativeLib` checks the archive with `scripts/check-registers-capture.sh`, and `sbt checkRegistersCapture` checks the three test binaries, as the workflows do. Scala Native recompiles a C file only when that file or the build configuration changes, so after editing the copy remove the `native` and `native-test` folders as above before relinking. The build refuses another Scala Native version until the copy is compared with that version's header. The copy, the option, the checks and the script go together when a Scala Native release includes scala-native/scala-native#5048.
 
+The app caps its own GC heap at 512 MiB (#65): before it starts the library, the Swift shell sets `GC_MAXIMUM_HEAP_SIZE=512M` unless the variable is already set, for example with `open --env` for diagnostics. Its heap measured 17.9 MB after 2.5 hours of normal use, so the cap leaves room for about 28 times that, and a genuine need beyond it ends the app with `Out of heap space` in its log file instead of taking memory from the rest of the machine.
+
 ```bash
 # core: hedgehog property tests on Scala Native
 sbt core/test
