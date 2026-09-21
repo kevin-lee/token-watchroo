@@ -16,6 +16,9 @@ permissions:
 
 jobs:
   build:
+    # Explicit, so the check name does not change when a matrix field is added or removed: GitHub appends every matrix
+    # value to the default job name, which turned `tolerated` into part of the name.
+    name: build (${{ matrix.runner }}, ${{ matrix.arch }})
     strategy:
       # Each architecture builds on its own runner because Scala Native and swift build produce host-architecture
       # binaries. One architecture failing must not cancel the other: the surviving log tells whether a failure is
