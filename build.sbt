@@ -268,21 +268,22 @@ lazy val nativeSettings: SettingsDefinition = List(Test / fork := false)
  * commix's growth rules then grew every test process's heap to the machine's whole memory (#65). At that ceiling an
  * allocation that misses its collect and lazy-sweep retries exits the process with "Out of heap space grow heap", and
  * on 3-CPU CI runners such misses happen hundreds of times per process (#58). The test processes of these two modules
- * therefore run with the rules the storm trips switched off and a bounded heap:
+ * therefore run with a bounded heap and growth rules that the storm does not keep firing:
  *   - GC_TIME_RATIO=1.0: a mark never takes the whole time since the previous mark ended, so the mark-time rule never
  *     fires. 0.9 still let arm64 CI processes reach 7 GiB (run 35614739149).
- *   - GC_FREE_RATIO=0: no growth for having fewer than half the blocks free after a sweep.
+ *   - GC_FREE_RATIO=0.1: growth when fewer than a tenth of the blocks are free after a sweep, instead of half. At 0
+ *     nothing grew the heap before a thread ran out of free blocks, and it exited with "Out of heap space
+ *     growIfNeeded:re-init cursors" (run 35631519713).
  *   - GC_MAXIMUM_HEAP_SIZE=2G: a test process never takes more than 2 GiB, whatever the machine.
- * The heap still grows when an allocation cannot be met, and when more than a quarter of the blocks are unavailable
- * (compile-time in commix). With 2 GC threads the storm processes stayed at 27 to 120 MB locally. The settings reach
- * every suite of the two test binaries. TW_STORM_GC_DEFAULTS=1 in the environment that starts the sbt server adds none
- * of them, for experiments and for the control arm of a CI comparison. Def.uncached, because the value depends on that
- * environment, which sbt 2's cache does not see. */
+ * The heap also grows when an allocation cannot be met, and when more than a quarter of the blocks are unavailable
+ * (compile-time in commix). The settings reach every suite of the two test binaries. TW_STORM_GC_DEFAULTS=1 in the
+ * environment that starts the sbt server adds none of them, for experiments and for the control arm of a CI
+ * comparison. Def.uncached, because the value depends on that environment, which sbt 2's cache does not see. */
 lazy val stormGcSettings: SettingsDefinition = List(
   Test / envVars := Def.uncached(
     (Test / envVars).value ++
       (if (sys.env.get("TW_STORM_GC_DEFAULTS").contains("1")) Map.empty[String, String]
-       else Map("GC_TIME_RATIO" -> "1.0", "GC_FREE_RATIO" -> "0", "GC_MAXIMUM_HEAP_SIZE" -> "2G"))
+       else Map("GC_TIME_RATIO" -> "1.0", "GC_FREE_RATIO" -> "0.1", "GC_MAXIMUM_HEAP_SIZE" -> "2G"))
   )
 )
 

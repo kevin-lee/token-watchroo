@@ -37,8 +37,8 @@ import tokenwatchroo.core.codecs.given
   *     `native-overrides/`.
   *   - The storm keeps commix's growth rules firing, so with the defaults every test process grew its heap to the
   *     machine's whole memory, where an allocation that missed its retries exited the process with `Out of heap space`
-  *     (#65). `build.sbt` runs this module's test processes with the mark-time and free-block rules switched off and
-  *     the heap capped at 2 GiB.
+  *     (#65). `build.sbt` runs this module's test processes with the mark-time rule switched off, the free-block rule
+  *     relaxed and the heap capped at 2 GiB.
   *   - Timeouts: the forced-collection storm runs several times slower under conditional yieldpoints on many-core
   *     machines (measured 2.2 times in mean and 4 times in the worst run on an 18-core Mac, 2026-09-20, where this
   *     suite timed out at 30 s in both modes), while the app itself shows no cost, so `munitTimeout` is 120 s and
