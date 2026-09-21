@@ -6,7 +6,7 @@ import extras.cats.syntax.all.*
 import refined4s.types.all.*
 import tokenwatchroo.core.*
 import tokenwatchroo.core.codecs.given
-import tokenwatchroo.core.providers.{CodexOAuth, CodexRollout, CodexUsageResponse}
+import tokenwatchroo.core.providers.{CodexOAuth, CodexUsageResponse}
 
 /** Codex on a ChatGPT plan: `auth.json` token, then the usage endpoint, with the rollout logs as a fallback. A response
   * without `rate_limit` gives a credits spend meter, and a response with neither windows nor spend falls back too. On
@@ -91,8 +91,7 @@ final class CodexProvider private (
   private def fromLocalLog(home: CodexHome, now: EpochSeconds, apiError: ProviderError): IO[AgentSnapshot] =
     rollouts
       .newest(home)
-      .flatMap(_.traverse(rollouts.readLines))
-      .map(_.flatMap(lines => CodexRollout.latestRateLimits(lines.iterator)))
+      .flatMap(_.flatTraverse(rollouts.latestRateLimits))
       .map {
         case Some(rateLimits) =>
           AgentSnapshot.available(

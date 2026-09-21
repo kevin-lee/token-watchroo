@@ -2,14 +2,14 @@ package tokenwatchroo.providers
 
 import cats.effect.IO
 import cats.syntax.all.*
-import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths}
 import scala.jdk.CollectionConverters.*
 import tokenwatchroo.core.*
+import tokenwatchroo.core.providers.{CodexRollout, CodexRolloutRateLimits}
 
 trait RolloutFiles {
   def newest(codexHome: CodexHome): IO[Option[Path]]
-  def readLines(path: Path): IO[List[String]]
+  def latestRateLimits(path: Path): IO[Option[CodexRolloutRateLimits]]
 }
 
 /** The rollout logs under `<codexHome>/sessions`, the network-free fallback for Codex. */
@@ -33,6 +33,14 @@ object CodexRolloutFiles extends RolloutFiles {
       } else none[Path]
     }.handleError(_ => none[Path])
 
-  override def readLines(path: Path): IO[List[String]] =
-    IO.blocking(Files.readAllLines(path, StandardCharsets.UTF_8).asScala.toList).handleError(_ => Nil)
+  /** Streams the log line by line, so memory stays bounded whatever its size (#65). A file that cannot be read or
+    * decoded gives none, as a missing one does.
+    */
+  override def latestRateLimits(path: Path): IO[Option[CodexRolloutRateLimits]] =
+    IO.blocking(
+      os.read
+        .lines
+        .stream(os.Path(path.toAbsolutePath))
+        .foldLeft(none[CodexRolloutRateLimits])(CodexRollout.withLine)
+    ).handleError(_ => none[CodexRolloutRateLimits])
 }

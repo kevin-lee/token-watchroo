@@ -12,6 +12,7 @@ object CodexRolloutSpec extends Properties {
     example("lines without rate_limits and malformed lines are skipped", testSkipped),
     example("window minutes become seconds and plan_type becomes the label", testWindows),
     example("an empty log gives none", testEmpty),
+    example("withLine keeps the latest rate limits for a line without any", testWithLine),
   )
 
   private val tokenFirst =
@@ -52,6 +53,17 @@ object CodexRolloutSpec extends Properties {
         windows.headOption.flatMap(_.resetsAt) ==== Some(EpochSeconds(1784793140L)),
         windows.lastOption.map(_.isIdle) ==== Some(true),
         latest.flatMap(_.planLabel).map(_.value.value) ==== Some("Prolite"),
+      )
+    )
+  }
+
+  def testWithLine: Result = {
+    val latest = CodexRollout.latestRateLimits(List(limitModel).iterator)
+    Result.all(
+      List(
+        CodexRollout.withLine(latest, "not json") ==== latest,
+        CodexRollout.withLine(latest, tokenFirst) ==== latest,
+        CodexRollout.withLine(latest, limitNull) ==== CodexRollout.latestRateLimits(List(limitNull).iterator),
       )
     )
   }
