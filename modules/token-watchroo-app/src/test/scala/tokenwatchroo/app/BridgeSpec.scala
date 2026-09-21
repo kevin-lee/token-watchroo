@@ -35,10 +35,10 @@ import tokenwatchroo.core.codecs.given
   *     object that only a register referred to was freed while in use, and the storm suites failed on x86_64 (#63,
   *     upstream scala-native/scala-native#5048). The build compiles the GC with the patched `RegistersCapture.h` in
   *     `native-overrides/`.
-  *   - The storm keeps commix's mark-time ratio near 100 percent, so with the default `GC_TIME_RATIO` of 0.05 every
-  *     test process grew its heap to tens of gigabytes, or to a CI runner's whole memory, where a large allocation
-  *     then exited the process with `Out of heap space` (#65). `build.sbt` runs this module's test processes with
-  *     `GC_TIME_RATIO=0.9`.
+  *   - The storm keeps commix's growth rules firing, so with the defaults every test process grew its heap to the
+  *     machine's whole memory, where an allocation that missed its retries exited the process with `Out of heap space`
+  *     (#65). `build.sbt` runs this module's test processes with the mark-time and free-block rules switched off and
+  *     the heap capped at 2 GiB.
   *   - Timeouts: the forced-collection storm runs several times slower under conditional yieldpoints on many-core
   *     machines (measured 2.2 times in mean and 4 times in the worst run on an 18-core Mac, 2026-09-20, where this
   *     suite timed out at 30 s in both modes), while the app itself shows no cost, so `munitTimeout` is 120 s and

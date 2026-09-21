@@ -264,19 +264,25 @@ def module(projectName: String): Project = {
 
 lazy val nativeSettings: SettingsDefinition = List(Test / fork := false)
 
-/* BridgeSpec (app) and CurlBufferSpec (providers) call System.gc() back to back while other fibres allocate. commix
- * grows the heap whenever a mark takes GC_TIME_RATIO, by default 0.05, or more of the time since the previous mark
- * ended, and in that loop the only other time is the sweep, whose cost grows with the heap. Every test process of these
- * modules therefore grew its heap until sweeping outweighed marking: 34 to 128 GB on a 128 GB Mac, and the whole memory
- * of a CI runner, where a large allocation that misses its retries exits the process with "Out of heap space grow heap"
- * (#65, #58). With 0.9 every storm process stayed under 400 MB locally, and BridgeSpec ran about 25 times faster. The
- * value reaches every suite of the two test binaries. The app never loops on System.gc() and keeps the commix default.
- * A GC_TIME_RATIO exported in the environment that starts the sbt server wins, for experiments and for the control arm
- * of a CI comparison. Def.uncached, because the value depends on that environment, which sbt 2's cache does not see. */
+/* BridgeSpec (app) and CurlBufferSpec (providers) call System.gc() back to back while other fibres allocate, and
+ * commix's growth rules then grew every test process's heap to the machine's whole memory (#65). At that ceiling an
+ * allocation that misses its collect and lazy-sweep retries exits the process with "Out of heap space grow heap", and
+ * on 3-CPU CI runners such misses happen hundreds of times per process (#58). The test processes of these two modules
+ * therefore run with the rules the storm trips switched off and a bounded heap:
+ *   - GC_TIME_RATIO=1.0: a mark never takes the whole time since the previous mark ended, so the mark-time rule never
+ *     fires. 0.9 still let arm64 CI processes reach 7 GiB (run 35614739149).
+ *   - GC_FREE_RATIO=0: no growth for having fewer than half the blocks free after a sweep.
+ *   - GC_MAXIMUM_HEAP_SIZE=2G: a test process never takes more than 2 GiB, whatever the machine.
+ * The heap still grows when an allocation cannot be met, and when more than a quarter of the blocks are unavailable
+ * (compile-time in commix). With 2 GC threads the storm processes stayed at 27 to 120 MB locally. The settings reach
+ * every suite of the two test binaries. TW_STORM_GC_DEFAULTS=1 in the environment that starts the sbt server adds none
+ * of them, for experiments and for the control arm of a CI comparison. Def.uncached, because the value depends on that
+ * environment, which sbt 2's cache does not see. */
 lazy val stormGcSettings: SettingsDefinition = List(
   Test / envVars := Def.uncached(
     (Test / envVars).value ++
-      sys.env.get("GC_TIME_RATIO").fold(Map("GC_TIME_RATIO" -> "0.9"))(_ => Map.empty[String, String])
+      (if (sys.env.get("TW_STORM_GC_DEFAULTS").contains("1")) Map.empty[String, String]
+       else Map("GC_TIME_RATIO" -> "1.0", "GC_FREE_RATIO" -> "0", "GC_MAXIMUM_HEAP_SIZE" -> "2G"))
   )
 )
 
