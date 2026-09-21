@@ -36,10 +36,11 @@ jobs:
             expected: x86_64
             tolerated: true
     runs-on: ${{ matrix.runner }}
-    # x86_64 is tolerated until the storm suites have no residual there: #63 is fixed, and the remaining faults, test
-    # processes that exit with `Out of heap space`, are #65. It is tolerated rather than removed: main stays honest about
-    # arm64 while an x86_64 failure stays visible in the job list. Remove `tolerated` and this line together when #65 is
-    # fixed. The key is not hyphenated because an expression would read `matrix.a-b` as subtraction.
+    # x86_64 is tolerated until the storm suites have no residual there: #63 and #65 are fixed, and the remaining
+    # faults, a NullPointerException or a SIGSEGV at 0x0 in BridgeSpec with small heaps, are #67. It is tolerated rather
+    # than removed: main stays honest about arm64 while an x86_64 failure stays visible in the job list. Remove
+    # `tolerated` and this line together when #67 is fixed. The key is not hyphenated because an expression would read
+    # `matrix.a-b` as subtraction.
     continue-on-error: ${{ matrix.tolerated }}
     # A passing build takes about 10 minutes. The limit ends a hung run early instead of holding the runner for the 6-hour default.
     timeout-minutes: 20
