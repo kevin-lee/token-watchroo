@@ -16,9 +16,23 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-26
-    # A passing build takes about 5 minutes. The limit ends a hung run early instead of holding the runner for the 6-hour default.
-    timeout-minutes: 12
+    strategy:
+      # Each architecture builds on its own runner because Scala Native and swift build produce host-architecture
+      # binaries. One architecture failing must not cancel the other: the surviving log tells whether a failure is
+      # architecture-specific or common to both (release.yml's arrangement). x86_64 is here because it used to be
+      # exercised only by release.yml, so the first x86_64 run of the test suite happened after a tag existed (#61).
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            arch: arm64
+            expected: arm64
+          - runner: macos-26-intel
+            arch: x64
+            expected: x86_64
+    runs-on: ${{ matrix.runner }}
+    # A passing build takes about 10 minutes. The limit ends a hung run early instead of holding the runner for the 6-hour default.
+    timeout-minutes: 20
     # Scala Native picks the GC yieldpoint mode at link time from this variable. The 0.5.12 GC loses a root of a thread
     # stopped by a trap-based yieldpoint, the release default, and frees live objects (#44, upstream
     # scala-native/scala-native#5046), so every binary is linked with conditional yieldpoints and build.sbt refuses to
@@ -46,29 +60,37 @@ jobs:
           swift --version
           clang --version
 
+      # Before the tests, so a test binary that dies has a proved link-time mode and a real fault can be told apart from
+      # a stale trap-based link (#44, #61). The task links the three test binaries itself and the Test step reuses those
+      # links, so the earlier position costs no extra linking. The staged archive and the bundle executable cannot be
+      # checked here because bundleApp has not run yet: they are checked in the later step.
+      - name: Verify yieldpoint mode (test binaries)
+        run: sbt checkYieldpoints
+
       # core is hedgehog, providers and app are munit, all on Scala Native, which needs macOS.
-      # A passing Test step takes about 3 minutes. A hung test fails this step instead of using the whole job limit.
+      # testFull, not test: in sbt 2 `test` is the cached task and runs nothing on a warm disk cache, so a green Build
+      # used to mean the suite had not run rather than that it had passed (#60, #61).
+      # A passing Test step takes about 5 minutes. A hung test fails this step instead of using the whole job limit.
       - name: Test
-        timeout-minutes: 8
-        run: sbt "core/test; providers/test; app/test"
+        timeout-minutes: 12
+        run: sbt "core/testFull; providers/testFull; app/testFull"
 
       # The Scala Native test runner names only the failed suite in the log. The JUnit reports name each test case.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
-          name: test-reports
+          name: test-reports-${{ matrix.arch }}
           path: target/out/**/test-reports/*.xml
 
       - name: Bundle (ad-hoc)
         run: sbt bundleApp
 
-      # The link-time mode is proved on the binaries themselves: the three test binaries through sbt, the staged archive
-      # and the bundle executable through the script. The script requires the GC to be present, so an empty or wrong
-      # file cannot pass (#44).
-      - name: Verify yieldpoint mode
+      # The staged archive and the bundle executable, which exist only once bundleApp has run. The three test binaries
+      # are checked before the Test step above. The script requires the GC to be present, so an empty or wrong file
+      # cannot pass (#44).
+      - name: Verify yieldpoint mode (bundle)
         run: |
           set -euo pipefail
-          sbt checkYieldpoints
           scripts/check-yieldpoints.sh conditional swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
 
       # The Swift shell tests link the static library that bundleApp staged.
@@ -80,13 +102,13 @@ jobs:
           set -euo pipefail
           codesign --verify --deep --strict --verbose=2 "dist/Token Watchroo.app"
           plutil -p "dist/Token Watchroo.app/Contents/Info.plist"
-          file "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo" | grep -q arm64
+          file "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo" | grep -q "${{ matrix.expected }}"
 
       # A directory artifact would drop the symlinks and modes inside the bundle.
       - name: Zip bundle
-        run: ditto -c -k --keepParent "dist/Token Watchroo.app" "dist/Token-Watchroo-adhoc-arm64.zip"
+        run: ditto -c -k --keepParent "dist/Token Watchroo.app" "dist/Token-Watchroo-adhoc-${{ matrix.arch }}.zip"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: token-watchroo-adhoc-arm64
-          path: dist/Token-Watchroo-adhoc-arm64.zip
+          name: token-watchroo-adhoc-${{ matrix.arch }}
+          path: dist/Token-Watchroo-adhoc-${{ matrix.arch }}.zip
