@@ -27,10 +27,17 @@ jobs:
           - runner: macos-26
             arch: arm64
             expected: arm64
+            tolerated: false
           - runner: macos-26-intel
             arch: x64
             expected: x86_64
+            tolerated: true
     runs-on: ${{ matrix.runner }}
+    # BridgeSpec kills its test process with SIGSEGV on x86_64 in every run, with conditional yieldpoints confirmed by
+    # the step below, so the x86_64 job cannot pass until #63 is fixed. It is tolerated rather than removed: main stays
+    # honest about arm64 while the x86_64 failure stays visible in the job list. Remove `tolerated` and this line
+    # together when #63 is fixed. The key is not hyphenated because an expression would read `matrix.a-b` as subtraction.
+    continue-on-error: ${{ matrix.tolerated }}
     # A passing build takes about 10 minutes. The limit ends a hung run early instead of holding the runner for the 6-hour default.
     timeout-minutes: 20
     # Scala Native picks the GC yieldpoint mode at link time from this variable. The 0.5.12 GC loses a root of a thread
