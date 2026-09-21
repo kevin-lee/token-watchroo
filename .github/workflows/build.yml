@@ -71,11 +71,12 @@ jobs:
           clang --version
 
       # Before the tests, so a test binary that dies has a proved link-time mode and a real fault can be told apart from
-      # a stale trap-based link (#44, #61). The task links the three test binaries itself and the Test step reuses those
-      # links, so the earlier position costs no extra linking. The staged archive and the bundle executable cannot be
-      # checked here because bundleApp has not run yet: they are checked in the later step.
-      - name: Verify yieldpoint mode (test binaries)
-        run: sbt checkYieldpoints
+      # a stale trap-based link (#44, #61) or from a build that lost the patched RegistersCapture.h (#63). The tasks link
+      # the three test binaries themselves and the Test step reuses those links, so the earlier position costs no extra
+      # linking. The staged archive and the bundle executable cannot be checked here because bundleApp has not run yet:
+      # they are checked in the later step.
+      - name: Verify yieldpoint mode and register capture (test binaries)
+        run: sbt "checkYieldpoints; checkRegistersCapture"
 
       # core is hedgehog, providers and app are munit, all on Scala Native, which needs macOS.
       # testFull, not test: in sbt 2 `test` is the cached task and runs nothing on a warm disk cache, so a green Build
@@ -96,12 +97,13 @@ jobs:
         run: sbt bundleApp
 
       # The staged archive and the bundle executable, which exist only once bundleApp has run. The three test binaries
-      # are checked before the Test step above. The script requires the GC to be present, so an empty or wrong file
-      # cannot pass (#44).
-      - name: Verify yieldpoint mode (bundle)
+      # are checked before the Test step above. Both scripts need the GC to be present, so an empty or wrong file cannot
+      # pass (#44, #63).
+      - name: Verify yieldpoint mode and register capture (bundle)
         run: |
           set -euo pipefail
           scripts/check-yieldpoints.sh conditional swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
+          scripts/check-registers-capture.sh swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
 
       # The Swift shell tests link the static library that bundleApp staged.
       - name: Swift tests

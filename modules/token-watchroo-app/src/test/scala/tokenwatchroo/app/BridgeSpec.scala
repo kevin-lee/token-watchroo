@@ -31,6 +31,10 @@ import tokenwatchroo.core.codecs.given
   *     reads the count of redone conversions and shows it in a failure clue. It stays as a second net: the library is
   *     linked with conditional GC yieldpoints for #44, because the Scala Native 0.5.12 GC loses a root of a thread
   *     stopped by a trap-based yieldpoint and frees live objects (upstream scala-native/scala-native#5046).
+  *   - On x86_64 the Scala Native 0.5.12 GC never saved the callee-saved registers of a thread that goes Unmanaged, so an
+  *     object that only a register referred to was freed while in use, and the storm suites failed on x86_64 (#63,
+  *     upstream scala-native/scala-native#5048). The build compiles the GC with the patched `RegistersCapture.h` in
+  *     `native-overrides/`.
   *   - Timeouts: the forced-collection storm runs several times slower under conditional yieldpoints on many-core
   *     machines (measured 2.2 times in mean and 4 times in the worst run on an 18-core Mac, 2026-09-20, where this
   *     suite timed out at 30 s in both modes), while the app itself shows no cost, so `munitTimeout` is 120 s and

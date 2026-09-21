@@ -44,6 +44,24 @@ Global / onLoad := (Global / onLoad).value.andThen { state =>
     )
 }
 
+/* Scala Native 0.5.12's RegistersCapture.h takes its buffer by value on x86 and x86_64, so the GC never scans the
+ * callee-saved registers of a thread that goes Unmanaged, and on x86_64 it frees objects that only a register refers to
+ * (#63, upstream scala-native/scala-native#5048). native-overrides/scala-native-0.5.12/ holds a patched copy that
+ * commonNativeConfig puts on the C include path ahead of nativelib's own directories. The copy belongs to the nativelib
+ * it was taken from, so another Scala Native version is refused until the copy is compared with the new header. Remove
+ * this check, the directory, the -I option, checkRegistersCapture, scripts/check-registers-capture.sh and the CI steps
+ * together when a Scala Native release includes scala-native#5048. */
+lazy val registersCaptureOverrideVersion = "0.5.12"
+
+Global / onLoad := (Global / onLoad).value.andThen { state =>
+  if (nativeVersion == registersCaptureOverrideVersion) state
+  else
+    sys.error(
+      s"""Scala Native is $nativeVersion, but native-overrides/scala-native-$registersCaptureOverrideVersion/immix_commix/RegistersCapture.h patches the $registersCaptureOverrideVersion header (#63).
+         |If this Scala Native release includes scala-native/scala-native#5048, remove the override as build.sbt describes. Otherwise diff the copy against the new nativelib header, move it to native-overrides/scala-native-$nativeVersion/ and update registersCaptureOverrideVersion.""".stripMargin
+    )
+}
+
 lazy val tokenWatchroo = (project in file("."))
   .settings(name := props.ProjectName)
   .settings(noPublish)
@@ -76,7 +94,7 @@ lazy val core = module("core")
     ) ++
       libs.tests.hedgehog.value ++
       libs.tests.hedgehogExtra.value,
-    nativeConfig ~= commonNativeConfig,
+    nativeConfig := Def.uncached(commonNativeConfig((LocalRootProject / baseDirectory).value)(nativeConfig.value)),
   )
   .settings(nativeSettings)
   .settings(
@@ -94,7 +112,7 @@ lazy val providers = module("providers")
       libs.extrasCats.value,
       libs.osLib.value,
     ) ++ libs.tests.munit.value,
-    nativeConfig ~= commonNativeConfig,
+    nativeConfig := Def.uncached(commonNativeConfig((LocalRootProject / baseDirectory).value)(nativeConfig.value)),
   )
   .settings(nativeSettings)
   .settings(noPublish)
@@ -104,11 +122,11 @@ lazy val app = module("app")
   .enablePlugins(ScalaNativePlugin)
   .settings(
     libraryDependencies ++= libs.tests.munit.value,
-    nativeConfig ~= { c =>
-      commonNativeConfig(c)
+    nativeConfig := Def.uncached(
+      commonNativeConfig((LocalRootProject / baseDirectory).value)(nativeConfig.value)
         .withBuildTarget(BuildTarget.libraryStatic)
         .withBaseName(props.StaticLibBaseName)
-    },
+    ),
     /* The test binary must be a runnable application, not a static library. */
     Test / nativeConfig ~= { c => c.withBuildTarget(BuildTarget.application) },
   )
@@ -118,13 +136,15 @@ lazy val app = module("app")
 
 /* App assembly tasks, scoped to the root project: sbt 2 applies bare settings to every subproject. */
 
-lazy val stageNativeLib   = taskKey[String]("Copy the Scala Native static library into swift/lib/")
-lazy val swiftBuild       = taskKey[String]("Build the Swift shell against the staged static library")
-lazy val swiftTest        = taskKey[Unit]("Run the Swift shell tests against the staged static library")
-lazy val bundleApp        = taskKey[String]("Assemble dist/Token Watchroo.app")
-lazy val runApp           = taskKey[Unit]("Assemble and open the app bundle")
-lazy val checkYieldpoints =
+lazy val stageNativeLib        = taskKey[String]("Copy the Scala Native static library into swift/lib/")
+lazy val swiftBuild            = taskKey[String]("Build the Swift shell against the staged static library")
+lazy val swiftTest             = taskKey[Unit]("Run the Swift shell tests against the staged static library")
+lazy val bundleApp             = taskKey[String]("Assemble dist/Token Watchroo.app")
+lazy val runApp                = taskKey[Unit]("Assemble and open the app bundle")
+lazy val checkYieldpoints      =
   taskKey[Unit]("Check that the three test binaries were linked with conditional GC yieldpoints (#44)")
+lazy val checkRegistersCapture =
+  taskKey[Unit]("Check that the three test binaries were compiled with the patched RegistersCapture.h (#63)")
 
 lazy val appAssemblySettings: SettingsDefinition = List(
   stageNativeLib := Def.uncached {
@@ -137,6 +157,9 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     if (sys.env.get("TW_ALLOW_TRAP_YIELDPOINTS").contains("1"))
       log.warn(s"TW_ALLOW_TRAP_YIELDPOINTS=1: not checking the yieldpoint mode of ${archive.getPath}")
     else checkYieldpointMode(baseDirectory.value, List(archive))
+    /* Not skipped by TW_ALLOW_TRAP_YIELDPOINTS, which is about the other workaround: an archive compiled with
+     * nativelib's own RegistersCapture.h frees live objects on x86_64 (#63). */
+    checkRegistersCaptureOverride(baseDirectory.value, List(archive))
     IO.copyFile(archive, target)
     log.info(s"Staged ${archive.getPath} -> ${target.getPath}")
     target.getAbsolutePath
@@ -203,7 +226,18 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     ).map(ref => converter.toPath(ref).toFile)
     checkYieldpointMode(baseDirectory.value, binaries)
     streams.value.log.info(s"Conditional GC yieldpoints confirmed for ${binaries.map(_.getName).mkString(", ")}")
-  }
+  },
+
+  checkRegistersCapture := Def.uncached {
+    val converter = fileConverter.value
+    val binaries  = List(
+      (core / Test / nativeLink).value,
+      (providers / Test / nativeLink).value,
+      (app / Test / nativeLink).value,
+    ).map(ref => converter.toPath(ref).toFile)
+    checkRegistersCaptureOverride(baseDirectory.value, binaries)
+    streams.value.log.info(s"Patched RegistersCapture.h confirmed for ${binaries.map(_.getName).mkString(", ")}")
+  },
 )
 
 addCommandAlias("buildApp", "bundleApp")
@@ -242,7 +276,20 @@ def checkYieldpointMode(base: File, files: List[File]): Unit = {
   else ()
 }
 
-def commonNativeConfig(c: NativeConfig): NativeConfig = {
+/* Runs scripts/check-registers-capture.sh on the files and fails when any of them was compiled with nativelib's own
+ * RegistersCapture.h instead of the patched copy in native-overrides/ (#63). */
+def checkRegistersCaptureOverride(base: File, files: List[File]): Unit = {
+  val script = base / "scripts" / "check-registers-capture.sh"
+  val exit   = Process(script.getPath +: files.map(_.getPath), base).!
+  if (exit != 0)
+    sys.error(
+      s"check-registers-capture.sh exited with $exit: a binary was not compiled with native-overrides/scala-native-$registersCaptureOverrideVersion/immix_commix/RegistersCapture.h (#63). " +
+        "Check that commonNativeConfig still adds registersCaptureInclude to the C options, then relink."
+    )
+  else ()
+}
+
+def commonNativeConfig(base: File)(c: NativeConfig): NativeConfig = {
   val deploymentTarget = s"-mmacosx-version-min=${props.MinimumMacOsVersion}"
   /* The interflow optimiser in release-fast mode miscompiles the poller's first tick since issue #3: the app never
    * emitted a snapshot, deterministically, while the same code works with the optimiser off, in debug mode, and in
@@ -254,5 +301,13 @@ def commonNativeConfig(c: NativeConfig): NativeConfig = {
     .withOptimize(false)
     .withGC(GC.commix)
     .withCompileOptions(c.compileOptions :+ deploymentTarget)
+    .withCOptions(c.cOptions :+ registersCaptureInclude(base))
     .withLinkingOptions(c.linkingOptions :+ deploymentTarget)
 }
+
+/* The -I option that puts native-overrides/scala-native-<version>/ ahead of nativelib's own include directories, so the
+ * GC compiles the patched immix_commix/RegistersCapture.h (#63). A C option, not a compile option: C options reach only
+ * C and assembly files, never C++ or LLVM IR, and clang sees them before every -I among the compile options, which hold
+ * Scala Native's system include directories and, for each native library, that library's own directories. */
+def registersCaptureInclude(base: File): String =
+  s"-I${(base / "native-overrides" / s"scala-native-$registersCaptureOverrideVersion").getAbsolutePath}"

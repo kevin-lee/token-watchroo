@@ -99,6 +99,8 @@ sbt
 
 `stageNativeLib` checks the archive with `scripts/check-yieldpoints.sh` before staging it, so `bundleApp`, `runApp` and `swiftTest` fail on a trap-linked archive, and `sbt checkYieldpoints` checks the three test binaries, as the workflows do. `TW_ALLOW_TRAP_YIELDPOINTS=1` opts out of the load check and the archive gate for experiments that need a trap build. The variable, the checks and the script go together when a Scala Native release fixes #5046.
 
+On x86 and x86_64 the 0.5.12 GC never saves the callee-saved registers of a thread that goes Unmanaged, because `RegistersCapture` takes its buffer by value, so an object that only a register refers to can be freed while in use (#63, upstream [scala-native/scala-native#5048](https://github.com/scala-native/scala-native/pull/5048)). `native-overrides/scala-native-0.5.12/` holds a patched copy of that header, and `build.sbt` puts it on the C include path ahead of Scala Native's own. `stageNativeLib` checks the archive with `scripts/check-registers-capture.sh`, and `sbt checkRegistersCapture` checks the three test binaries, as the workflows do. Scala Native recompiles a C file only when that file or the build configuration changes, so after editing the copy remove the `native` and `native-test` folders as above before relinking. The build refuses another Scala Native version until the copy is compared with that version's header. The copy, the option, the checks and the script go together when a Scala Native release includes scala-native/scala-native#5048.
+
 ```bash
 # core: hedgehog property tests on Scala Native
 sbt core/test
