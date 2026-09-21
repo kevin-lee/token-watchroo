@@ -8,7 +8,7 @@ import java.nio.file.Path
 import refined4s.types.all.*
 import scala.concurrent.duration.FiniteDuration
 import tokenwatchroo.core.*
-import tokenwatchroo.core.providers.CodexOAuth
+import tokenwatchroo.core.providers.{CodexOAuth, CodexRollout, CodexRolloutRateLimits}
 
 /** Test doubles for everything a provider touches outside the process. */
 object Fakes {
@@ -156,7 +156,8 @@ object Fakes {
 
   final class FakeRollouts(lines: Option[List[String]]) extends RolloutFiles {
     override def newest(codexHome: CodexHome): IO[Option[Path]] = IO.pure(lines.map(_ => Path.of("fake.jsonl")))
-    override def readLines(path: Path): IO[List[String]]        = IO.pure(lines.getOrElse(Nil))
+    override def latestRateLimits(path: Path): IO[Option[CodexRolloutRateLimits]] =
+      IO.pure(lines.flatMap(ls => CodexRollout.latestRateLimits(ls.iterator)))
   }
 
   val codexOAuth: CodexOAuth =

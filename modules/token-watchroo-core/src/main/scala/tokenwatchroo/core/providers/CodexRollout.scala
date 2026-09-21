@@ -63,9 +63,13 @@ object CodexRollout {
 
   /** The last `event_msg` line whose `token_count` payload carries `rate_limits`. Malformed lines are skipped. */
   def latestRateLimits(lines: Iterator[String]): Option[CodexRolloutRateLimits] =
-    lines.foldLeft(none[CodexRolloutRateLimits]) { (latest, line) =>
-      rateLimitsOf(line).orElse(latest)
-    }
+    lines.foldLeft(none[CodexRolloutRateLimits])(withLine)
+
+  /** One step of [[latestRateLimits]]: the rate limits of `line` if it carries any, else `latest`. A caller that
+    * streams a log folds with it, so the log is never held in memory whole (#65).
+    */
+  def withLine(latest: Option[CodexRolloutRateLimits], line: String): Option[CodexRolloutRateLimits] =
+    rateLimitsOf(line).orElse(latest)
 
   private def rateLimitsOf(line: String): Option[CodexRolloutRateLimits] =
     codecs

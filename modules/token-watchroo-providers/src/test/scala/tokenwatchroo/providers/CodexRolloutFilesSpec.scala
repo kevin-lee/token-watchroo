@@ -6,6 +6,7 @@ import java.nio.file.{Files, Path}
 import java.nio.file.attribute.FileTime
 import refined4s.types.all.*
 import tokenwatchroo.core.*
+import tokenwatchroo.core.providers.CodexRollout
 
 class CodexRolloutFilesSpec extends munit.FunSuite {
 
@@ -23,7 +24,23 @@ class CodexRolloutFilesSpec extends munit.FunSuite {
     val home   = CodexHome(NonEmptyString.unsafeFrom(dir.toString))
     val newest = CodexRolloutFiles.newest(home).unsafeRunSync()
     assertEquals(newest.map(_.getFileName.toString), Some("newer.jsonl"))
-    assertEquals(newest.map(p => CodexRolloutFiles.readLines(p).unsafeRunSync()), Some(List("new")))
+  }
+
+  test("the rate limits come from streaming the log, and the last line that carries them wins") {
+    val path   = Files.createTempDirectory("tw-rollout-stream").resolve("rollout.jsonl")
+    write(
+      path,
+      List("not json", Fakes.rolloutLine, """{"type":"other"}""").mkString("", "\n", "\n"),
+      1_700_000_000_000L
+    )
+    val latest = CodexRolloutFiles.latestRateLimits(path).unsafeRunSync()
+    assert(latest.isDefined, "no rate limits read from the log")
+    assertEquals(latest, CodexRollout.latestRateLimits(Iterator(Fakes.rolloutLine)))
+  }
+
+  test("a missing log gives none") {
+    val missing = Files.createTempDirectory("tw-rollout-missing").resolve("never-written.jsonl")
+    assertEquals(CodexRolloutFiles.latestRateLimits(missing).unsafeRunSync(), None)
   }
 
   test("a home without sessions gives none") {
