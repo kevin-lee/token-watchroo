@@ -115,6 +115,7 @@ lazy val providers = module("providers")
     nativeConfig := Def.uncached(commonNativeConfig((LocalRootProject / baseDirectory).value)(nativeConfig.value)),
   )
   .settings(nativeSettings)
+  .settings(stormGcSettings)
   .settings(noPublish)
   .dependsOn(core % "compile->compile;test->test")
 
@@ -131,6 +132,7 @@ lazy val app = module("app")
     Test / nativeConfig ~= { c => c.withBuildTarget(BuildTarget.application) },
   )
   .settings(nativeSettings)
+  .settings(stormGcSettings)
   .settings(noPublish)
   .dependsOn(providers)
 
@@ -261,6 +263,22 @@ def module(projectName: String): Project = {
 }
 
 lazy val nativeSettings: SettingsDefinition = List(Test / fork := false)
+
+/* BridgeSpec (app) and CurlBufferSpec (providers) call System.gc() back to back while other fibres allocate. commix
+ * grows the heap whenever a mark takes GC_TIME_RATIO, by default 0.05, or more of the time since the previous mark
+ * ended, and in that loop the only other time is the sweep, whose cost grows with the heap. Every test process of these
+ * modules therefore grew its heap until sweeping outweighed marking: 34 to 128 GB on a 128 GB Mac, and the whole memory
+ * of a CI runner, where a large allocation that misses its retries exits the process with "Out of heap space grow heap"
+ * (#65, #58). With 0.9 every storm process stayed under 400 MB locally, and BridgeSpec ran about 25 times faster. The
+ * value reaches every suite of the two test binaries. The app never loops on System.gc() and keeps the commix default.
+ * A GC_TIME_RATIO exported in the environment that starts the sbt server wins, for experiments and for the control arm
+ * of a CI comparison. Def.uncached, because the value depends on that environment, which sbt 2's cache does not see. */
+lazy val stormGcSettings: SettingsDefinition = List(
+  Test / envVars := Def.uncached(
+    (Test / envVars).value ++
+      sys.env.get("GC_TIME_RATIO").fold(Map("GC_TIME_RATIO" -> "0.9"))(_ => Map.empty[String, String])
+  )
+)
 
 /* Runs scripts/check-yieldpoints.sh conditional on the files and fails when any of them was linked with trap-based
  * yieldpoints (#44). The script prints the five symbol counts per file. */

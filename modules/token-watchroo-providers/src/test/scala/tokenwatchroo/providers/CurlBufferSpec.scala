@@ -27,6 +27,10 @@ import scala.scalanative.unsigned.*
   *     object that only a register referred to was freed while in use, and the storm suites failed on x86_64 (#63,
   *     upstream scala-native/scala-native#5048). The build compiles the GC with the patched `RegistersCapture.h` in
   *     `native-overrides/`.
+  *   - The storm keeps commix's mark-time ratio near 100 percent, so with the default `GC_TIME_RATIO` of 0.05 every
+  *     test process grew its heap to tens of gigabytes, or to a CI runner's whole memory, where a large allocation
+  *     then exited the process with `Out of heap space` (#65). `build.sbt` runs this module's test processes with
+  *     `GC_TIME_RATIO=0.9`.
   *   - Timeouts: the forced-collection storm runs several times slower under conditional yieldpoints on many-core
   *     machines (measured 2.2 times in mean and 4 times in the worst run on an 18-core Mac, 2026-09-20: this suite
   *     took 5.1 to 16.2 s against 3.8 to 4.9 s), while the app itself shows no cost, so `munitTimeout` is 120 s and
