@@ -21,8 +21,15 @@ A macOS menubar app that shows how much of each AI agent's usage window you have
 
 All business logic is Scala 3 compiled by Scala Native into a static library. A small Swift shell hosts it and owns the menubar item, the menu, notifications, and timers. There is **NO JVM at runtime**.
 
+<p align="center">
 <img width="394" height="460" alt="Token Watchroo - Light" src="https://github.com/user-attachments/assets/9bc47be3-fdcc-4871-8045-756c8df49d27" />
 <img width="394" height="460" alt="Token Watchroo - Dark" src="https://github.com/user-attachments/assets/d40b1874-cd7e-4f16-973f-f13d6fb24c1d" />
+</p>
+
+<p align="center">
+  <img width="358" height="100" alt="Token Watchroo - Notification (Light)" src="https://github.com/user-attachments/assets/01065ba4-547a-4661-9595-2fe2cb38b8eb" />
+  <img width="353" height="100" alt="Token Watchroo - Notification (Dark)" src="https://github.com/user-attachments/assets/191d3429-a6f7-4040-99dc-d9fa0a2c880f" />
+</p>
 
 
 ## Features (v1)
