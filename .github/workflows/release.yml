@@ -12,6 +12,8 @@ permissions:
 
 jobs:
   build:
+    # Explicit, so the check name does not change when a matrix field is added or removed (build.yml's arrangement).
+    name: build (${{ matrix.runner }}, ${{ matrix.arch }})
     strategy:
       # Each architecture builds on its own runner because Scala Native and swift build produce host-architecture
       # binaries. One architecture failing must not cancel the other: the surviving log tells whether a failure is
@@ -22,9 +24,11 @@ jobs:
           - runner: macos-26
             arch: arm64
             expected: arm64
+            issue67rerun: false
           - runner: macos-26-intel
             arch: x64
             expected: x86_64
+            issue67rerun: true
     runs-on: ${{ matrix.runner }}
     # Scala Native picks the GC yieldpoint mode at link time from this variable. The 0.5.12 GC loses a root of a thread
     # stopped by a trap-based yieldpoint, the release default, and frees live objects (#44, upstream
@@ -83,10 +87,71 @@ jobs:
           swift --version
           clang --version
 
-      # --server runs sbt in the foreground instead of the sbtn client: no background server is left behind for the
-      # bundle step to reuse with this step's (identity-less) environment.
+      # Before the tests, as in build.yml, so a test binary that dies has a proved link-time mode (#44) and the patched
+      # RegistersCapture.h (#63), and a real fault can be told apart from a stale link. The tasks link the three test
+      # binaries and the Test step's fresh sbt reuses those links. The archive and the bundle executable are checked
+      # after bundleApp. --server runs sbt in the foreground instead of the sbtn client, here and in every sbt step of
+      # this job: no background server is left behind for the bundle step to reuse with an identity-less environment.
+      - name: Verify yieldpoint mode and register capture (test binaries)
+        run: sbt --server "checkYieldpoints; checkRegistersCapture"
+
+      # testFull, not test: in sbt 2 `test` is the cached task, and the v0.1.2 release ran 3 tests with it (#60).
+      # GC_LOG_FILE is the only channel for GC output, and sbt --server keeps the test processes' stderr, so a failure
+      # leaves both. A passing Test step takes about a minute after the link above.
+      # x86_64 only: continue-on-error hands a failure to the next step, which judges it against #67's shapes. The job
+      # still fails unless that step accepts the failure and BridgeSpec then passes on its rerun.
       - name: Test
-        run: sbt --server "core/test; providers/test; app/test"
+        id: test
+        timeout-minutes: 12
+        continue-on-error: ${{ matrix.issue67rerun }}
+        env:
+          GC_LOG_FILE: ${{ github.workspace }}/test-evidence/gc.log
+        run: |
+          set -euo pipefail
+          mkdir -p test-evidence
+          sbt --server "core/testFull; providers/testFull; app/testFull" 2>&1 | tee test-evidence/attempt-1.log
+
+      # x86_64 only, until #67 is fixed: BridgeSpec fails there in about one run in 20 with a NullPointerException, a
+      # SIGSEGV at 0x0 or a 120 s hang, with small heaps. The first attempt's reports are kept, then the script accepts
+      # the failure only when BridgeSpec is the one failed test and its failure is one of those shapes. Anything else
+      # fails the release. Remove this step, the rerun, the issue67rerun field and scripts/check-issue-67-failure.sh with
+      # build.yml's x86_64 tolerance when #67 is fixed.
+      - name: Check the test failure against #67's shapes (x86_64)
+        id: issue67
+        if: steps.test.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          mkdir -p test-evidence/attempt-1-reports
+          find target/out -path '*/test-reports/*.xml' -exec cp {} test-evidence/attempt-1-reports/ \;
+          scripts/check-issue-67-failure.sh test-evidence/attempt-1.log test-evidence/attempt-1-reports
+          echo "::warning title=#67 rerun::BridgeSpec failed with a #67 shape, so it is rerun once. The first attempt is in the test-evidence artifact."
+
+      # testOnly reruns the suite every time. The last line makes sure the suite really ran, so a renamed suite cannot
+      # pass with no tests. sbt colours the suite name, so the pattern allows escape codes around it.
+      - name: Rerun BridgeSpec after a #67 failure (x86_64)
+        if: steps.test.outcome == 'failure'
+        timeout-minutes: 5
+        env:
+          GC_LOG_FILE: ${{ github.workspace }}/test-evidence/gc.log
+        run: |
+          set -euo pipefail
+          sbt --server "app/testOnly tokenwatchroo.app.BridgeSpec" 2>&1 | tee test-evidence/attempt-2.log
+          grep -q -E 'Test run .*tokenwatchroo\.app\.BridgeSpec.* finished: 0 failed, 0 ignored, [1-9][0-9]* total' test-evidence/attempt-2.log
+
+      # After any test failure, including one the rerun recovered from, so every #67 trip in a release leaves its log,
+      # reports and GC log. The attempt number keeps a re-run job from colliding with the failed job's artifact.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() && steps.test.outcome == 'failure' }}
+        with:
+          name: test-evidence-${{ matrix.arch }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-evidence/
+            target/out/**/test-reports/*.xml
+
+      # The Swift shell tests link the static library that swiftTest stages and gates itself, so they run before the
+      # signing certificate is imported. build.yml runs them too, but a release does not rely on a Build of its commit.
+      - name: Swift tests
+        run: sbt --server swiftTest
 
       # The certificate is imported only after the tests, so the keychain is unlocked for as few steps as possible.
       - name: Import the signing certificate
@@ -102,12 +167,11 @@ jobs:
       - name: Bundle (Developer ID)
         run: sbt --server bundleApp
 
-      # The link-time mode and the patched RegistersCapture.h are proved on the binaries themselves, as in build.yml
-      # (#44, #63). --server, as for the other sbt steps of this job, so no background server is left behind.
-      - name: Verify yieldpoint mode and register capture
+      # The staged archive and the bundle executable, which exist only once bundleApp has run (#44, #63). The three test
+      # binaries were checked before the Test step, as in build.yml.
+      - name: Verify yieldpoint mode and register capture (bundle)
         run: |
           set -euo pipefail
-          sbt --server "checkYieldpoints; checkRegistersCapture"
           scripts/check-yieldpoints.sh conditional swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
           scripts/check-registers-capture.sh swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
 
@@ -208,9 +272,11 @@ jobs:
       # For changelogs/<version>.md, which becomes the release note. No history needed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Only the DMGs and their checksums: a build job that hit a test failure also uploads test evidence.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
+          pattern: release-*
           merge-multiple: true
 
       - name: Check the artifacts
@@ -271,9 +337,11 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
 
+      # Only the DMGs and their checksums: a build job that hit a test failure also uploads test evidence.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
+          pattern: release-*
           merge-multiple: true
 
       - name: Update the cask
