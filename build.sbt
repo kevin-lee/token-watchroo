@@ -316,14 +316,15 @@ def checkRegistersCaptureOverride(base: File, files: List[File]): Unit = {
 
 def commonNativeConfig(base: File)(c: NativeConfig): NativeConfig = {
   val deploymentTarget = s"-mmacosx-version-min=${props.MinimumMacOsVersion}"
-  /* The interflow optimiser in release-fast mode miscompiles the poller's first tick since issue #3: the app never
-   * emitted a snapshot, deterministically, while the same code works with the optimiser off, in debug mode, and in
-   * release-full mode (verified 2026-09-12). The optimiser stays off until the trigger is bisected (#20). The optimiser
-   * does not remove the allocation behind #43 either, which is fixed by the patched `PosixThread` copy in
-   * `modules/token-watchroo-core/src/main/scala/java/lang/impl/`. */
+  /* The interflow optimiser is on. It was off from 2026-09-12 (#20), because the app's first poller tick never
+   * completed in release-fast with it on, while it did with the optimiser off, in debug mode and in release-full mode.
+   * That build linked with trap-based GC yieldpoints and without the patched `PosixThread`, and both have been worked
+   * around since (#44, #43). #20 re-tested the optimiser on this tree with the app and the storm suites on both
+   * architectures. The optimiser does not remove the allocation behind #43, so the patched `PosixThread` copy in
+   * `modules/token-watchroo-core/src/main/scala/java/lang/impl/` stays either way. */
   c.withLTO(LTO.none)
     .withMode(Mode.releaseFast)
-    .withOptimize(false)
+    .withOptimize(true)
     .withGC(GC.commix)
     .withCompileOptions(c.compileOptions :+ deploymentTarget)
     .withCOptions(c.cOptions :+ registersCaptureInclude(base))
