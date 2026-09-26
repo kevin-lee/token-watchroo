@@ -92,19 +92,17 @@ open "dist/Token Watchroo.app"
 
 ## Build and test
 
-Scala Native picks the Garbage Collector (GC) yieldpoint mode at link time from `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS`, and the 0.5.12 GC loses a root of a thread stopped by a trap-based yieldpoint, the release default, and frees live objects (#44, upstream [scala-native/scala-native#5046](https://github.com/scala-native/scala-native/issues/5046)). Every binary is therefore linked with conditional yieldpoints, and the build refuses to load unless the variable is `0` in the environment of the process that starts the sbt server. Nothing inside the build can set it, and that includes the server Metals starts.
+Scala Native picks the Garbage Collector (GC) yieldpoint mode at link time from `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS` in the environment of the sbt server, and the 0.5.12 GC loses a root of a thread stopped by a trap-based yieldpoint, the release default, and frees live objects (#44, upstream [scala-native/scala-native#5046](https://github.com/scala-native/scala-native/issues/5046)). Every binary is therefore linked with conditional yieldpoints, and no setup is needed for that: when the variable is not set, the build sets it to `0` in the sbt server's own environment at load and logs a line saying so (#72). The write needs the JVM option `--add-opens=java.base/java.util=ALL-UNNAMED`, which `.sbtopts` adds whenever sbt starts through the `sbt` script, including the servers Metals starts. A launcher that skips `.sbtopts`, such as `java -jar sbt-launch.jar`, gets a refusal at load instead, and then the variable has to be `0` in its environment. Any other value is refused unless the opt-out below is set.
+
+A target linked in one mode never relinks when only the mode changes, so switching modes needs a fresh server and fresh native folders:
 
 ```bash
-# in the shell profile, so that every sbt server inherits it
-export SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0
-
-# a server started without it has to go, and a target linked in the other mode never relinks for the variable
 sbt --client shutdown
 rm -rf target/out/native0.5/scala-3.8.4/*/native target/out/native0.5/scala-3.8.4/*/native-test
 sbt
 ```
 
-`stageNativeLib` checks the archive with `scripts/check-yieldpoints.sh` before staging it, so `bundleApp`, `runApp` and `swiftTest` fail on a trap-linked archive, and `sbt checkYieldpoints` checks the three test binaries, as the workflows do. `TW_ALLOW_TRAP_YIELDPOINTS=1` opts out of the load check and the archive gate for experiments that need a trap build. The variable, the checks and the script go together when a Scala Native release fixes #5046.
+`stageNativeLib` checks the archive with `scripts/check-yieldpoints.sh` before staging it, so `bundleApp`, `runApp` and `swiftTest` fail on a trap-linked archive, and `sbt checkYieldpoints` checks the three test binaries, as the workflows do. For experiments that need a trap build, set both `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=1` and `TW_ALLOW_TRAP_YIELDPOINTS=1`: the opt-out allows the `1` at load and skips the archive gate, and without the `1` the build still sets `0`. The variable handling, the checks and the script go together when a Scala Native release fixes #5046.
 
 On x86 and x86_64 the 0.5.12 GC never saves the callee-saved registers of a thread that goes Unmanaged, because `RegistersCapture` takes its buffer by value, so an object that only a register refers to can be freed while in use (#63, upstream [scala-native/scala-native#5048](https://github.com/scala-native/scala-native/pull/5048)). `native-overrides/scala-native-0.5.12/` holds a patched copy of that header, and `build.sbt` puts it on the C include path ahead of Scala Native's own. `stageNativeLib` checks the archive with `scripts/check-registers-capture.sh`, and `sbt checkRegistersCapture` checks the three test binaries, as the workflows do. Scala Native recompiles a C file only when that file or the build configuration changes, so after editing the copy remove the `native` and `native-test` folders as above before relinking. The build refuses another Scala Native version until the copy is compared with that version's header. The copy, the option, the checks and the script go together when a Scala Native release includes scala-native/scala-native#5048.
 
@@ -220,7 +218,7 @@ scripts/update-cask.sh <version> <arm64-sha256> <x64-sha256> <tap-checkout>
 
 ### Continuous integration
 
-`.github/workflows/build.yml` runs on pull requests and on pushes to `main`: the tests, an ad-hoc bundle, and a zipped bundle artifact.
+`.github/workflows/build.yml` runs on pull requests and on pushes to `main`: a load without the yieldpoint variable (#72), the tests, an ad-hoc bundle, and a zipped bundle artifact.
 
 `.github/workflows/release.yml` runs on a `vX.Y.Z` tag:
 

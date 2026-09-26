@@ -24,25 +24,17 @@ ThisBuild / scmInfo :=
 
 /* The Scala Native 0.5.12 GC loses a root of a thread stopped by a trap-based yieldpoint, the release default, and
  * frees live objects (#44, upstream scala-native/scala-native#5046: on CI 9 of 15 trap jobs failed against 0 of 15
- * linked with conditional yieldpoints). The mode is chosen at link time from SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS in
- * the environment of the process that started the sbt server, nothing inside the build can set it, and the incremental
- * check ignores it, so a server started without the variable would link and test every binary in the wrong mode for as
- * long as it lives. The check runs at load so that such a server never gets to work. TW_ALLOW_TRAP_YIELDPOINTS=1 opts
- * out for experiments that need a trap build and also skips the archive gate in stageNativeLib. Remove this check, that
- * gate, checkYieldpoints, scripts/check-yieldpoints.sh and the CI env together when a Scala Native release fixes #5046. */
-Global / onLoad := (Global / onLoad).value.andThen { state =>
-  val yieldpoints = sys.env.get("SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS")
-  val allowTraps  = sys.env.get("TW_ALLOW_TRAP_YIELDPOINTS").contains("1")
-  if (yieldpoints.contains("0") || allowTraps) state
-  else
-    sys.error(
-      s"""SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS is ${yieldpoints
-          .fold("not set")(v => s"'$v'")}, so Scala Native would link with trap-based yieldpoints, which the 0.5.12 GC corrupts (#44).
-         |Fix: export SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0 in the shell profile, run `sbt --client shutdown`, then start a fresh `sbt`.
-         |A target linked in the other mode never relinks for the variable: remove the native and native-test folders under target/out/native0.5/scala-3.8.4/*/ first.
-         |To build with trap-based yieldpoints on purpose, set TW_ALLOW_TRAP_YIELDPOINTS=1.""".stripMargin
-    )
-}
+ * linked with conditional yieldpoints). Scala Native reads the mode for every link from
+ * SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS in the environment of the sbt server, and its incremental checks ignore the
+ * variable, so a server with the wrong value would link and test every binary in the wrong mode for as long as it
+ * lives. project/GcYieldpoints.scala checks at load: 0 passes, no value becomes 0 in the server's own environment (#72,
+ * through the --add-opens option in .sbtopts), and any other value is refused unless TW_ALLOW_TRAP_YIELDPOINTS=1, which
+ * is for experiments that need a trap build and also skips the archive gate in stageNativeLib. A server that cannot set
+ * the value is refused as well. Remove this check, project/GcYieldpoints.scala, the .sbtopts line, that gate,
+ * checkYieldpoints, scripts/check-yieldpoints.sh and the CI env together when a Scala Native release fixes #5046. If a
+ * release adds a NativeConfig setting for the mode first, set it in commonNativeConfig and remove this check,
+ * project/GcYieldpoints.scala and the .sbtopts line, keeping the gates until #5046 is fixed. */
+Global / onLoad := (Global / onLoad).value.andThen(GcYieldpoints.checkOnLoad)
 
 /* Scala Native 0.5.12's RegistersCapture.h takes its buffer by value on x86 and x86_64, so the GC never scans the
  * callee-saved registers of a thread that goes Unmanaged, and on x86_64 it frees objects that only a register refers to
@@ -296,7 +288,7 @@ def checkYieldpointMode(base: File, files: List[File]): Unit = {
     sys.error(
       s"check-yieldpoints.sh exited with $exit: a binary was not linked with conditional GC yieldpoints (#44). " +
         "Run `sbt --client shutdown`, remove the native and native-test folders under target/out/native0.5/scala-3.8.4/*/, " +
-        "and start sbt with SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0."
+        "and start sbt with SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS unset or 0 (the build sets 0 when it is unset, #72)."
     )
   else ()
 }

@@ -1,2 +1,4 @@
 -J-Xmx4g
 -J-Xss4m
+# Lets project/GcYieldpoints.scala set SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0 in the sbt server's own environment (#72).
+-J--add-opens=java.base/java.util=ALL-UNNAMED
