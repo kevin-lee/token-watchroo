@@ -32,8 +32,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     # Scala Native picks the GC yieldpoint mode at link time from this variable. The 0.5.12 GC loses a root of a thread
     # stopped by a trap-based yieldpoint, the release default, and frees live objects (#44, upstream
-    # scala-native/scala-native#5046), so every binary is linked with conditional yieldpoints and build.sbt refuses to
-    # load without the variable. Remove it with the guards in build.sbt when a Scala Native release fixes #5046.
+    # scala-native/scala-native#5046), so every binary is linked with conditional yieldpoints. build.sbt sets the
+    # variable to 0 in the sbt server's own environment when it is unset (#72), and CI sets it here anyway, so no CI
+    # link depends on that. Remove it with the guards in build.sbt when a Scala Native release fixes #5046.
     env:
       SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS: "0"
     steps:
