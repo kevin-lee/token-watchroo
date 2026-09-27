@@ -95,17 +95,37 @@ jobs:
       # core is hedgehog, providers and app are munit, all on Scala Native, which needs macOS.
       # testFull, not test: in sbt 2 `test` is the cached task and runs nothing on a warm disk cache, so a green Build
       # used to mean the suite had not run rather than that it had passed (#60, #61).
-      # A passing Test step takes about 5 minutes. A hung test fails this step instead of using the whole job limit.
+      # --server runs this sbt in the foreground, as in release.yml. The server that the step above started in the
+      # background sends the test processes' stdout and stderr to /dev/null and keeps that step's environment, so it
+      # would lose a failed assertion's diff and an Unhandled signal line, and never see GC_LOG_FILE, the only channel
+      # for GC output (#73). The foreground sbt runs beside that idle server and reuses its links, and the later steps
+      # go on using the server. A passing Test step takes under a minute. A hung test fails this step instead of using
+      # the whole job limit.
+      # A green run uploads nothing, so the last two lines prove both channels instead: the GC opened its log, which
+      # stays empty when the GC has nothing to say, and the log has munit's own lines, kept only by a foreground sbt.
       - name: Test
+        id: test
         timeout-minutes: 12
-        run: sbt "core/testFull; providers/testFull; app/testFull"
+        env:
+          GC_LOG_FILE: ${{ github.workspace }}/test-evidence/gc.log
+        run: |
+          set -euo pipefail
+          mkdir -p test-evidence
+          sbt --server "core/testFull; providers/testFull; app/testFull" 2>&1 | tee test-evidence/test.log
+          test -f "$GC_LOG_FILE" || { echo "::error title=No GC log (#73)::GC_LOG_FILE did not reach the test processes"; exit 1; }
+          grep -q -E 'Test run .* finished: ' test-evidence/test.log || { echo "::error title=No test process output (#73)::the log has no line written by a test process"; exit 1; }
 
-      # The Scala Native test runner names only the failed suite in the log. The JUnit reports name each test case.
+      # After a test failure, including a hang that hit the step limit: the sbt log with the test processes' own output
+      # and exit lines, the GC log, and the JUnit reports, which name each test case where the log names only the failed
+      # suite. x86_64's job-level continue-on-error does not skip this step. The attempt number keeps a re-run job from
+      # colliding with the failed job's artifact (release.yml's arrangement).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
+        if: ${{ !cancelled() && steps.test.outcome == 'failure' }}
         with:
-          name: test-reports-${{ matrix.arch }}
-          path: target/out/**/test-reports/*.xml
+          name: test-evidence-${{ matrix.arch }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-evidence/
+            target/out/**/test-reports/*.xml
 
       - name: Bundle (ad-hoc)
         run: sbt bundleApp
