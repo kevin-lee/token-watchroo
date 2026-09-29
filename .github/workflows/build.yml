@@ -148,6 +148,24 @@ jobs:
           set -euo pipefail
           codesign --verify --deep --strict --verbose=2 "dist/Token Watchroo.app"
           plutil -p "dist/Token Watchroo.app/Contents/Info.plist"
+          # The bundle versions stay period-separated integers (Apple's format, and Sparkle (#71) compares
+          # CFBundleVersion), and the full sbt-dynver version the About panel shows starts with them (#77).
+          PLIST="dist/Token Watchroo.app/Contents/Info.plist"
+          FULL=$(plutil -extract TokenWatchrooVersion raw "$PLIST")
+          SHORT=$(plutil -extract CFBundleShortVersionString raw "$PLIST")
+          BUILD=$(plutil -extract CFBundleVersion raw "$PLIST")
+          if ! [[ "$SHORT" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "error: CFBundleShortVersionString is not period-separated integers: $SHORT"
+            exit 1
+          fi
+          if [ "$BUILD" != "$SHORT" ]; then
+            echo "error: CFBundleVersion $BUILD differs from CFBundleShortVersionString $SHORT"
+            exit 1
+          fi
+          if [ -z "$FULL" ] || [[ "$FULL" != "$SHORT"* ]]; then
+            echo "error: TokenWatchrooVersion '$FULL' does not start with CFBundleShortVersionString $SHORT"
+            exit 1
+          fi
           file "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo" | grep -q "${{ matrix.expected }}"
 
       # A directory artifact would drop the symlinks and modes inside the bundle.

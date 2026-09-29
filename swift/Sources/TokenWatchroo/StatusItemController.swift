@@ -122,6 +122,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         installMenu()
     }
 
+    @objc func showAbout(_ sender: Any?) {
+        About.show()
+    }
+
     @objc func quit(_ sender: Any?) {
         NSApp.terminate(nil)
     }

@@ -9,6 +9,7 @@ final class MenuBuilder {
     private static let sidePadding: CGFloat = 10
     static let waitingTitle = "Waiting for the first refresh…"
     static let noAgentTitle = "No agent detected. Run claude or codex once."
+    static let aboutTitle = "About Token Watchroo"
     /// The header is item 0.
     private static let bodyIndex = 1
 
@@ -49,6 +50,12 @@ final class MenuBuilder {
         launch.isEnabled = LaunchAtLogin.isAvailable
         launch.state = LaunchAtLogin.isEnabled ? .on : .off
         menu.addItem(launch)
+
+        menu.addItem(.separator())
+
+        let about = NSMenuItem(title: MenuBuilder.aboutTitle, action: #selector(StatusItemController.showAbout(_:)), keyEquivalent: "")
+        about.target = target
+        menu.addItem(about)
 
         menu.addItem(.separator())
 

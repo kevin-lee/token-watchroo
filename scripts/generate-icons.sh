@@ -7,6 +7,10 @@
 # compiled with actool (full Xcode 26) into assets/Assets.car (light, dark, and tintable icon stacks for macOS 26) and
 # assets/AppIcon.icns (the light appearance, used by macOS 14 and 15). Both outputs are committed, so the build never
 # runs this script and needs no Xcode.
+#
+# It also exports assets/AboutIcon-light.png and assets/AboutIcon-dark.png, the Default and Dark renditions of the
+# package, with Icon Composer's ictool for the About panel (#77): the bundle icon on macOS 26 follows the "Icon & widget
+# style" setting, and the panel's icon should follow the appearance instead.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,6 +20,13 @@ ASSETS="$ROOT/assets"
 
 if ! xcrun --find actool >/dev/null 2>&1; then
   echo "actool not found: install Xcode 26 and select it with xcode-select" >&2
+  exit 1
+fi
+
+# The ictool in Xcode's usr/bin is a different tool without --export-image.
+ICTOOL="$(xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool"
+if [ ! -x "$ICTOOL" ]; then
+  echo "ictool not found: install Xcode 26 with Icon Composer and select it with xcode-select" >&2
   exit 1
 fi
 
@@ -53,8 +64,22 @@ fi
 cp "$TMP/Assets.car" "$ASSETS/Assets.car"
 cp "$TMP/AppIcon.icns" "$ASSETS/AppIcon.icns"
 
+echo "==> exporting the About panel icons with ictool"
+for rendition in Default:light Dark:dark; do
+  out="$ASSETS/AboutIcon-${rendition#*:}.png"
+  rm -f "$out"
+  "$ICTOOL" "$ICON" --export-image --output-file "$out" --platform macOS --rendition "${rendition%%:*}" \
+    --width 256 --height 256 --scale 2 >/dev/null
+  if [ ! -f "$out" ]; then
+    echo "error: ictool produced no ${rendition%%:*} rendition: $out" >&2
+    exit 1
+  fi
+done
+
 echo "Done. Generated:"
 echo "  - $ICON/Assets/light.png"
 echo "  - $ICON/Assets/dark.png"
 echo "  - $ASSETS/Assets.car"
 echo "  - $ASSETS/AppIcon.icns"
+echo "  - $ASSETS/AboutIcon-light.png"
+echo "  - $ASSETS/AboutIcon-dark.png"
