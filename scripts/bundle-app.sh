@@ -7,7 +7,12 @@
 # SMAppService (Launch at Login) needs one too. Signing: with TW_SIGNING_IDENTITY set to a Developer ID Application
 # identity the bundle is signed with hardened runtime and a timestamp (releases, see scripts/notarize.sh). Unset, the
 # bundle is ad-hoc signed, which re-asks the keychain "Always Allow" grant after every rebuild (local builds, see the
-# design doc, section 9). The app icon comes from assets/, regenerated with scripts/generate-icons.sh.
+# design doc, section 9). The app icon and the About panel icons (#77) come from assets/, regenerated with
+# scripts/generate-icons.sh.
+#
+# Versions: <version> is the sbt-dynver version. CFBundleShortVersionString and CFBundleVersion get it stripped to
+# integers, because Apple documents both keys as period-separated integers only and Sparkle (#71) compares
+# CFBundleVersion. The full version goes to TokenWatchrooVersion, which the About panel shows (#77).
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
@@ -28,14 +33,25 @@ APP="$OUT_DIR/$APP_NAME.app"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ICON_ICNS="$ROOT/assets/AppIcon.icns"
 ICON_CAR="$ROOT/assets/Assets.car"
-for icon in "$ICON_ICNS" "$ICON_CAR"; do
+ABOUT_ICON_LIGHT="$ROOT/assets/AboutIcon-light.png"
+ABOUT_ICON_DARK="$ROOT/assets/AboutIcon-dark.png"
+for icon in "$ICON_ICNS" "$ICON_CAR" "$ABOUT_ICON_LIGHT" "$ABOUT_ICON_DARK"; do
   if [ ! -f "$icon" ]; then
     echo "error: app icon missing, run scripts/generate-icons.sh: $icon" >&2
     exit 1
   fi
 done
 
-# CFBundleShortVersionString must be dotted numbers: strip a leading v and any dynver suffix.
+# The full version for TokenWatchrooVersion (#77). It goes into the plist heredoc unescaped, so only the characters of
+# an sbt-dynver version are accepted, for example 1.2.3-beta or 0.1.2+5-0ee2f7d5+20260929-1530.
+FULL_VERSION="${VERSION#v}"
+if ! [[ "$FULL_VERSION" =~ ^[0-9A-Za-z.+-]+$ ]]; then
+  echo "error: version has characters a plist string cannot take as is: $FULL_VERSION" >&2
+  exit 1
+fi
+
+# CFBundleShortVersionString and CFBundleVersion must be period-separated integers (Apple's format, and Sparkle (#71)
+# compares CFBundleVersion): strip a leading v and any dynver suffix.
 SHORT_VERSION="${VERSION#v}"
 SHORT_VERSION="${SHORT_VERSION%%+*}"
 SHORT_VERSION="${SHORT_VERSION%%-*}"
@@ -48,7 +64,7 @@ if [ ! -x "$EXECUTABLE" ]; then
   exit 1
 fi
 
-echo "==> assembling $APP ($SHORT_VERSION, $BUNDLE_ID)"
+echo "==> assembling $APP ($FULL_VERSION, bundle version $SHORT_VERSION, $BUNDLE_ID)"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$EXECUTABLE" "$APP/Contents/MacOS/$EXEC_NAME"
@@ -57,6 +73,7 @@ chmod +x "$APP/Contents/MacOS/$EXEC_NAME"
 echo "==> app icon"
 cp "$ICON_ICNS" "$APP/Contents/Resources/AppIcon.icns"
 cp "$ICON_CAR" "$APP/Contents/Resources/Assets.car"
+cp "$ABOUT_ICON_LIGHT" "$ABOUT_ICON_DARK" "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -81,6 +98,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>$SHORT_VERSION</string>
     <key>CFBundleVersion</key>
     <string>$SHORT_VERSION</string>
+    <key>TokenWatchrooVersion</key>
+    <string>$FULL_VERSION</string>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>LSMinimumSystemVersion</key>
@@ -88,7 +107,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSUIElement</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
-    <string>MIT License</string>
+    <string>Copyright © 2026 Kevin Lee. MIT License.</string>
 </dict>
 </plist>
 PLIST

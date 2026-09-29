@@ -226,8 +226,8 @@ jobs:
           scripts/checksum.sh "${DMGS[0]}"
 
       # Fail the release if the app inside the image is not Developer ID signed with hardened runtime, accepted by
-      # Gatekeeper, stapled, built for this runner's architecture, linked with conditional GC yieldpoints (#44), and
-      # compiled with the patched RegistersCapture.h (#63).
+      # Gatekeeper, stapled, built for this runner's architecture, linked with conditional GC yieldpoints (#44),
+      # compiled with the patched RegistersCapture.h (#63), and carrying the tag's version for the About panel (#77).
       - name: Verify the DMG
         run: |
           set -euo pipefail
@@ -244,6 +244,11 @@ jobs:
           xcrun stapler validate "$APP"
           xcrun stapler validate "$DMG"
           file "$APP/Contents/MacOS/TokenWatchroo" | grep -q "${{ matrix.expected }}"
+          FULL=$(plutil -extract TokenWatchrooVersion raw "$APP/Contents/Info.plist")
+          if [ "$FULL" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "error: TokenWatchrooVersion '$FULL' is not the tag's version ${GITHUB_REF_NAME#v}"
+            exit 1
+          fi
           scripts/check-yieldpoints.sh conditional "$APP/Contents/MacOS/TokenWatchroo"
           scripts/check-registers-capture.sh "$APP/Contents/MacOS/TokenWatchroo"
           (cd dist && shasum -a 256 -c ./*.sha256)
