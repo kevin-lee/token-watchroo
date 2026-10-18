@@ -24,6 +24,7 @@ object CodecsSpec extends Properties {
     example("amounts write plain decimals and reject negatives and non-numbers", testAmounts),
     example("currency encodes as the code or credits and rejects lower-case codes", testCurrency),
     example("an agent without spend leaves spend out of the JSON", testSpendOmitted),
+    example("observedAt is written when present and left out when absent", testObservedAt),
   )
 
   def testSpendRoundTrip: Property =
@@ -64,6 +65,20 @@ object CodecsSpec extends Properties {
         codecs.readEither[Currency]("\"USDT\"").isLeft ==== true,
       )
     )
+
+  def testObservedAt: Result = {
+    val at       = EpochSeconds(1789185600L)
+    val without  = Fixtures.available(AgentId.Codex, at, Fixtures.window(WindowId.Session, 10.0d, at.some))
+    val withTime = without.copy(observedAt = EpochSeconds(1790565092L).some)
+    Result.all(
+      List(
+        codecs.write(withTime).contains(""""observedAt":1790565092""") ==== true,
+        codecs.write(without).contains(""""observedAt"""") ==== false,
+        codecs.readEither[AgentSnapshot](codecs.write(withTime)) ==== withTime.asRight[DecodeError],
+        codecs.readEither[AgentSnapshot](codecs.write(without)) ==== without.asRight[DecodeError],
+      )
+    )
+  }
 
   def testSpendOmitted: Result = {
     val at = EpochSeconds(1789185600L)

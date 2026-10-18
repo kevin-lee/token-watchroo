@@ -3,7 +3,9 @@ package tokenwatchroo.core
 import cats.syntax.all.*
 
 /** Decides which notifications to fire for a snapshot. Pure, deterministic, and idempotent: applying the same snapshot
-  * twice emits nothing the second time.
+  * twice emits nothing the second time. Windows that expired at `now` are not observed, so stale values never fire
+  * (issue #81). Their records stay until `prune` drops them, so the reset alert still fires when the next window
+  * arrives.
   */
 object AlertEngine {
 
@@ -17,7 +19,7 @@ object AlertEngine {
     val observations =
       for {
         agent    <- snapshot.agents.filter(_.isAvailable)
-        window   <- agent.windows
+        window   <- agent.windows.filterNot(_.isExpiredAt(now))
         resetsAt <- window.resetsAt.toList
       } yield (agent.id, window, resetsAt)
 

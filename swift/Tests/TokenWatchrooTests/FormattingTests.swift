@@ -28,4 +28,21 @@ final class FormattingTests: XCTestCase {
         let brisbane = try XCTUnwrap(TimeZone(identifier: "Australia/Brisbane"))
         XCTAssertEqual(Formatting.resetsOn(epoch: 1790812800, locale: Self.enUS, timeZone: brisbane), "resets Thu, Oct 1")
     }
+
+    func testObservedAtShowsTheLocalDateAndTime() throws {
+        let brisbane = try XCTUnwrap(TimeZone(identifier: "Australia/Brisbane"))
+        XCTAssertEqual(Formatting.observedAt(epoch: 1790565092, locale: Self.enUS, timeZone: brisbane), "Sep 28 at 13:11")
+    }
+
+    func testLocalLogNoteShowsOnlyTheKnownParts() throws {
+        let brisbane = try XCTUnwrap(TimeZone(identifier: "Australia/Brisbane"))
+        XCTAssertEqual(Formatting.localLogNote(observedAt: 1790565092, error: "Network error: curl 6", locale: Self.enUS,
+                                               timeZone: brisbane),
+                       "from local log (Sep 28 at 13:11) · Network error: curl 6")
+        XCTAssertEqual(Formatting.localLogNote(observedAt: nil, error: "Network error: curl 6", locale: Self.enUS,
+                                               timeZone: brisbane),
+                       "from local log · Network error: curl 6")
+        XCTAssertEqual(Formatting.localLogNote(observedAt: nil, error: nil, locale: Self.enUS, timeZone: brisbane),
+                       "from local log")
+    }
 }

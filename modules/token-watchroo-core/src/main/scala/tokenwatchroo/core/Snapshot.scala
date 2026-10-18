@@ -13,5 +13,5 @@ final case class Snapshot(
 
 object Snapshot {
   def of(updatedAt: EpochSeconds, agents: List[AgentSnapshot]): Snapshot =
-    Snapshot(updatedAt, agents, MenubarState.derive(agents))
+    Snapshot(updatedAt, agents, MenubarState.derive(agents, updatedAt))
 }

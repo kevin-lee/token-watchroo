@@ -23,7 +23,22 @@ class CodexRolloutFilesSpec extends munit.FunSuite {
     write(dir.resolve("sessions/2026/09/12/notes.txt"), "ignored\n", 1_700_000_200_000L)
     val home   = CodexHome(NonEmptyString.unsafeFrom(dir.toString))
     val newest = CodexRolloutFiles.newest(home).unsafeRunSync()
-    assertEquals(newest.map(_.getFileName.toString), Some("newer.jsonl"))
+    assertEquals(
+      newest.map {
+        case RolloutLog.Plain(p) => p.getFileName.toString
+        case RolloutLog.Compressed(p) => p.getFileName.toString
+      },
+      Some("newer.jsonl")
+    )
+  }
+
+  test("a newer compressed log wins and is marked compressed") {
+    val dir        = Files.createTempDirectory("tw-rollouts-zst")
+    val compressed = dir.resolve("sessions/2026/09/12/newer.jsonl.zst")
+    write(dir.resolve("sessions/2026/09/11/older.jsonl"), "old\n", 1_700_000_000_000L)
+    write(compressed, "zst\n", 1_700_000_100_000L)
+    val home       = CodexHome(NonEmptyString.unsafeFrom(dir.toString))
+    assertEquals(CodexRolloutFiles.newest(home).unsafeRunSync(), Some(RolloutLog.Compressed(compressed)))
   }
 
   test("the rate limits come from streaming the log, and the last line that carries them wins") {
@@ -33,14 +48,14 @@ class CodexRolloutFilesSpec extends munit.FunSuite {
       List("not json", Fakes.rolloutLine, """{"type":"other"}""").mkString("", "\n", "\n"),
       1_700_000_000_000L
     )
-    val latest = CodexRolloutFiles.latestRateLimits(path).unsafeRunSync()
+    val latest = CodexRolloutFiles.latestEvent(path).unsafeRunSync()
     assert(latest.isDefined, "no rate limits read from the log")
-    assertEquals(latest, CodexRollout.latestRateLimits(Iterator(Fakes.rolloutLine)))
+    assertEquals(latest, CodexRollout.latestEvent(Iterator(Fakes.rolloutLine)))
   }
 
   test("a missing log gives none") {
     val missing = Files.createTempDirectory("tw-rollout-missing").resolve("never-written.jsonl")
-    assertEquals(CodexRolloutFiles.latestRateLimits(missing).unsafeRunSync(), None)
+    assertEquals(CodexRolloutFiles.latestEvent(missing).unsafeRunSync(), None)
   }
 
   test("a home without sessions gives none") {

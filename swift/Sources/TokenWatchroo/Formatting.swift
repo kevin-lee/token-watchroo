@@ -71,6 +71,27 @@ enum Formatting {
         return "resets \(formatter.string(from: Date(timeIntervalSince1970: TimeInterval(epoch))))"
     }
 
+    /// The right side of a window row whose reset time has passed (issue #81).
+    static let expiredWindow = "reset · no newer data"
+
+    /// "Sep 28 at 13:11": when local-log data was recorded.
+    static func observedAt(epoch: Int64, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.setLocalizedDateFormatFromTemplate("MMMd HH:mm")
+        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(epoch)))
+    }
+
+    /// "from local log (Sep 28 at 13:11) · Network error: curl 6", with each part only when it is known.
+    static func localLogNote(observedAt epoch: Int64?, error: String?, locale: Locale = .current,
+                             timeZone: TimeZone = .current) -> String {
+        var note = "from local log"
+        if let epoch { note += " (\(observedAt(epoch: epoch, locale: locale, timeZone: timeZone)))" }
+        if let error { note += " · \(error)" }
+        return note
+    }
+
     private static let localTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale.current

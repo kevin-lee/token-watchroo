@@ -15,6 +15,8 @@ object AgentStatusSpec extends Properties {
     example("spend thresholds", testSpendThresholds),
     example("no windows and no spend is unavailable", testNoWindowsNoSpend),
     property("status over windows and spend equals the status over the maximum percent", testWindowsAndSpend),
+    property("at is of over the windows that have not expired", testAt),
+    example("an expired window does not count", testExpired),
   )
 
   private val now = EpochSeconds(1789185600L)
@@ -111,4 +113,24 @@ object AgentStatusSpec extends Properties {
         .fold(AgentStatus.unavailable)(max => ofWindows(List(Fixtures.window(WindowId.Session, max.value, now.some))))
       AgentStatus.of(windows, spend) ==== expected
     }
+
+  def testAt: Property =
+    for {
+      windows <- Fixtures.genAgentWindows.log("windows")
+    } yield AgentStatus.at(windows, none[Spend], now) ==== AgentStatus.of(
+      windows.filterNot(_.isExpiredAt(now)),
+      none[Spend]
+    )
+
+  def testExpired: Result = {
+    val expiredSession = Fixtures.window(WindowId.Session, 90.0d, EpochSeconds(now.value - 1L).some)
+    val expiredWeekly  = Fixtures.window(WindowId.Weekly, 10.0d, EpochSeconds(now.value - 1L).some)
+    val runningWeekly  = Fixtures.window(WindowId.Weekly, 10.0d, EpochSeconds(now.value + 100L).some)
+    Result.all(
+      List(
+        AgentStatus.at(List(expiredSession, runningWeekly), none[Spend], now) ==== AgentStatus.Ok,
+        AgentStatus.at(List(expiredSession, expiredWeekly), none[Spend], now) ==== AgentStatus.Unavailable,
+      )
+    )
+  }
 }

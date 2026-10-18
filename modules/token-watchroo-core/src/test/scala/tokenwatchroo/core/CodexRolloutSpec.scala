@@ -13,6 +13,7 @@ object CodexRolloutSpec extends Properties {
     example("window minutes become seconds and plan_type becomes the label", testWindows),
     example("an empty log gives none", testEmpty),
     example("withLine keeps the latest rate limits for a line without any", testWithLine),
+    example("the line timestamp becomes observedAt", testObservedAt),
   )
 
   private val tokenFirst =
@@ -28,7 +29,8 @@ object CodexRolloutSpec extends Properties {
     """{"timestamp":"2026-07-16T16:05:42.263Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":19737,"cached_input_tokens":3840,"output_tokens":179,"reasoning_output_tokens":57,"total_tokens":19916},"total_token_usage":{"input_tokens":19737,"cached_input_tokens":3840,"output_tokens":179,"reasoning_output_tokens":57,"total_tokens":19916}},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":10.0,"window_minutes":10080,"resets_at":1784793140},"secondary":null,"credits":{"has_credits":false,"unlimited":false,"balance":"0"},"individual_limit":null,"plan_type":"prolite","rate_limit_reached_type":null}}}"""
 
   def testLatest: Result = {
-    val latest = CodexRollout.latestRateLimits(List(tokenFirst, limitNull, tokenFirst, limitModel).iterator)
+    val latest =
+      CodexRollout.latestEvent(List(tokenFirst, limitNull, tokenFirst, limitModel).iterator).map(_.rateLimits)
     Result.all(
       List(
         latest.flatMap(_.primary).flatMap(_.resetsAt) ==== Some(1777487853L),
@@ -38,12 +40,14 @@ object CodexRolloutSpec extends Properties {
   }
 
   def testSkipped: Result = {
-    val latest = CodexRollout.latestRateLimits(List(limitNull, "not json", tokenFirst, """{"type":"other"}""").iterator)
+    val latest = CodexRollout
+      .latestEvent(List(limitNull, "not json", tokenFirst, """{"type":"other"}""").iterator)
+      .map(_.rateLimits)
     latest.flatMap(_.primary).flatMap(_.usedPercent) ==== Some(17.0d)
   }
 
   def testWindows: Result = {
-    val latest  = CodexRollout.latestRateLimits(List(limitStringBalance).iterator)
+    val latest  = CodexRollout.latestEvent(List(limitStringBalance).iterator).map(_.rateLimits)
     val windows = latest.map(_.toWindows).getOrElse(Nil)
     Result.all(
       List(
@@ -58,15 +62,18 @@ object CodexRolloutSpec extends Properties {
   }
 
   def testWithLine: Result = {
-    val latest = CodexRollout.latestRateLimits(List(limitModel).iterator)
+    val latest = CodexRollout.latestEvent(List(limitModel).iterator)
     Result.all(
       List(
         CodexRollout.withLine(latest, "not json") ==== latest,
         CodexRollout.withLine(latest, tokenFirst) ==== latest,
-        CodexRollout.withLine(latest, limitNull) ==== CodexRollout.latestRateLimits(List(limitNull).iterator),
+        CodexRollout.withLine(latest, limitNull) ==== CodexRollout.latestEvent(List(limitNull).iterator),
       )
     )
   }
 
-  def testEmpty: Result = CodexRollout.latestRateLimits(Iterator.empty) ==== none[CodexRolloutRateLimits]
+  def testEmpty: Result = CodexRollout.latestEvent(Iterator.empty) ==== none[CodexRolloutEvent]
+
+  def testObservedAt: Result =
+    CodexRollout.latestEvent(List(limitNull).iterator).flatMap(_.observedAt) ==== Some(EpochSeconds(1777449548L))
 }

@@ -39,7 +39,7 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 - A card per agent: plan badge (for Claude Code the live plan with the Max multiplier or the Team seat, such as "Max 5x" or "Team Premium"), status pill, session and weekly bars, one more bar per model-specific weekly window on Claude Code (for example "Weekly (Fable)"), reset countdowns in your local time zone.
 - System notifications, deduplicated per window so a restart never repeats one.
 - An app icon with light and dark appearances on macOS 26 (the dark one with the Dark icon style, light only on macOS 14 and 15), and a ring thumbnail on every notification showing the alert's percent.
-- Codex keeps working offline from its local rollout logs when the usage endpoint fails.
+- Codex keeps working offline from its local rollout logs when the usage endpoint fails. Windows that have reset since the log was written show as reset, and a log older than 7 days is not used.
 - Menu items: Refresh now, Launch at Login, About Token Watchroo, Quit.
 
 ## Limitations (v1)
