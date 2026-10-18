@@ -97,4 +97,19 @@ final class EnvelopeDecoderTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(reason(decode(Self.snapshotWithoutMenubar))).logMessage,
                        "dropped envelope: reason=undecodable-body type=snapshot seq=7 path=data.menubar detail=missing key")
     }
+
+    func testObservedAtDecodesWhenPresentAndIsNilWhenAbsent() throws {
+        let withTime = #"{"version":1,"type":"snapshot","seq":2,"data":{"updatedAt":1,"agents":[{"id":"codex","status":"unavailable","source":"local-log","fetchedAt":1,"observedAt":1790565092}],"menubar":{"kind":"unavailable"}}}"#
+        guard case .success(.snapshot(_, let snapshot)) = decode(withTime) else {
+            return XCTFail("expected a snapshot")
+        }
+        XCTAssertEqual(snapshot.agents.first?.observedAt, 1790565092)
+
+        let withoutTime = #"{"version":1,"type":"snapshot","seq":3,"data":{"updatedAt":1,"agents":[{"id":"codex","status":"ok","fetchedAt":1}],"menubar":{"kind":"normal"}}}"#
+        guard case .success(.snapshot(_, let other)) = decode(withoutTime) else {
+            return XCTFail("expected a snapshot")
+        }
+        XCTAssertEqual(other.agents.count, 1)
+        XCTAssertNil(other.agents.first?.observedAt)
+    }
 }

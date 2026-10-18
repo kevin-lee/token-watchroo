@@ -11,7 +11,8 @@ import tokenwatchroo.core.providers.{CodexOAuth, CodexUsageResponse}
 /** Codex on a ChatGPT plan: `auth.json` token, then the usage endpoint, with the rollout logs as a fallback. A response
   * without `rate_limit` gives a credits spend meter, and a response with neither windows nor spend falls back too. On
   * a 429 after a good fetch the last good API snapshot for the same token comes back with the rate-limit text in
-  * `error`, ahead of the rollout log; every other API error falls back to the log (issue #51).
+  * `error`, ahead of the rollout log; every other API error falls back to the log (issue #51). Local-log windows that
+  * have reset do not count for the status, and a compressed newest log gives Unavailable (issue #81).
   */
 final class CodexProvider private (
   http: HttpClient,
@@ -52,7 +53,7 @@ final class CodexProvider private (
               case Right(snapshot) => lastGood.set(LastGoodSnapshot(oauth.accessToken, snapshot).some).as(snapshot)
               case Left(ProviderError.RateLimited) =>
                 lastGood.get.flatMap {
-                  _.flatMap(_.carriedFor(oauth.accessToken, CodexProvider.RateLimitedNote)) match {
+                  _.flatMap(_.carriedFor(oauth.accessToken, CodexProvider.RateLimitedNote, now)) match {
                     case Some(carried) => IO.pure(carried)
                     case None => fromLocalLog(home, now, ProviderError.RateLimited)
                   }
@@ -89,21 +90,27 @@ final class CodexProvider private (
 
   /** The newest rollout log's last rate-limit snapshot, marked as coming from the local log with the API error kept. */
   private def fromLocalLog(home: CodexHome, now: EpochSeconds, apiError: ProviderError): IO[AgentSnapshot] =
-    rollouts
-      .newest(home)
-      .flatMap(_.flatTraverse(rollouts.latestRateLimits))
-      .map {
-        case Some(rateLimits) =>
-          AgentSnapshot.available(
-            id,
-            rateLimits.planLabel,
-            UsageMeters(rateLimits.toWindows, none[Spend]),
-            Source.LocalLog,
-            now,
-            apiError.toErrorMessage(CodexProvider.Cli).some,
-          )
-        case None => AgentSnapshot.unavailable(id, now, apiError.toErrorMessage(CodexProvider.Cli))
-      }
+    rollouts.newest(home).flatMap {
+      case None => IO.pure(AgentSnapshot.unavailable(id, now, apiError.toErrorMessage(CodexProvider.Cli)))
+      case Some(RolloutLog.Compressed(_)) =>
+        IO.pure(AgentSnapshot.unavailable(id, now, CodexProvider.compressedNote(apiError)))
+      case Some(RolloutLog.Plain(path)) =>
+        rollouts.latestEvent(path).map {
+          case Some(event) =>
+            AgentSnapshot
+              .available(
+                id,
+                event.rateLimits.planLabel,
+                UsageMeters(event.rateLimits.toWindows, none[Spend]),
+                Source.LocalLog,
+                now,
+                apiError.toErrorMessage(CodexProvider.Cli).some,
+              )
+              .copy(observedAt = event.observedAt)
+              .withStatusAt(now)
+          case None => AgentSnapshot.unavailable(id, now, apiError.toErrorMessage(CodexProvider.Cli))
+        }
+    }
 
   private def headers(oauth: CodexOAuth): List[(String, String)] =
     List("Authorization" -> s"Bearer ${oauth.accessToken.value.value}", "Accept" -> "application/json") ++
@@ -116,6 +123,11 @@ object CodexProvider {
   val UsageUrl: String = "https://chatgpt.com/backend-api/wham/usage"
 
   private val RateLimitedNote: ErrorMessage = ProviderError.rateLimited.toErrorMessage(Cli)
+
+  val CompressedLogText: String = "The newest Codex log is compressed, so it is more than 7 days old."
+
+  def compressedNote(apiError: ProviderError): ErrorMessage =
+    ErrorMessage.fromString(s"${apiError.message(Cli)}. $CompressedLogText").getOrElse(apiError.toErrorMessage(Cli))
 
   def userAgent(appVersion: String): UserAgent =
     UserAgent(NonEmptyString.unsafeFrom(s"token-watchroo/${appVersion.trim}"))

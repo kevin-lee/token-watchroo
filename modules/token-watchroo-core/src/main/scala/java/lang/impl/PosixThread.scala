@@ -38,8 +38,8 @@ import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
 private[java] class PosixThread(
-    val thread: Thread,
-    userDefinedStackSize: scala.Long
+  val thread: Thread,
+  userDefinedStackSize: scala.Long
 ) extends NativeThread {
   import NativeThread._
   import PosixThread._
@@ -51,20 +51,20 @@ private[java] class PosixThread(
     osDefaultStackSize = PosixThread.defaultOSStackSize
   )
 
-  private lazy val _state = new scala.Array[scala.Byte](StateSize)
+  private lazy val _state                               = new scala.Array[scala.Byte](StateSize)
   // token-watchroo #43: boxed once here, so `lock` and `condition` allocate nothing while the park mutex is held.
   // Computed unconditionally, so a single-threaded build also allocates `_state` per thread, which is harmless.
-  private val lockPtr: Ptr[pthread_mutex_t] =
+  private val lockPtr: Ptr[pthread_mutex_t]             =
     _state.at(LockOffset).asInstanceOf[Ptr[pthread_mutex_t]]
-  private val relativeCondition: Ptr[pthread_cond_t] =
+  private val relativeCondition: Ptr[pthread_cond_t]    =
     _state.at(ConditionsOffset).asInstanceOf[Ptr[pthread_cond_t]]
-  private val absoluteCondition: Ptr[pthread_cond_t] = fromRawPtr(
+  private val absoluteCondition: Ptr[pthread_cond_t]    = fromRawPtr(
     elemRawPtr(toRawPtr(relativeCondition), toRawSize(pthread_cond_t_size))
   )
   @volatile private[impl] var sleepInterruptEvent: CInt = UnsetEvent
-  @volatile private var counter: Int = 0
+  @volatile private var counter: Int                    = 0
   // index of currently used condition
-  @volatile private var conditionIdx = ConditionUnset
+  @volatile private var conditionIdx                    = ConditionUnset
 
   if (isMultithreadingEnabled) {
     // Init locks/conditions before starting the thread
@@ -89,7 +89,7 @@ private[java] class PosixThread(
         "Multithreading support disabled - cannot create new threads"
       )
     else {
-      val id = stackalloc[pthread_t]()
+      val id    = stackalloc[pthread_t]()
       val attrs = stackalloc[Byte](pthread_attr_t_size)
         .asInstanceOf[Ptr[pthread_attr_t]]
 
@@ -125,10 +125,10 @@ private[java] class PosixThread(
   }
 
   override def setPriority(
-      priority: CInt
+    priority: CInt
   ): Unit = if (isMultithreadingEnabled) {
     val schedParam = stackalloc[sched_param]()
-    val policy = stackalloc[CInt]()
+    val policy     = stackalloc[CInt]()
     if (0 == pthread_getschedparam(handle, policy, schedParam)) {
       schedParam.priority = priorityMapping(priority, !policy)
       pthread_setschedparam(handle, !policy, schedParam)
@@ -141,16 +141,16 @@ private[java] class PosixThread(
     // for Thread.sleep
     if (sleepInterruptEvent != UnsetEvent) {
       val eventSize = 8.toUInt
-      val buf = stackalloc[Byte](eventSize)
+      val buf       = stackalloc[Byte](eventSize)
       !buf = 1
       write(sleepInterruptEvent, buf, eventSize)
     }
   }
 
   protected def park(
-      // BEWARE: Contract: ((time == 0) & !isAbsolute) means wait Infinite time
-      time: Long, // if isAbsolute millis else nanos.
-      isAbsolute: Boolean
+    // BEWARE: Contract: ((time == 0) & !isAbsolute) means wait Infinite time
+    time: Long, // if isAbsolute millis else nanos.
+    isAbsolute: Boolean
   ): Unit = if (isMultithreadingEnabled) {
     // fast-path check, return if can skip parking
     if (counterAtomic.exchange(0) > 0) return
@@ -176,8 +176,7 @@ private[java] class PosixThread(
         conditionIdx == ConditionUnset,
         s"condition idx: $conditionIdx, expected=$ConditionUnset"
       )
-      wasWaitingOnMonitorEnter =
-        state == NativeThread.State.WaitingOnMonitorEnter
+      wasWaitingOnMonitorEnter = state == NativeThread.State.WaitingOnMonitorEnter
       if (time == 0) {
         conditionIdx = ConditionRelativeIdx
         if (!wasWaitingOnMonitorEnter)
@@ -212,7 +211,7 @@ private[java] class PosixThread(
 
   override def unpark(): Unit = if (isMultithreadingEnabled) {
     pthread_mutex_lock(lock)
-    val s = counter
+    val s     = counter
     counter = 1
     val index = conditionIdx
     pthread_mutex_unlock(lock)
@@ -229,7 +228,7 @@ private[java] class PosixThread(
   private def sleepInterruptible(_millis: Long): Unit = {
     import scala.scalanative.posix.pollOps._
 
-    var millis = _millis
+    var millis   = _millis
     if (millis <= 0) return
     val deadline = System.currentTimeMillis() + millis
 
@@ -247,7 +246,7 @@ private[java] class PosixThread(
       try
         while (millis > 0) {
           state = State.ParkedWaitingTimed
-          poll(fds, 1.toUInt, (millis min Int.MaxValue).toInt)
+          poll(fds, 1.toUInt, (millis.min(Int.MaxValue)).toInt)
           state = State.Running
           if (Thread.interrupted()) throw new InterruptedException()
 
@@ -261,12 +260,12 @@ private[java] class PosixThread(
   }
 
   private def sleepNonInterruptible(
-      millis: scala.Long,
-      nanos: scala.Int
+    millis: scala.Long,
+    nanos: scala.Int
   ): Unit = {
     @tailrec def doSleep(requestedTime: Ptr[timespec]): Unit = {
       val remaining = stackalloc[timespec]()
-      val status = nanosleep(requestedTime, remaining)
+      val status    = nanosleep(requestedTime, remaining)
       if (!thread.isInterrupted()) {
         if (status == -1 && errno == EINTR)
           doSleep(remaining)
@@ -282,7 +281,7 @@ private[java] class PosixThread(
   }
 
   override def sleepNanos(nanos: Int): Unit = {
-    val millis = nanos / NanosInMillisecond
+    val millis         = nanos / NanosInMillisecond
     val remainingNanos = nanos % NanosInMillisecond
     if (millis > 0) sleepInterruptible(millis)
     if (!thread.isInterrupted() && remainingNanos > 0) {
@@ -303,8 +302,8 @@ private[java] class PosixThread(
   )
 
   @inline private def priorityMapping(
-      threadPriority: Int,
-      schedulerPolicy: CInt
+    threadPriority: Int,
+    schedulerPolicy: CInt
   ): Int = {
 
     // min and max priority usually defines behavior for SCHED_FIFO or
@@ -320,9 +319,9 @@ private[java] class PosixThread(
     val maxPriority = sched_get_priority_max(schedulerPolicy)
     assert(errno == 0, "Failed to resolve priority range")
 
-    val priorityRange = maxPriority - minPriority
+    val priorityRange     = maxPriority - minPriority
     val javaPriorityRange = Thread.MAX_PRIORITY - Thread.MIN_PRIORITY
-    val priority =
+    val priority          =
       (((threadPriority - Thread.MIN_PRIORITY) * priorityRange) / javaPriorityRange) + minPriority
     assert(
       priority >= minPriority && priority <= maxPriority,
@@ -331,19 +330,19 @@ private[java] class PosixThread(
     priority
   }
 
-  final val MillisInSecond = 1000L
+  final val MillisInSecond     = 1000L
   final val NanosInMillisecond = 1000000L
-  final val NanosInSecond = 1000000000L
+  final val NanosInSecond      = 1000000000L
 
   private def fillTimespec(
-      timespec: Ptr[timespec],
-      millis: Long, // Only two callers; each guarantees >= 0
-      nanos: Long // pre-condition: in range [0, NanosInSecond)
+    timespec: Ptr[timespec],
+    millis: Long, // Only two callers; each guarantees >= 0
+    nanos: Long // pre-condition: in range [0, NanosInSecond)
   ) = {
     timespec.tv_sec = (millis / MillisInSecond).toSize
 
     val remainderNanos = (millis % MillisInSecond) * NanosInMillisecond
-    val sumNanos = remainderNanos + nanos
+    val sumNanos       = remainderNanos + nanos
 
     timespec.tv_nsec =
       if (sumNanos < NanosInSecond) sumNanos.toSize
@@ -354,8 +353,8 @@ private[java] class PosixThread(
   }
 
   private def calculateRelativeTime(
-      abstime: Ptr[timespec],
-      timeout: Long // nanos, full Long range, caller checked >= 0
+    abstime: Ptr[timespec],
+    timeout: Long // nanos, full Long range, caller checked >= 0
   ) = {
 
     val seconds = timeout / NanosInSecond
@@ -363,7 +362,7 @@ private[java] class PosixThread(
     val clock =
       if (!PosixThread.usesClockMonotonicCondAttr) CLOCK_REALTIME
       else CLOCK_MONOTONIC
-    val now = stackalloc[timespec]()
+    val now   = stackalloc[timespec]()
 
     clock_gettime(clock, now)
 
@@ -389,9 +388,9 @@ private[java] class PosixThread(
   }
 
   private def toAbsoluteTime(
-      abstime: Ptr[timespec],
-      timeout: Long, // if isAbsolute millis else nanos. Caller checked >= 0.
-      isAbsolute: Boolean
+    abstime: Ptr[timespec],
+    timeout: Long, // if isAbsolute millis else nanos. Caller checked >= 0.
+    isAbsolute: Boolean
   ) = {
     if (isAbsolute) fillTimespec(abstime, timeout, 0)
     else calculateRelativeTime(abstime, timeout)
@@ -447,7 +446,7 @@ private[lang] object PosixThread extends NativeThread.Companion {
   override lazy val defaultOSStackSize: Long = {
     if (!isMultithreadingEnabled) 0L
     else {
-      val attrs = stackalloc[Byte](pthread_attr_t_size)
+      val attrs     = stackalloc[Byte](pthread_attr_t_size)
         .asInstanceOf[Ptr[pthread_attr_t]]
       pthread_attr_init(attrs)
       val stackSize = stackalloc[CSize]()
@@ -457,23 +456,23 @@ private[lang] object PosixThread extends NativeThread.Companion {
   }
 
   // PosixThread class state
-  @alwaysinline private def LockOffset = 0
-  @alwaysinline private def ConditionsOffset = pthread_mutex_t_size.toInt
-  @alwaysinline private def ConditionUnset = -1
+  @alwaysinline private def LockOffset           = 0
+  @alwaysinline private def ConditionsOffset     = pthread_mutex_t_size.toInt
+  @alwaysinline private def ConditionUnset       = -1
   @alwaysinline private def ConditionRelativeIdx = 0
   @alwaysinline private def ConditionAbsoluteIdx = 1
-  private def StateSize =
+  private def StateSize                          =
     (pthread_mutex_t_size + pthread_cond_t_size * 2.toUInt).toInt
 
   // PosixThread companion class state
   @alwaysinline private def ConditionRelativeAttrOffset = 0
-  @alwaysinline private def MutexAttrOffset = pthread_condattr_t_size.toInt
-  def CompanionStateSize =
+  @alwaysinline private def MutexAttrOffset             = pthread_condattr_t_size.toInt
+  def CompanionStateSize                                =
     (pthread_condattr_t_size + pthread_mutexattr_t_size).toInt
 
   @alwaysinline private def checkStatus(
-      label: => String,
-      expectedStatus: CInt = 0
+    label: => String,
+    expectedStatus: CInt = 0
   )(status: CInt) = {
     if (status != expectedStatus)
       throw new RuntimeException(

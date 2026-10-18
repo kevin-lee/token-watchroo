@@ -19,6 +19,7 @@ object AlertEngineSpec extends Properties {
     example("records older than 8 days are pruned", testPrune),
     example("per-model windows alert with their own copy and identifier", testPerModelCopy),
     example("a spend-only agent emits no alerts and keeps no records", testSpendOnly),
+    example("an expired window fires nothing", testExpired),
   )
 
   def testSpendOnly: Result = {
@@ -168,5 +169,10 @@ object AlertEngineSpec extends Properties {
     val (state, _)  = AlertEngine.step(AlertState.empty, claude(85.0d, old, old), old)
     val (pruned, _) = AlertEngine.step(state, Fixtures.snapshot(now), now)
     Result.all(List(state.records.size ==== 1, pruned.records.size ==== 0))
+  }
+
+  def testExpired: Result = {
+    val (_, alerts) = AlertEngine.step(AlertState.empty, claude(96.0d, EpochSeconds(now.value - 1L), now), now)
+    alerts ==== Nil
   }
 }

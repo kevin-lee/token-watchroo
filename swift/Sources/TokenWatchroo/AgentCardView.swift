@@ -33,7 +33,7 @@ final class AgentCardView: NSView {
     static func height(for agent: AgentSnapshot) -> CGFloat {
         let body: CGFloat
         if agent.status == .unavailable {
-            body = noteHeight * 2
+            body = noteHeight * (agent.source == .localLog ? 3 : 2)
         } else {
             let rows = CGFloat(max(agent.renderedWindows.count + (agent.spend == nil ? 0 : 1), 1))
             body = rows * (rowHeight + rowGap + barHeight) + (rows - 1) * blockGap
@@ -66,7 +66,9 @@ final class AgentCardView: NSView {
         y += AgentCardView.headerHeight + AgentCardView.blockGap
 
         if agent.status == .unavailable {
-            let text = agent.error ?? "Unavailable"
+            let text = agent.source == .localLog
+                ? "No current usage · " + Formatting.localLogNote(observedAt: agent.observedAt, error: agent.error)
+                : agent.error ?? "Unavailable"
             draw(text, at: NSPoint(x: p, y: y), font: .systemFont(ofSize: 11), color: Palette.secondaryText,
                  maxWidth: bounds.width - 2 * p)
             return
@@ -86,7 +88,7 @@ final class AgentCardView: NSView {
 
         if agent.source == .localLog {
             y += AgentCardView.rowGap
-            let note = agent.error.map { "from local log · \($0)" } ?? "from local log"
+            let note = Formatting.localLogNote(observedAt: agent.observedAt, error: agent.error)
             draw(note, at: NSPoint(x: p, y: y), font: .systemFont(ofSize: 11), color: Palette.secondaryText,
                  maxWidth: bounds.width - 2 * p)
         } else if let error = agent.error {
@@ -131,7 +133,12 @@ final class AgentCardView: NSView {
         left.draw(at: NSPoint(x: p, y: y))
 
         let right = NSMutableAttributedString()
-        if window.isIdle {
+        let expired = window.isExpired(now: now)
+        if expired {
+            right.append(NSAttributedString(string: Formatting.expiredWindow, attributes: [
+                .font: NSFont.systemFont(ofSize: 12), .foregroundColor: Palette.secondaryText,
+            ]))
+        } else if window.isIdle {
             right.append(NSAttributedString(string: "idle", attributes: [
                 .font: NSFont.systemFont(ofSize: 12), .foregroundColor: Palette.secondaryText,
             ]))
@@ -150,7 +157,7 @@ final class AgentCardView: NSView {
         }
         right.draw(at: NSPoint(x: bounds.width - p - right.size().width, y: y))
 
-        drawBar(percent: window.usedPercent, normalFill: window.id == .session ? Palette.sessionFill : Palette.weeklyFill,
+        drawBar(percent: expired ? 0 : window.usedPercent, normalFill: window.id == .session ? Palette.sessionFill : Palette.weeklyFill,
                 at: y + AgentCardView.rowHeight + AgentCardView.rowGap)
     }
 

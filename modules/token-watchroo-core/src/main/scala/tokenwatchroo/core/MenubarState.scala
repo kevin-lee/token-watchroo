@@ -52,12 +52,12 @@ object MenubarState {
 
   val unavailable: MenubarState = MenubarState(MenubarKind.Unavailable, none[UsedPercent], none[EpochSeconds])
 
-  /** The ring shows the highest usage across the windows and spends of the available agents. An exhausted window or
-    * spend wins and carries the soonest reset among the exhausted ones.
+  /** The ring shows the highest usage across the windows and spends of the available agents, without windows that
+    * expired at `now`. An exhausted window or spend wins and carries the soonest reset among the exhausted ones.
     */
-  def derive(agents: List[AgentSnapshot]): MenubarState = {
+  def derive(agents: List[AgentSnapshot], now: EpochSeconds): MenubarState = {
     val available = agents.filter(_.isAvailable)
-    val windows   = available.flatMap(_.windows)
+    val windows   = available.flatMap(_.windows).filterNot(_.isExpiredAt(now))
     val spends    = available.flatMap(_.spend.toList)
     (windows.map(_.usedPercent) ++ spends.map(_.usedPercent)) match {
       case Nil => unavailable

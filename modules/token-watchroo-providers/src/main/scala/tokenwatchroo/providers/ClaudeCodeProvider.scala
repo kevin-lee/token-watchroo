@@ -51,7 +51,7 @@ final class ClaudeCodeProvider private (
             lastGood
               .get
               .map(
-                _.flatMap(_.carriedFor(oauth.accessToken, ClaudeCodeProvider.RateLimitedNote))
+                _.flatMap(_.carriedFor(oauth.accessToken, ClaudeCodeProvider.RateLimitedNote, now))
                   .getOrElse(unavailable(now, ProviderError.RateLimited))
               )
           case Left(

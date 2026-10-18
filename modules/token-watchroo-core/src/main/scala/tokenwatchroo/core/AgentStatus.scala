@@ -51,4 +51,8 @@ object AgentStatus {
         else if (maxPercent >= Thresholds.warning) AgentStatus.Warning
         else AgentStatus.Ok
     }
+
+  /** `of` over the windows that have not expired at `now`. */
+  def at(windows: List[UsageWindow], spend: Option[Spend], now: EpochSeconds): AgentStatus =
+    of(windows.filterNot(_.isExpiredAt(now)), spend)
 }

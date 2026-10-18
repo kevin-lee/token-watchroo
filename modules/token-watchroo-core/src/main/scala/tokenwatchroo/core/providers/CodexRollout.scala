@@ -53,30 +53,47 @@ final case class CodexRolloutPayload(
 
 /** One line of a Codex rollout log under `~/.codex/sessions`. */
 final case class CodexRolloutLine(
+  timestamp: Option[String],
   @named("type") kind: Option[String],
   payload: Option[CodexRolloutPayload],
 ) derives CanEqual,
       Eq,
       Show
 
+/** The rate limits of one `token_count` line and the line's own `timestamp`. */
+final case class CodexRolloutEvent(
+  rateLimits: CodexRolloutRateLimits,
+  observedAt: Option[EpochSeconds],
+) derives CanEqual,
+      Eq,
+      Show
+
 object CodexRollout {
 
-  /** The last `event_msg` line whose `token_count` payload carries `rate_limits`. Malformed lines are skipped. */
-  def latestRateLimits(lines: Iterator[String]): Option[CodexRolloutRateLimits] =
-    lines.foldLeft(none[CodexRolloutRateLimits])(withLine)
-
-  /** One step of [[latestRateLimits]]: the rate limits of `line` if it carries any, else `latest`. A caller that
-    * streams a log folds with it, so the log is never held in memory whole (#65).
+  /** The last `event_msg` line whose `token_count` payload carries `rate_limits`, as an event. Malformed lines are
+    * skipped.
     */
-  def withLine(latest: Option[CodexRolloutRateLimits], line: String): Option[CodexRolloutRateLimits] =
-    rateLimitsOf(line).orElse(latest)
+  def latestEvent(lines: Iterator[String]): Option[CodexRolloutEvent] =
+    lines.foldLeft(none[CodexRolloutEvent])(withLine)
 
-  private def rateLimitsOf(line: String): Option[CodexRolloutRateLimits] =
+  /** One step of [[latestEvent]]: the event of `line` if it carries rate limits, else `latest`. A caller that streams a
+    * log folds with it, so the log is never held in memory whole (#65).
+    */
+  def withLine(latest: Option[CodexRolloutEvent], line: String): Option[CodexRolloutEvent] =
+    eventOf(line).orElse(latest)
+
+  private def eventOf(line: String): Option[CodexRolloutEvent] =
     codecs
       .readEither[CodexRolloutLine](line)
       .toOption
       .filter(_.kind.contains("event_msg"))
-      .flatMap(_.payload)
-      .filter(_.kind.contains("token_count"))
-      .flatMap(_.rateLimits)
+      .flatMap { rolloutLine =>
+        rolloutLine
+          .payload
+          .filter(_.kind.contains("token_count"))
+          .flatMap(_.rateLimits)
+          .map(rateLimits =>
+            CodexRolloutEvent(rateLimits, rolloutLine.timestamp.flatMap(Iso8601.parseToEpochSeconds(_).toOption))
+          )
+      }
 }

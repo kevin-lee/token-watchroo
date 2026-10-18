@@ -102,6 +102,9 @@ struct UsageWindow: Decodable {
     let windowLength: Int64?
 
     var isIdle: Bool { resetsAt == nil }
+
+    /// The reset time has passed: the percent is from a window that no longer runs (issue #81).
+    func isExpired(now: Date) -> Bool { resetsAt.map { $0 < Int64(now.timeIntervalSince1970) } ?? false }
 }
 
 /// Mirrors `Spend` in the core (issue #33). Amounts are decimal strings on the wire so they never pass through a
@@ -149,6 +152,7 @@ struct AgentSnapshot: Decodable {
     let source: Source?
     let fetchedAt: Int64
     let error: String?
+    let observedAt: Int64?
 
     var renderedWindows: [UsageWindow] { windows.filter { $0.id.isRendered } }
 }
@@ -156,7 +160,7 @@ struct AgentSnapshot: Decodable {
 extension AgentSnapshot {
 
     private enum CodingKeys: String, CodingKey {
-        case id, planLabel, status, windows, spend, source, fetchedAt, error
+        case id, planLabel, status, windows, spend, source, fetchedAt, error, observedAt
     }
 
     /// A missing `windows` decodes as no windows, as for `Snapshot.agents`. A missing `spend` is no spend.
@@ -170,6 +174,7 @@ extension AgentSnapshot {
         source = try container.decodeIfPresent(Source.self, forKey: .source)
         fetchedAt = try container.decode(Int64.self, forKey: .fetchedAt)
         error = try container.decodeIfPresent(String.self, forKey: .error)
+        observedAt = try container.decodeIfPresent(Int64.self, forKey: .observedAt)
     }
 }
 

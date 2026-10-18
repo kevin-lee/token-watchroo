@@ -61,7 +61,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(Fakes.ok(UsageFixtures.codexRateLimitNullNoSpend)),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine)))
+      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLineCurrent)))
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))
@@ -115,7 +115,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(ProviderError.network("curl 6").asLeft),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine)))
+      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLineCurrent)))
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))
@@ -123,6 +123,50 @@ class CodexProviderSpec extends munit.FunSuite {
     assertEquals(snapshot.planLabel.map(_.value.value), Some("Prolite"))
     assertEquals(snapshot.windows.map(_.usedPercent.value), List(17.0d, 6.0d))
     assertEquals(snapshot.error.map(_.value.value), Some("Network error: curl 6"))
+    assertEquals(snapshot.observedAt, Some(EpochSeconds(1789182000L)))
+  }
+
+  test("an API failure with an expired rollout log is unavailable and keeps the windows") {
+    val p        = provider(
+      new Fakes.FakeHttp(ProviderError.network("curl 6").asLeft),
+      new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
+      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine)))
+    )
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    assertEquals(snapshot.status, AgentStatus.Unavailable)
+    assertEquals(snapshot.source, Some(Source.LocalLog))
+    assertEquals(snapshot.windows.map(_.usedPercent.value), List(17.0d, 6.0d))
+    assertEquals(snapshot.error.map(_.value.value), Some("Network error: curl 6"))
+  }
+
+  test("a compressed newest log is unavailable with the compressed note") {
+    val p        = provider(
+      new Fakes.FakeHttp(ProviderError.network("curl 6").asLeft),
+      new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
+      Fakes.FakeCompressedRollout
+    )
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    assertEquals(snapshot.status, AgentStatus.Unavailable)
+    assertEquals(snapshot.source, None)
+    assertEquals(snapshot.error.map(_.value.value), Some(s"Network error: curl 6. ${CodexProvider.CompressedLogText}"))
+  }
+
+  test("a 429 carry recomputes the status at the new time") {
+    val (first, second) =
+      withRouting(
+        Fakes.ok(Fakes.codexUsage),
+        new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
+        new Fakes.FakeRollouts(None),
+      ) { (p, http) =>
+        for {
+          first  <- fetch(p, Fakes.now, FetchTrigger.Scheduled)
+          _      <- http.set(UsageUrl, ProviderError.rateLimited.asLeft)
+          second <- fetch(p, at(1500L), FetchTrigger.Scheduled)
+        } yield (first, second)
+      }
+    assertEquals(first.status, AgentStatus.Warning)
+    assertEquals(second.status, AgentStatus.Ok)
+    assertEquals(second.windows, first.windows)
   }
 
   test("an API failure without any rollout log is unavailable") {
@@ -161,7 +205,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(ProviderError.rateLimited.asLeft),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine)))
+      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLineCurrent)))
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))

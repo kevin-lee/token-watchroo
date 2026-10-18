@@ -15,6 +15,7 @@ object MenubarStateSpec extends Properties {
     example("an exhausted per-model window drives the ring", testExhaustedPerModel),
     property("the ring shows the maximum over windows and spends of available agents", testMaximumWithSpends),
     example("an exhausted spend drives the ring and carries its reset", testExhaustedSpend),
+    example("expired windows are ignored", testExpiredIgnored),
   )
 
   private val now = EpochSeconds(1789185600L)
@@ -36,8 +37,9 @@ object MenubarStateSpec extends Properties {
         ),
         Fixtures.withSpend(AgentId.Codex, now, codexSpend),
       )
-      val percents = claude.map(_.usedPercent) ++ claudeSpend.map(_.usedPercent).toList :+ codexSpend.usedPercent
-      MenubarState.derive(agents).usedPercent ==== percents.maxOption(using cats.Order[UsedPercent].toOrdering)
+      val percents = claude.filterNot(_.isExpiredAt(now)).map(_.usedPercent) ++
+        claudeSpend.map(_.usedPercent).toList :+ codexSpend.usedPercent
+      MenubarState.derive(agents, now).usedPercent ==== percents.maxOption(using cats.Order[UsedPercent].toOrdering)
     }
 
   def testExhaustedSpend: Result = {
@@ -47,7 +49,7 @@ object MenubarStateSpec extends Properties {
       Fixtures.available(AgentId.ClaudeCode, now, Fixtures.window(WindowId.Session, 40.0d, now.some)),
       Fixtures.withSpend(AgentId.Codex, now, spend),
     )
-    val derived = MenubarState.derive(agents)
+    val derived = MenubarState.derive(agents, now)
     Result.all(
       List(
         derived.kind ==== MenubarKind.Exhausted,
@@ -64,8 +66,11 @@ object MenubarStateSpec extends Properties {
     } yield {
       val agents   =
         List(Fixtures.available(AgentId.ClaudeCode, now, claude*), Fixtures.available(AgentId.Codex, now, codex*))
-      val expected = (claude ++ codex).map(_.usedPercent).maxOption(using cats.Order[UsedPercent].toOrdering)
-      MenubarState.derive(agents).usedPercent ==== expected
+      val expected = (claude ++ codex)
+        .filterNot(_.isExpiredAt(now))
+        .map(_.usedPercent)
+        .maxOption(using cats.Order[UsedPercent].toOrdering)
+      MenubarState.derive(agents, now).usedPercent ==== expected
     }
 
   def testExhausted: Result = {
@@ -78,7 +83,7 @@ object MenubarStateSpec extends Properties {
       ),
       Fixtures.available(AgentId.Codex, now, Fixtures.window(WindowId.Session, 100.0d, EpochSeconds(1789187000L).some)),
     )
-    val derived = MenubarState.derive(agents)
+    val derived = MenubarState.derive(agents, now)
     Result.all(
       List(
         derived.kind ==== MenubarKind.Exhausted,
@@ -93,7 +98,7 @@ object MenubarStateSpec extends Properties {
       Fixtures.unavailable(AgentId.ClaudeCode, now),
       Fixtures.available(AgentId.Codex, now, Fixtures.window(WindowId.Session, 82.0d, now.some)),
     )
-    val derived = MenubarState.derive(agents)
+    val derived = MenubarState.derive(agents, now)
     Result.all(List(derived.kind ==== MenubarKind.Warning, derived.usedPercent ==== Some(UsedPercent.clamp(82.0d))))
   }
 
@@ -108,7 +113,7 @@ object MenubarStateSpec extends Properties {
         Fixtures.window(fable, 100.0d, EpochSeconds(1789400000L).some),
       )
     )
-    val derived = MenubarState.derive(agents)
+    val derived = MenubarState.derive(agents, now)
     Result.all(
       List(
         derived.kind ==== MenubarKind.Exhausted,
@@ -121,8 +126,21 @@ object MenubarStateSpec extends Properties {
   def testNoAgents: Result =
     Result.all(
       List(
-        MenubarState.derive(Nil) ==== MenubarState.unavailable,
-        MenubarState.derive(List(Fixtures.unavailable(AgentId.Codex, now))) ==== MenubarState.unavailable,
+        MenubarState.derive(Nil, now) ==== MenubarState.unavailable,
+        MenubarState.derive(List(Fixtures.unavailable(AgentId.Codex, now)), now) ==== MenubarState.unavailable,
       )
     )
+
+  def testExpiredIgnored: Result = {
+    val agents  = List(
+      Fixtures.available(
+        AgentId.Codex,
+        now,
+        Fixtures.window(WindowId.Session, 96.0d, EpochSeconds(now.value - 1L).some),
+        Fixtures.window(WindowId.Weekly, 20.0d, EpochSeconds(now.value + 100L).some),
+      )
+    )
+    val derived = MenubarState.derive(agents, now)
+    Result.all(List(derived.kind ==== MenubarKind.Normal, derived.usedPercent ==== Some(UsedPercent.clamp(20.0d))))
+  }
 }

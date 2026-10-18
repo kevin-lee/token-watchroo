@@ -8,7 +8,7 @@ import java.nio.file.Path
 import refined4s.types.all.*
 import scala.concurrent.duration.FiniteDuration
 import tokenwatchroo.core.*
-import tokenwatchroo.core.providers.{CodexOAuth, CodexRollout, CodexRolloutRateLimits}
+import tokenwatchroo.core.providers.{CodexOAuth, CodexRollout, CodexRolloutEvent}
 
 /** Test doubles for everything a provider touches outside the process. */
 object Fakes {
@@ -49,6 +49,11 @@ object Fakes {
   val codexUsage: String =
     """{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":82,"limit_window_seconds":18000,"reset_at":1789187040},"secondary_window":{"used_percent":55,"limit_window_seconds":604800,"reset_at":1789617600}}}"""
 
+  /** A rollout line from 2026-09-12T03:00:00Z whose windows reset after `now`. */
+  val rolloutLineCurrent: String =
+    """{"timestamp":"2026-09-12T03:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","primary":{"used_percent":17.0,"window_minutes":300,"resets_at":1789196400},"secondary":{"used_percent":6.0,"window_minutes":10080,"resets_at":1789617600},"plan_type":"prolite"}}}"""
+
+  /** A rollout line from April 2026 whose windows reset before `now`. */
   val rolloutLine: String =
     """{"timestamp":"2026-04-29T07:59:08.887Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","primary":{"used_percent":17.0,"window_minutes":300,"resets_at":1777477636},"secondary":{"used_percent":6.0,"window_minutes":10080,"resets_at":1777960801},"plan_type":"prolite"}}}"""
 
@@ -155,9 +160,17 @@ object Fakes {
   }
 
   final class FakeRollouts(lines: Option[List[String]]) extends RolloutFiles {
-    override def newest(codexHome: CodexHome): IO[Option[Path]] = IO.pure(lines.map(_ => Path.of("fake.jsonl")))
-    override def latestRateLimits(path: Path): IO[Option[CodexRolloutRateLimits]] =
-      IO.pure(lines.flatMap(ls => CodexRollout.latestRateLimits(ls.iterator)))
+    override def newest(codexHome: CodexHome): IO[Option[RolloutLog]]   =
+      IO.pure(lines.map(_ => RolloutLog.Plain(Path.of("fake.jsonl"))))
+    override def latestEvent(path: Path): IO[Option[CodexRolloutEvent]] =
+      IO.pure(lines.flatMap(ls => CodexRollout.latestEvent(ls.iterator)))
+  }
+
+  /** The newest rollout log is compressed, so nothing is ever read from it. */
+  object FakeCompressedRollout extends RolloutFiles {
+    override def newest(codexHome: CodexHome): IO[Option[RolloutLog]]   =
+      IO.pure(RolloutLog.Compressed(Path.of("fake.jsonl.zst")).some)
+    override def latestEvent(path: Path): IO[Option[CodexRolloutEvent]] = IO.pure(none[CodexRolloutEvent])
   }
 
   val codexOAuth: CodexOAuth =
