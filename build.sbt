@@ -54,6 +54,23 @@ Global / onLoad := (Global / onLoad).value.andThen { state =>
     )
 }
 
+/* Scala Native 0.5.12's javalib `SynchronousQueue` throws a NullPointerException when an offer meets a timed poll that
+ * has just timed out, and in cats-effect that kills a compute worker and the fiber on it (#83).
+ * modules/token-watchroo-core/src/main/scala/java/util/concurrent/SynchronousQueue.scala is a corrected copy, which the
+ * linker takes ahead of javalib's. The copy belongs to the javalib it was taken from, so another Scala Native version is
+ * refused until the copy is compared with the new file. Remove this check and the copy together when a Scala Native
+ * release includes the fix. */
+lazy val synchronousQueueOverrideVersion = "0.5.12"
+
+Global / onLoad := (Global / onLoad).value.andThen { state =>
+  if (nativeVersion == synchronousQueueOverrideVersion) state
+  else
+    sys.error(
+      s"""Scala Native is $nativeVersion, but modules/token-watchroo-core/src/main/scala/java/util/concurrent/SynchronousQueue.scala corrects the $synchronousQueueOverrideVersion javalib file (#83).
+         |If this Scala Native release fixes SynchronousQueue, delete the copy and this check. Otherwise diff the copy against the new javalib file and update synchronousQueueOverrideVersion.""".stripMargin
+    )
+}
+
 lazy val tokenWatchroo = (project in file("."))
   .settings(name := props.ProjectName)
   .settings(noPublish)
@@ -90,10 +107,10 @@ lazy val core = module("core")
   )
   .settings(nativeSettings)
   .settings(
-    /* src/main/scala/java/lang/impl/PosixThread.scala is upstream Scala Native code, compiled without `-Werror`
-     * there. Its warnings (discarded `CInt` results, a non-exhaustive `@switch`) are silenced instead of fixed, so that
-     * the diff against upstream stays small. */
-    Compile / scalacOptions += "-Wconf:src=java/lang/impl/.*:silent"
+    /* src/main/scala/java/lang/impl/PosixThread.scala (#43) and src/main/scala/java/util/concurrent/SynchronousQueue.scala
+     * (#83) are upstream Scala Native code, compiled without `-Werror` there. Their warnings are silenced instead of
+     * fixed, so that the diff against upstream stays small. */
+    Compile / scalacOptions += "-Wconf:src=java/(lang/impl|util/concurrent)/.*:silent"
   )
 
 lazy val providers = module("providers")

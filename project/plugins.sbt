@@ -11,8 +11,9 @@ addSbtPlugin("io.kevinlee" % "sbt-devoops-starter" % sbtDevOopsVersion)
 
 addSbtPlugin("com.github.sbt" % "sbt-dynver" % "5.1.1")
 
-/* modules/token-watchroo-core/src/main/scala/java/lang/impl/PosixThread.scala is a patched copy of this
- * version's javalib file (#43), and native-overrides/scala-native-0.5.12/immix_commix/RegistersCapture.h of its
- * nativelib header (#63, build.sbt refuses another version). On an upgrade, diff both against the new sources before
- * changing the version. */
+/* modules/token-watchroo-core/src/main/scala/java/lang/impl/PosixThread.scala (#43) and
+ * modules/token-watchroo-core/src/main/scala/java/util/concurrent/SynchronousQueue.scala (#83, build.sbt refuses
+ * another version) are patched copies of this version's javalib files, and
+ * native-overrides/scala-native-0.5.12/immix_commix/RegistersCapture.h of its nativelib header (#63, build.sbt refuses
+ * another version). On an upgrade, diff all three against the new sources before changing the version. */
 addSbtPlugin("org.scala-native"   % "sbt-scala-native"              % "0.5.12")
