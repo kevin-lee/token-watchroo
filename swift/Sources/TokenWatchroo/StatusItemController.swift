@@ -7,6 +7,7 @@ import AppKit
 final class StatusItemController: NSObject, NSMenuDelegate {
 
     private let core: Core
+    private let updater: Updater?
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let builder = MenuBuilder()
 
@@ -19,8 +20,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private static let staleAfter: TimeInterval = 30
 
-    init(core: Core) {
+    init(core: Core, updater: Updater? = nil) {
         self.core = core
+        self.updater = updater
         super.init()
         render()
         installMenu()
@@ -70,7 +72,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: menu
 
     private func installMenu() {
-        let menu = builder.rebuild(snapshot: snapshot, receivedAt: receivedAt, target: self)
+        let menu = builder.rebuild(snapshot: snapshot, receivedAt: receivedAt, target: self,
+                                   canCheckForUpdates: updater?.canCheckForUpdates ?? false)
         menu.delegate = self
         item.menu = menu
         rebuildPending = false
@@ -78,6 +81,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         menuIsOpen = true
+        builder.setCanCheckForUpdates(updater?.canCheckForUpdates ?? false)
         if let receivedAt, Date().timeIntervalSince(receivedAt) > StatusItemController.staleAfter {
             core.refresh()
         } else if receivedAt == nil {
@@ -124,6 +128,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc func showAbout(_ sender: Any?) {
         About.show()
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        updater?.checkForUpdates()
     }
 
     @objc func quit(_ sender: Any?) {

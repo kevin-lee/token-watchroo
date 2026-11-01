@@ -74,15 +74,15 @@ final class StatusItemControllerTests: XCTestCase {
         controller.apply(snapshot: Self.snapshot([codex]))
         XCTAssertIdentical(controller.statusMenu, menu)
         assertCards(in: menu, match: [codex])
-        XCTAssertEqual(menu.items.count, 9)
+        XCTAssertEqual(menu.items.count, 10)
 
         controller.apply(snapshot: Self.snapshot([claude, codex]))
         assertCards(in: menu, match: [claude, codex])
-        XCTAssertEqual(menu.items.count, 10)
+        XCTAssertEqual(menu.items.count, 11)
 
         controller.apply(snapshot: Self.snapshot([claude]))
         assertCards(in: menu, match: [claude])
-        XCTAssertEqual(menu.items.count, 9)
+        XCTAssertEqual(menu.items.count, 10)
     }
 
     @MainActor
@@ -97,12 +97,12 @@ final class StatusItemControllerTests: XCTestCase {
         assertCards(in: menu, match: [])
         XCTAssertEqual(menu.items[1].title, MenuBuilder.noAgentTitle)
         XCTAssertFalse(menu.items[1].isEnabled)
-        XCTAssertEqual(menu.items.count, 9)
+        XCTAssertEqual(menu.items.count, 10)
         XCTAssertEqual(controller.menubarLabel, " --")
 
         controller.apply(snapshot: Self.snapshot([]))
         XCTAssertEqual(menu.items.filter { $0.title == MenuBuilder.noAgentTitle }.count, 1)
-        XCTAssertEqual(menu.items.count, 9)
+        XCTAssertEqual(menu.items.count, 10)
     }
 
     @MainActor
@@ -121,7 +121,7 @@ final class StatusItemControllerTests: XCTestCase {
 
         controller.apply(snapshot: Self.snapshot([claude, codex]))
         assertCards(in: menu, match: [claude, codex])
-        XCTAssertEqual(menu.items.count, 10)
+        XCTAssertEqual(menu.items.count, 11)
     }
 
     @MainActor
@@ -155,22 +155,26 @@ final class StatusItemControllerTests: XCTestCase {
         let after = try XCTUnwrap(controller.statusMenu)
         XCTAssertNotIdentical(after, menu)
         assertCards(in: after, match: [codex])
-        XCTAssertEqual(after.items.count, 9)
+        XCTAssertEqual(after.items.count, 10)
     }
 
     @MainActor
-    func testTheAboutItemSitsInItsOwnGroupAboveQuit() throws {
+    func testTheAboutGroupSitsAboveQuit() throws {
         let controller = StatusItemController(core: .shared)
         controller.apply(snapshot: Self.snapshot([Self.claude()]))
         let items = try XCTUnwrap(controller.statusMenu).items
-        XCTAssertGreaterThanOrEqual(items.count, 4)
+        XCTAssertGreaterThanOrEqual(items.count, 5)
 
         XCTAssertEqual(items[items.count - 1].title, "Quit Token Watchroo")
         XCTAssertTrue(items[items.count - 2].isSeparatorItem)
-        let about = items[items.count - 3]
+        let checkForUpdates = items[items.count - 3]
+        XCTAssertEqual(checkForUpdates.title, MenuBuilder.checkForUpdatesTitle)
+        XCTAssertEqual(checkForUpdates.action, #selector(StatusItemController.checkForUpdates(_:)))
+        XCTAssertIdentical(checkForUpdates.target, controller)
+        let about = items[items.count - 4]
         XCTAssertEqual(about.title, MenuBuilder.aboutTitle)
         XCTAssertEqual(about.action, #selector(StatusItemController.showAbout(_:)))
         XCTAssertIdentical(about.target, controller)
-        XCTAssertTrue(items[items.count - 4].isSeparatorItem)
+        XCTAssertTrue(items[items.count - 5].isSeparatorItem)
     }
 }

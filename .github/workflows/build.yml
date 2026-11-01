@@ -167,6 +167,8 @@ jobs:
             exit 1
           fi
           file "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo" | grep -q "${{ matrix.expected }}"
+          # The Sparkle plist keys, including the feed of this architecture, and the framework (#71).
+          scripts/check-sparkle-bundle.sh "dist/Token Watchroo.app" "${{ matrix.arch }}"
 
       # A directory artifact would drop the symlinks and modes inside the bundle.
       - name: Zip bundle
