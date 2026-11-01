@@ -170,6 +170,12 @@ jobs:
           # The Sparkle plist keys, including the feed of this architecture, and the framework (#71).
           scripts/check-sparkle-bundle.sh "dist/Token Watchroo.app" "${{ matrix.arch }}"
 
+      # Every check above passes on a bundle that crashes or hangs at launch, because they read the files and do not run
+      # them (#87). A process that stays alive proves nothing, so the script waits for the line after core.start.
+      - name: Check that the app starts
+        timeout-minutes: 3
+        run: scripts/check-launch.sh "dist/Token Watchroo.app"
+
       # A directory artifact would drop the symlinks and modes inside the bundle.
       - name: Zip bundle
         run: ditto -c -k --keepParent "dist/Token Watchroo.app" "dist/Token-Watchroo-adhoc-${{ matrix.arch }}.zip"

@@ -195,6 +195,13 @@ jobs:
           codesign -dvvv "$APP" 2>&1 | grep "^Timestamp="
           scripts/check-sparkle-bundle.sh "$APP" "${{ matrix.arch }}" developer-id
 
+      # Before two notary round trips, and before the API key file exists. The script gives the app only HOME and PATH,
+      # and this step has no secret. The temporary signing keychain is unlocked, but the app only asks for its own
+      # credential entries. This is the first run of the Developer ID bundle under the hardened runtime on a runner (#87).
+      - name: Check that the app starts
+        timeout-minutes: 3
+        run: scripts/check-launch.sh "dist/Token Watchroo.app"
+
       - name: Write the notary API key
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}

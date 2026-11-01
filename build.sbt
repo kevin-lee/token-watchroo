@@ -137,6 +137,29 @@ lazy val app = module("app")
         .withBuildTarget(BuildTarget.libraryStatic)
         .withBaseName(props.StaticLibBaseName)
     ),
+    /* `ar` adds to an existing archive on macOS without llvm-ar, so a relink keeps old members, and archives with stale
+     * members crashed or hung at launch (#87). A missing archive always links, so the archive goes only when its inputs
+     * changed: removing it every time would relink, and sign the Swift executable again, on every stageNativeLib. The
+     * stamp is written before the link, so a failed link leaves no archive and the next run links. File contents, not
+     * fullClasspath's text, which prints a project jar in two forms. A class path entry that is not a file never
+     * matches, so it removes the archive every time. */
+    removeStaleArchive := Def.uncached {
+      val converter = fileConverter.value
+      val archive   = crossTarget.value / s"lib${props.StaticLibBaseName}.a"
+      val stamp     = crossTarget.value / "archive-link-inputs"
+      val entries   = (Compile / fullClasspath).value.map(entry => converter.toPath(entry.data).toFile)
+      val inputs    = (
+        entries.map(f => s"${f.getName} ${if (f.isFile) Hash.toHex(Hash(f)) else s"not-a-file-${System.nanoTime}"}").sorted :+
+          (Compile / nativeLink / nativeConfig).value.toString
+      ).mkString("\n")
+      if (archive.exists() && stamp.exists() && IO.read(stamp) == inputs) ()
+      else {
+        IO.delete(archive)
+        IO.write(stamp, inputs)
+        streams.value.log.info(s"Removed ${archive.getPath} before the link (#87)")
+      }
+    },
+    Compile / nativeLink := (Compile / nativeLink).dependsOn(removeStaleArchive).value,
     /* The test binary must be a runnable application, not a static library. */
     Test / nativeConfig ~= { c => c.withBuildTarget(BuildTarget.application) },
   )
@@ -147,6 +170,7 @@ lazy val app = module("app")
 
 /* App assembly tasks, scoped to the root project: sbt 2 applies bare settings to every subproject. */
 
+lazy val removeStaleArchive    = taskKey[Unit]("Remove the static library when its link inputs changed (#87)")
 lazy val stageNativeLib        = taskKey[String]("Copy the Scala Native static library into swift/lib/")
 lazy val swiftBuild            = taskKey[String]("Build the Swift shell against the staged static library")
 lazy val swiftTest             = taskKey[Unit]("Run the Swift shell tests against the staged static library")
@@ -171,6 +195,9 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     /* Not skipped by TW_ALLOW_TRAP_YIELDPOINTS, which is about the other workaround: an archive compiled with
      * nativelib's own RegistersCapture.h frees live objects on x86_64 (#63). */
     checkRegistersCaptureOverride(baseDirectory.value, List(archive))
+    /* removeStaleArchive prevents this. The gate catches an archive that it kept, and reports signs of stale members,
+     * not a prediction of a crash (#87). */
+    checkArchiveMembersGate(baseDirectory.value, archive)
     IO.copyFile(archive, target)
     log.info(s"Staged ${archive.getPath} -> ${target.getPath}")
     target.getAbsolutePath
@@ -319,6 +346,18 @@ def checkRegistersCaptureOverride(base: File, files: List[File]): Unit = {
     sys.error(
       s"check-registers-capture.sh exited with $exit: a binary was not compiled with native-overrides/scala-native-$registersCaptureOverrideVersion/immix_commix/RegistersCapture.h (#63). " +
         "Check that commonNativeConfig still adds registersCaptureInclude to the C options, then relink."
+    )
+  else ()
+}
+
+/* Runs scripts/check-archive-members.sh on the static library and fails when it has signs of stale members (#87). */
+def checkArchiveMembersGate(base: File, archive: File): Unit = {
+  val script = base / "scripts" / "check-archive-members.sh"
+  val exit   = Process(Seq(script.getPath, archive.getPath), base).!
+  if (exit != 0)
+    sys.error(
+      s"check-archive-members.sh exited with $exit: the archive has signs of stale members (#87). " +
+        s"Remove ${archive.getPath} and link again."
     )
   else ()
 }
