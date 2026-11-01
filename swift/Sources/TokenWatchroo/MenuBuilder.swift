@@ -10,6 +10,7 @@ final class MenuBuilder {
     static let waitingTitle = "Waiting for the first refresh…"
     static let noAgentTitle = "No agent detected. Run claude or codex once."
     static let aboutTitle = "About Token Watchroo"
+    static let checkForUpdatesTitle = "Check for Updates..."
     /// The header is item 0.
     private static let bodyIndex = 1
 
@@ -22,9 +23,10 @@ final class MenuBuilder {
     private var header: HeaderView?
     private var body: Body = .waiting
     private var bodyItems: [NSMenuItem] = []
+    private var checkForUpdatesItem: NSMenuItem?
 
     /// Rebuilds the whole menu for a snapshot. `target` receives the action selectors.
-    func rebuild(snapshot: Snapshot?, receivedAt: Date?, target: AnyObject) -> NSMenu {
+    func rebuild(snapshot: Snapshot?, receivedAt: Date?, target: AnyObject, canCheckForUpdates: Bool) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
@@ -57,6 +59,12 @@ final class MenuBuilder {
         about.target = target
         menu.addItem(about)
 
+        let checkForUpdates = NSMenuItem(title: MenuBuilder.checkForUpdatesTitle, action: #selector(StatusItemController.checkForUpdates(_:)), keyEquivalent: "")
+        checkForUpdates.target = target
+        checkForUpdates.isEnabled = canCheckForUpdates
+        menu.addItem(checkForUpdates)
+        checkForUpdatesItem = checkForUpdates
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(title: "Quit Token Watchroo", action: #selector(StatusItemController.quit(_:)), keyEquivalent: "q")
@@ -65,6 +73,11 @@ final class MenuBuilder {
 
         self.menu = menu
         return menu
+    }
+
+    /// `autoenablesItems` is off, and the updater's state can change between rebuilds.
+    func setCanCheckForUpdates(_ canCheck: Bool) {
+        checkForUpdatesItem?.isEnabled = canCheck
     }
 
     /// Called by the 1 s timer while the menu is open and for every snapshot that arrives while it is open. Cards are

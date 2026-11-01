@@ -40,7 +40,8 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 - System notifications, deduplicated per window so a restart never repeats one.
 - An app icon with light and dark appearances on macOS 26 (the dark one with the Dark icon style, light only on macOS 14 and 15), and a ring thumbnail on every notification showing the alert's percent.
 - Codex keeps working offline from its local rollout logs when the usage endpoint fails. Windows that have reset since the log was written show as reset, and a log older than 7 days is not used.
-- Menu items: Refresh now, Launch at Login, About Token Watchroo, Quit.
+- Self-update through [Sparkle](https://sparkle-project.org): a check at most once a day and on demand, with the release notes, the download, and "Install and Relaunch". Each update is verified with an EdDSA (Edwards-curve Digital Signature Algorithm) signature before it is opened.
+- Menu items: Refresh now, Launch at Login, About Token Watchroo, Check for Updates..., Quit.
 
 ## Limitations (v1)
 
@@ -73,7 +74,7 @@ brew tap kevin-lee/tap
 brew install --cask token-watchroo
 ```
 
-Upgrade with `brew upgrade --cask token-watchroo`. Uninstall with `brew uninstall --cask token-watchroo`, and add `--zap` to remove the state directory too.
+From 0.2.0 the app updates itself. `brew upgrade --cask token-watchroo` still upgrades a copy that is older than the cask, and leaves a copy that Sparkle already updated alone. To move from 0.1.x, which has no self-update, run `brew update` first. An old Homebrew can skip a cask marked `auto_updates`, so if it does, run `brew upgrade --cask --greedy token-watchroo`. Uninstall with `brew uninstall --cask token-watchroo`, and add `--zap` to remove the state directory too.
 
 ### Disk image
 
@@ -174,6 +175,8 @@ printf 'ok\n' > /tmp/tw/entry-failure
 
 With these files, every refresh logs an undecodable body (seq 1000000000) and a stale `seq` (seq 0) under the subsystem, as shown in [Logs](#logs).
 
+To test self-update against a local feed, set `TW_DEBUG_FEED_URL` and `TW_DEBUG_ED_PUBLIC_KEY` when you run `scripts/bundle-app.sh`. Unlike the variables above, these are read at bundle time and replace `SUFeedURL` and `SUPublicEDKey` in the plist, so the app has no override code. A local `http://localhost` feed works. `bundle-app.sh` refuses them for a Developer ID build, and `scripts/check-sparkle-bundle.sh` refuses a bundle that carries them. Use a throwaway key and a separate bundle identifier, and sign the feed with `scripts/generate-appcast.sh`.
+
 ## Logs
 
 The app logs under the subsystem `io.kevinlee.tokenwatchroo`. In zsh `log` is a builtin, so spell out `/usr/bin/log`:
@@ -231,11 +234,11 @@ git push origin v0.1.0
 
 The release note comes from `changelogs/<version>.md`, so that file has to exist before the tag is pushed: the build job checks for it before anything is signed.
 
-It proves the link-time workarounds on the test binaries (#44, #63), runs the whole test suite with `testFull` and the Swift tests, builds a signed and notarized DMG per architecture on `macos-26` and `macos-26-intel`, verifies each image (Developer ID signature, hardened runtime, Gatekeeper, stapled ticket, architecture, checksum), creates the GitHub release with the DMGs, their `.sha256` files, and `changelogs/<version>.md` followed by the generated notes, then pushes the cask to `kevin-lee/homebrew-tap` and keeps the previous version as `token-watchroo@<previous>`. The release fails, and nothing is published, when a secret is missing or a test fails. One exception holds until #67 is fixed: on x86_64, when `BridgeSpec` is the only failed test and its failure is one of #67's recorded shapes (a `NullPointerException`, a SIGSEGV at `0x0` or a 120 s hang), `scripts/check-issue-67-failure.sh` accepts it and `BridgeSpec` is rerun once and must pass. The first attempt's log, JUnit reports and GC log are kept as the `test-evidence-x64-attempt-<n>` artifact.
+It proves the link-time workarounds on the test binaries (#44, #63), runs the whole test suite with `testFull` and the Swift tests, builds a signed and notarized DMG per architecture on `macos-26` and `macos-26-intel`, verifies each image (Developer ID signature, hardened runtime, Gatekeeper, stapled ticket, architecture, checksum), signs both DMGs and writes `appcast-arm64.xml` and `appcast-x64.xml` in the `appcast` job, which runs only after both images are notarized and stapled, creates the GitHub release with the DMGs, their `.sha256` files, the feeds, and `changelogs/<version>.md` followed by the generated notes, then pushes the cask to `kevin-lee/homebrew-tap` and keeps the previous version as `token-watchroo@<previous>`. The release fails, and nothing is published, when a secret is missing or a test fails. One exception holds until #67 is fixed: on x86_64, when `BridgeSpec` is the only failed test and its failure is one of #67's recorded shapes (a `NullPointerException`, a SIGSEGV at `0x0` or a 120 s hang), `scripts/check-issue-67-failure.sh` accepts it and `BridgeSpec` is rerun once and must pass. The first attempt's log, JUnit reports and GC log are kept as the `test-evidence-x64-attempt-<n>` artifact.
 
 ### Secrets
 
-All six are secrets of the GitHub environment `release`, which only runs on `v*` tags can use. A manual run of the Release workflow from a branch is refused.
+All seven are secrets of the GitHub environment `release`, which only runs on `v*` tags can use. A manual run of the Release workflow from a branch is refused.
 
 | Secret | Value |
 |---|---|
@@ -245,6 +248,7 @@ All six are secrets of the GitHub environment `release`, which only runs on `v*`
 | `APPLE_API_KEY_ID` | its Key ID |
 | `APPLE_API_ISSUER_ID` | the Issuer ID of the team |
 | `HOMEBREW_TAP_TOKEN` | fine-grained token with Contents read and write on `kevin-lee/homebrew-tap` |
+| `SPARKLE_ED_PRIVATE_KEY` | the EdDSA private key from Sparkle's `generate_keys`. Its public key is in `scripts/bundle-app.sh` |
 
 Obtaining them:
 
@@ -266,6 +270,7 @@ gh secret set APPLE_API_KEY_P8 --env release --body "$(base64 -i AuthKey_<KEYID>
 gh secret set APPLE_API_KEY_ID --env release --body "<KEYID>"
 gh secret set APPLE_API_ISSUER_ID --env release --body "<ISSUER-UUID>"
 gh secret set HOMEBREW_TAP_TOKEN --env release
+gh secret set SPARKLE_ED_PRIVATE_KEY --env release < <exported-key-file>
 ```
 
 ## Architecture
@@ -300,10 +305,10 @@ gh secret set HOMEBREW_TAP_TOKEN --env release
 | `modules/token-watchroo-core` | Scala Native, pure | Domain types (refined4s newtypes, Scala 3 enums), status and menubar rules, the alert engine, ISO-8601 parsing, notification copy, jsoniter-scala codecs, the Codex rollout parser. Tested with hedgehog on Scala Native. |
 | `modules/token-watchroo-providers` | Scala Native | Keychain reader (`/usr/bin/security`), `auth.json` reader, libcurl HTTP client, the Claude Code and Codex providers. Tested with munit. |
 | `modules/token-watchroo-app` | Scala Native static library | The exported C API (`tw_start`, `tw_refresh`, `tw_set_config`, `tw_shutdown`), the cats-effect runtime, the poll loop, state persistence. Tested with munit. |
-| `swift/` | Swift 6 package | `NSStatusItem`, `NSMenu` with custom card views, notifications, Launch at Login, the About panel. Renders what the library sends. |
+| `swift/` | Swift 6 package | `NSStatusItem`, `NSMenu` with custom card views, notifications, Launch at Login, the About panel, self-update through Sparkle. Renders what the library sends. |
 | `assets/` | committed build inputs | `Assets.car`, `AppIcon.icns`, and the About panel icons `AboutIcon-light.png` and `AboutIcon-dark.png`, generated by `scripts/generate-icons.sh`. |
-| `scripts/` | shell | `bundle-app.sh`, `notarize.sh`, `make-dmg.sh`, `ci-import-certificate.sh`, `update-cask.sh`, `generate-icons.sh`. |
-| `.github/workflows/` | GitHub Actions | `build.yml` (tests and an ad-hoc bundle on pull requests and `main`), `release.yml` (signed, notarized DMGs, the GitHub release, the cask). |
+| `scripts/` | shell | `bundle-app.sh`, `notarize.sh`, `make-dmg.sh`, `ci-import-certificate.sh`, `update-cask.sh`, `generate-icons.sh`, and for self-update `check-sparkle-bundle.sh`, `generate-appcast.sh`, `check-appcast.sh`. |
+| `.github/workflows/` | GitHub Actions | `build.yml` (tests and an ad-hoc bundle on pull requests and `main`), `release.yml` (signed, notarized DMGs, the signed update feeds, the GitHub release, the cask). |
 
 The full design, including the threading and garbage-collector contract between Swift and Scala Native, the JSON contract, and the roadmap, is in `.ai/docs/design/token-watchroo-design.md`.
 
@@ -313,6 +318,7 @@ The full design, including the threading and garbage-collector contract between 
 - Codex: the app reads `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) and calls `https://chatgpt.com/backend-api/wham/usage`. When that fails it reads the newest log under `~/.codex/sessions`.
 - Nothing is written back to those files or to the keychain. Tokens never appear in logs or on cards.
 - The only file the app writes is `~/Library/Application Support/Token Watchroo/state.json`, which remembers which notifications already fired.
+- Self-update: at most once a day and on demand, the app reads the update feed from GitHub (`github.com/kevin-lee/token-watchroo/releases`), and it downloads the disk image from there when you choose to install. Sparkle's system profile is off, so these requests carry no profile data.
 - No telemetry, no accounts, no other network calls.
 
 ## License

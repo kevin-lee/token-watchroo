@@ -6,15 +6,20 @@ import PackageDescription
 let package = Package(
     name: "TokenWatchroo",
     platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
+    ],
     targets: [
         .target(name: "CTokenWatchroo", path: "Sources/CTokenWatchroo"),
         .executableTarget(
             name: "TokenWatchroo",
-            dependencies: ["CTokenWatchroo"],
+            dependencies: ["CTokenWatchroo", .product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/TokenWatchroo",
             linkerSettings: [
                 // Explicit linker input, not -l: a stray dylib could otherwise be picked instead of the archive.
                 .unsafeFlags(["-Xlinker", "lib/libtokenwatchroo.a"]),
+                // Sparkle.framework is in Contents/Frameworks of the bundle (scripts/bundle-app.sh).
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
                 .linkedLibrary("c++"),
                 .linkedLibrary("curl"),
                 .linkedLibrary("pthread"),

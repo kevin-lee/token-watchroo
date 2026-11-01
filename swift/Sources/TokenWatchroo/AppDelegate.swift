@@ -5,6 +5,7 @@ import Foundation
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: StatusItemController?
+    private let updater = Updater()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let stateDirectory = AppDelegate.stateDirectory()
@@ -16,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         let core = Core.shared
-        let controller = StatusItemController(core: core)
+        let controller = StatusItemController(core: core, updater: updater)
         statusItem = controller
 
         core.snapshotHandler = { [weak controller] snapshot in controller?.apply(snapshot: snapshot) }
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Notifier.shared.requestAuthorizationIfBundled()
+        updater.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

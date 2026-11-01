@@ -13,6 +13,8 @@ struct Log: Sendable {
     static let notifications = Log(category: "notifications")
     /// Launch at Login.
     static let launch = Log(category: "launch")
+    /// Sparkle's update cycles that ended with an error.
+    static let update = Log(category: "update")
     /// Launch, `tw_start`, and the log file.
     static let app = Log(category: "app")
 

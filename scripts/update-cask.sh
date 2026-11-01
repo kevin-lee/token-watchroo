@@ -3,6 +3,9 @@
 # previous release as Casks/token-watchroo@<previous>.rb with livecheck skipped, the convention of the existing casks
 # in that tap. Used by .github/workflows/release.yml and by hand. Does not commit.
 #
+# auto_updates (#71): the latest cask always has it. A pinned cask has it only if the cask it was made from had it,
+# because a release before 0.2.0 has no Sparkle.
+#
 # usage: scripts/update-cask.sh <version> <arm64-sha256> <x64-sha256> <tap-checkout>
 set -euo pipefail
 
@@ -33,15 +36,19 @@ if [ ! -d "$CASKS" ]; then
   exit 1
 fi
 
-# write_cask <file> <cask-token> <version> <arm-sha> <intel-sha> <latest|pinned>
+# write_cask <file> <cask-token> <version> <arm-sha> <intel-sha> <latest|pinned> <auto-updates|no-auto-updates>
 write_cask() {
-  local file="$1" token="$2" version="$3" arm_sha="$4" intel_sha="$5" livecheck="$6"
-  local livecheck_body
+  local file="$1" token="$2" version="$3" arm_sha="$4" intel_sha="$5" livecheck="$6" auto_updates="$7"
+  local livecheck_body auto_updates_line=""
   if [ "$livecheck" = "pinned" ]; then
     livecheck_body="    skip \"Versioned cask; pinned to $version\""
   else
     livecheck_body="    url :url
     strategy :github_latest"
+  fi
+  if [ "$auto_updates" = "auto-updates" ]; then
+    auto_updates_line="  auto_updates true
+"
   fi
   cat > "$file" <<CASK
 cask "$token" do
@@ -60,7 +67,7 @@ cask "$token" do
 $livecheck_body
   end
 
-  depends_on macos: :sonoma
+${auto_updates_line}  depends_on macos: :sonoma
 
   app "Token Watchroo.app"
 
@@ -91,12 +98,16 @@ if [ -f "$CURRENT" ]; then
     echo "error: the cask is already at $VERSION" >&2
     exit 1
   fi
+  PREV_AUTO_UPDATES="no-auto-updates"
+  if grep -q '^  auto_updates true$' "$CURRENT"; then
+    PREV_AUTO_UPDATES="auto-updates"
+  fi
   write_cask "$CASKS/token-watchroo@$PREV_VERSION.rb" "token-watchroo@$PREV_VERSION" \
-    "$PREV_VERSION" "$PREV_ARM" "$PREV_INTEL" pinned
+    "$PREV_VERSION" "$PREV_ARM" "$PREV_INTEL" pinned "$PREV_AUTO_UPDATES"
   rm -f "$CURRENT"
 fi
 
-write_cask "$CURRENT" token-watchroo "$VERSION" "$ARM_SHA" "$INTEL_SHA" latest
+write_cask "$CURRENT" token-watchroo "$VERSION" "$ARM_SHA" "$INTEL_SHA" latest auto-updates
 
 echo "Done. Generated:"
 echo "  - $CURRENT"

@@ -10,6 +10,16 @@
 # design doc, section 9). The app icon and the About panel icons (#77) come from assets/, regenerated with
 # scripts/generate-icons.sh.
 #
+# Sparkle (#71): Sparkle.framework comes from the folder of <executable>, where SwiftPM puts it, and goes to
+# Contents/Frameworks without its XPC services, which a non-sandboxed app does not use. Its nested code is signed
+# inside-out before the app: Autoupdate, Updater.app, the framework. The plist names the feed of the architecture of
+# <executable>, because the arm64 and x64 disk images are separate builds. Copy with ditto, which keeps the framework's
+# symbolic links.
+#
+# Debug only: TW_DEBUG_FEED_URL and TW_DEBUG_ED_PUBLIC_KEY replace SUFeedURL and SUPublicEDKey at bundle time, to test
+# updates against a local feed with a throwaway key. The app has no override code. They are refused with
+# TW_SIGNING_IDENTITY, and scripts/check-sparkle-bundle.sh refuses a bundle that carries them.
+#
 # Versions: <version> is the sbt-dynver version. CFBundleShortVersionString and CFBundleVersion get it stripped to
 # integers, because Apple documents both keys as period-separated integers only and Sparkle (#71) compares
 # CFBundleVersion. The full version goes to TokenWatchrooVersion, which the About panel shows (#77).
@@ -29,6 +39,8 @@ APP_NAME="Token Watchroo"
 EXEC_NAME="TokenWatchroo"
 MIN_OS="14.0"
 APP="$OUT_DIR/$APP_NAME.app"
+FEED_URL_BASE="https://github.com/kevin-lee/token-watchroo/releases/latest/download"
+SPARKLE_PUBLIC_KEY="iv5/vKHASdo08/ztl7Jkz2UkODe+k1t1G4J2aQu0EX0="
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ICON_ICNS="$ROOT/assets/AppIcon.icns"
@@ -64,11 +76,50 @@ if [ ! -x "$EXECUTABLE" ]; then
   exit 1
 fi
 
+RAW_ARCH="$(lipo -archs "$EXECUTABLE")"
+case "$RAW_ARCH" in
+  arm64) ARCH="arm64" ;;
+  x86_64) ARCH="x64" ;;
+  *)
+    echo "error: unsupported architecture: $RAW_ARCH" >&2
+    exit 1
+    ;;
+esac
+
+SPARKLE_FRAMEWORK="$(dirname "$EXECUTABLE")/Sparkle.framework"
+if [ ! -d "$SPARKLE_FRAMEWORK" ]; then
+  echo "error: Sparkle.framework not found next to the executable: $SPARKLE_FRAMEWORK" >&2
+  exit 1
+fi
+
+if [ -n "${TW_SIGNING_IDENTITY:-}" ] && { [ -n "${TW_DEBUG_FEED_URL:-}" ] || [ -n "${TW_DEBUG_ED_PUBLIC_KEY:-}" ]; }; then
+  echo "error: TW_DEBUG_FEED_URL and TW_DEBUG_ED_PUBLIC_KEY are refused for a Developer ID build" >&2
+  exit 1
+fi
+
+FEED_URL="${TW_DEBUG_FEED_URL:-$FEED_URL_BASE/appcast-$ARCH.xml}"
+PUBLIC_KEY="${TW_DEBUG_ED_PUBLIC_KEY:-$SPARKLE_PUBLIC_KEY}"
+# Both go into the plist heredoc unescaped.
+if ! [[ "$FEED_URL" =~ ^[0-9A-Za-z:/.%_~-]+$ ]]; then
+  echo "error: feed URL has characters a plist string cannot take as is: $FEED_URL" >&2
+  exit 1
+fi
+if ! [[ "$PUBLIC_KEY" =~ ^[0-9A-Za-z+/=]+$ ]]; then
+  echo "error: public key is not base64: $PUBLIC_KEY" >&2
+  exit 1
+fi
+
 echo "==> assembling $APP ($FULL_VERSION, bundle version $SHORT_VERSION, $BUNDLE_ID)"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$EXECUTABLE" "$APP/Contents/MacOS/$EXEC_NAME"
 chmod +x "$APP/Contents/MacOS/$EXEC_NAME"
+
+echo "==> Sparkle.framework ($ARCH feed: $FEED_URL)"
+FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
+ditto "$SPARKLE_FRAMEWORK" "$FRAMEWORK"
+rm -rf "$FRAMEWORK/Versions/B/XPCServices"
+rm -f "$FRAMEWORK/XPCServices"
 
 echo "==> app icon"
 cp "$ICON_ICNS" "$APP/Contents/Resources/AppIcon.icns"
@@ -106,19 +157,39 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>$MIN_OS</string>
     <key>LSUIElement</key>
     <true/>
+    <key>SUFeedURL</key>
+    <string>$FEED_URL</string>
+    <key>SUPublicEDKey</key>
+    <string>$PUBLIC_KEY</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUVerifyUpdateBeforeExtraction</key>
+    <true/>
+    <key>SURequireSignedFeed</key>
+    <true/>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © 2026 Kevin Lee. MIT License.</string>
 </dict>
 </plist>
 PLIST
 
+NESTED_CODE=("$FRAMEWORK/Versions/B/Autoupdate" "$FRAMEWORK/Versions/B/Updater.app" "$FRAMEWORK")
+
 if [ -n "${TW_SIGNING_IDENTITY:-}" ]; then
   echo "==> codesign with hardened runtime: $TW_SIGNING_IDENTITY"
+  for code in "${NESTED_CODE[@]}"; do
+    codesign --force --options runtime --timestamp --sign "$TW_SIGNING_IDENTITY" "$code"
+  done
   codesign --force --options runtime --timestamp --sign "$TW_SIGNING_IDENTITY" --identifier "$BUNDLE_ID" "$APP"
   codesign --verify --deep --strict "$APP"
 else
   echo "==> ad-hoc codesign"
-  codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP"
+  for code in "${NESTED_CODE[@]}"; do
+    codesign --force --options runtime --sign - "$code"
+  done
+  codesign --force --sign - --identifier "$BUNDLE_ID" "$APP"
 fi
 
 echo "==> done: $APP"

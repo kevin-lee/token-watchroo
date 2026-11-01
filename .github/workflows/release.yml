@@ -61,8 +61,14 @@ jobs:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          # Only whether it is set: the key itself reaches the signing step of the appcast job and no other step.
+          SPARKLE_ED_PRIVATE_KEY_PRESENT: ${{ secrets.SPARKLE_ED_PRIVATE_KEY != '' }}
         run: |
           set -euo pipefail
+          if [ "$SPARKLE_ED_PRIVATE_KEY_PRESENT" != "true" ]; then
+            echo "error: secret SPARKLE_ED_PRIVATE_KEY is not set in the release environment"
+            exit 1
+          fi
           for name in APPLE_CERTIFICATE_P12 APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
             if [ -z "${!name}" ]; then
               echo "error: secret $name is not set in the release environment"
@@ -187,6 +193,7 @@ jobs:
           codesign -dvvv "$APP" 2>&1 | grep "Authority=Developer ID Application"
           codesign -dvvv "$APP" 2>&1 | grep "flags=.*runtime"
           codesign -dvvv "$APP" 2>&1 | grep "^Timestamp="
+          scripts/check-sparkle-bundle.sh "$APP" "${{ matrix.arch }}" developer-id
 
       - name: Write the notary API key
         env:
@@ -253,6 +260,7 @@ jobs:
           fi
           scripts/check-yieldpoints.sh conditional "$APP/Contents/MacOS/TokenWatchroo"
           scripts/check-registers-capture.sh "$APP/Contents/MacOS/TokenWatchroo"
+          scripts/check-sparkle-bundle.sh "$APP" "${{ matrix.arch }}" developer-id
           (cd dist && shasum -a 256 -c ./*.sha256)
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -270,8 +278,67 @@ jobs:
           fi
           rm -f "$RUNNER_TEMP/AuthKey.p8"
 
-  release:
+  # Signs the two notarized and stapled DMGs and writes their feeds (#71). A job of its own, after both builds: the
+  # release job has no macOS tools and no key, and this one runs no sbt and no tests, so the key is near as little code
+  # as possible. A failure here reruns this job alone, with no new notarization.
+  appcast:
     needs: build
+    # generate_appcast and sign_update are macOS tools.
+    runs-on: macos-26
+    # SPARKLE_ED_PRIVATE_KEY is an environment secret: only runs on v* tags can use it.
+    environment: release
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      # For scripts/, changelogs/<version>.md and swift/Package.resolved. No history needed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Only the DMGs and their checksums: a build job that hit a test failure also uploads test evidence.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      # The tools come from the package SwiftPM checks against the checksum in Sparkle's Package.swift, at the revision
+      # that Package.resolved pins. --force-resolved-versions fails instead of changing the pin.
+      - name: Resolve the Sparkle tools
+        working-directory: swift
+        run: |
+          set -euo pipefail
+          swift package resolve --force-resolved-versions
+          REVISION="$(git -C .build/checkouts/Sparkle rev-parse HEAD)"
+          if [ "$REVISION" != "ab7d71291238df6e0492143b120c9b696a35f603" ]; then
+            echo "error: Sparkle is at $REVISION, not the pinned revision"
+            exit 1
+          fi
+
+      # The only step with the key, and never at job or workflow level. It goes through a pipe, so it is not on a command
+      # line, and this step has no set -x. check-appcast.sh fails on a wrong key, which generate_appcast only warns about
+      # and answers with an unsigned enclosure.
+      - name: Sign the DMGs and write the feeds
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          PREFIX="https://github.com/kevin-lee/token-watchroo/releases/download/v$VERSION/"
+          TOOLS="swift/.build/artifacts/sparkle/Sparkle/bin"
+          mkdir -p dist
+          for arch in arm64 x64; do
+            DMG="artifacts/Token-Watchroo-$VERSION-$arch.dmg"
+            FEED="dist/appcast-$arch.xml"
+            printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | scripts/generate-appcast.sh "$TOOLS" "$DMG" "changelogs/$VERSION.md" "$PREFIX" "$FEED"
+            scripts/check-appcast.sh "$FEED" "$DMG" "$VERSION" "$arch" "$PREFIX"
+            printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | "$TOOLS/sign_update" --ed-key-file - --verify "$FEED"
+          done
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: appcast-feeds
+          path: dist/appcast-*.xml
+
+  release:
+    needs: [build, appcast]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -287,6 +354,11 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: appcast-feeds
+          path: artifacts
+
       - name: Check the artifacts
         run: |
           set -euo pipefail
@@ -296,6 +368,10 @@ jobs:
             COUNT=$(ls artifacts/Token-Watchroo-*-"$arch".dmg 2>/dev/null | wc -l)
             if [ "$COUNT" -ne 1 ]; then
               echo "error: expected exactly one $arch DMG, found $COUNT"
+              exit 1
+            fi
+            if [ ! -f "artifacts/appcast-$arch.xml" ]; then
+              echo "error: appcast-$arch.xml not found"
               exit 1
             fi
           done
@@ -313,11 +389,14 @@ jobs:
           echo "CHANGELOG_FILE=$FILE" >> "$GITHUB_ENV"
 
       # body_path wins over body, and with generate_release_notes the changelog is pre-pended to the generated notes.
+      # The action uploads to a draft and finalizes it last, so releases/latest/download/appcast-<arch>.xml, which
+      # installed copies read, moves to this release only after every file is there.
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             artifacts/*.dmg
             artifacts/*.sha256
+            artifacts/appcast-*.xml
           body_path: ${{ env.CHANGELOG_FILE }}
           generate_release_notes: true
 
