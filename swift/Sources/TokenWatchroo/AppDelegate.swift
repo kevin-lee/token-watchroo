@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
+        // scripts/check-launch.sh looks for this line: a hang inside core.start keeps the process alive (#87).
+        Log.app.notice("tw_start returned 0 pid=\(ProcessInfo.processInfo.processIdentifier)")
 
         Notifier.shared.requestAuthorizationIfBundled()
         updater.start()
