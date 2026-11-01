@@ -30,6 +30,8 @@ jobs:
             expected: x86_64
             issue67rerun: true
     runs-on: ${{ matrix.runner }}
+    # The signing and notary secrets are environment secrets: only runs on v* tags can use them.
+    environment: release
     # Scala Native picks the GC yieldpoint mode at link time from this variable. The 0.5.12 GC loses a root of a thread
     # stopped by a trap-based yieldpoint, the release default, and frees live objects (#44, upstream
     # scala-native/scala-native#5046), so every binary is linked with conditional yieldpoints. build.sbt sets the
@@ -63,7 +65,7 @@ jobs:
           set -euo pipefail
           for name in APPLE_CERTIFICATE_P12 APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
             if [ -z "${!name}" ]; then
-              echo "error: repository secret $name is not set"
+              echo "error: secret $name is not set in the release environment"
               exit 1
             fi
           done
@@ -323,6 +325,8 @@ jobs:
     needs: release
     # brew style needs Homebrew.
     runs-on: macos-26
+    # HOMEBREW_TAP_TOKEN is an environment secret: only runs on v* tags can use it.
+    environment: release
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Require the tap token
@@ -330,7 +334,7 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
-            echo "error: repository secret HOMEBREW_TAP_TOKEN is not set"
+            echo "error: secret HOMEBREW_TAP_TOKEN is not set in the release environment"
             exit 1
           fi
 

@@ -235,6 +235,8 @@ It proves the link-time workarounds on the test binaries (#44, #63), runs the wh
 
 ### Secrets
 
+All six are secrets of the GitHub environment `release`, which only runs on `v*` tags can use. A manual run of the Release workflow from a branch is refused.
+
 | Secret | Value |
 |---|---|
 | `APPLE_CERTIFICATE_P12` | base64 of the Developer ID Application certificate exported as `.p12` |
@@ -249,15 +251,21 @@ Obtaining them:
 1. Certificate: Keychain Access, My Certificates, the Developer ID Application identity with its private key, Export as `.p12` with a password.
 2. API key: App Store Connect, Users and Access, Integrations, App Store Connect API, Team Keys, Generate API Key with the Developer role, download the `.p8` (offered once), note the Key ID and the Issuer ID.
 3. Tap token: GitHub Settings, Developer settings, Fine-grained personal access tokens, repository access `kevin-lee/homebrew-tap` only, Contents read and write.
-4. Store them:
+4. Create the environment and store them:
 
 ```bash
-gh secret set APPLE_CERTIFICATE_P12 --body "$(base64 -i DeveloperID.p12)"
-gh secret set APPLE_CERTIFICATE_PASSWORD
-gh secret set APPLE_API_KEY_P8 --body "$(base64 -i AuthKey_<KEYID>.p8)"
-gh secret set APPLE_API_KEY_ID --body "<KEYID>"
-gh secret set APPLE_API_ISSUER_ID --body "<ISSUER-UUID>"
-gh secret set HOMEBREW_TAP_TOKEN
+gh api -X PUT repos/kevin-lee/token-watchroo/environments/release \
+  -F 'deployment_branch_policy[protected_branches]=false' \
+  -F 'deployment_branch_policy[custom_branch_policies]=true'
+gh api -X POST repos/kevin-lee/token-watchroo/environments/release/deployment-branch-policies \
+  -f name='v*' -f type=tag
+
+gh secret set APPLE_CERTIFICATE_P12 --env release --body "$(base64 -i DeveloperID.p12)"
+gh secret set APPLE_CERTIFICATE_PASSWORD --env release
+gh secret set APPLE_API_KEY_P8 --env release --body "$(base64 -i AuthKey_<KEYID>.p8)"
+gh secret set APPLE_API_KEY_ID --env release --body "<KEYID>"
+gh secret set APPLE_API_ISSUER_ID --env release --body "<ISSUER-UUID>"
+gh secret set HOMEBREW_TAP_TOKEN --env release
 ```
 
 ## Architecture
