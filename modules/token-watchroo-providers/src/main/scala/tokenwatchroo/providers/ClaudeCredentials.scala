@@ -10,12 +10,25 @@ trait ClaudeCredentialReader {
   def read(attempt: ReadAttempt, nowMillis: Long): IO[Either[ProviderError, ClaudeOAuth]]
 }
 
-/** The Claude Code OAuth credentials from the keychain item `Claude Code-credentials`. */
-final class ClaudeCredentials(keychain: KeychainReader) extends ClaudeCredentialReader {
+/** The Claude Code OAuth credentials from the keychain item `Claude Code-credentials`.
+  *
+  * The item that Claude Code uses has the account from `KeychainAccount.claudeCode`. Older Claude Code versions or
+  * other tools can leave more items with the same service (#90), and `security` without `-a` returns any of them. The
+  * read with no account is only for a keychain that has no item with that account.
+  */
+final class ClaudeCredentials(keychain: KeychainReader, account: KeychainAccount) extends ClaudeCredentialReader {
+
+  private def readRaw(timeout: FiniteDuration): IO[Either[ProviderError, String]] =
+    keychain
+      .readGenericPassword(ClaudeCredentials.Service, account.some, timeout)
+      .flatMap {
+        case Left(ProviderError.CredentialsMissing) =>
+          keychain.readGenericPassword(ClaudeCredentials.Service, none[KeychainAccount], timeout)
+        case other => IO.pure(other)
+      }
 
   override def read(attempt: ReadAttempt, nowMillis: Long): IO[Either[ProviderError, ClaudeOAuth]] =
-    keychain
-      .readGenericPassword(ClaudeCredentials.Service, ClaudeCredentials.timeoutFor(attempt))
+    readRaw(ClaudeCredentials.timeoutFor(attempt))
       .map(_.flatMap { raw =>
         ClaudeCredentialsBlob
           .parse(raw, nowMillis)

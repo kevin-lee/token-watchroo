@@ -11,7 +11,7 @@ class SimulatedClaudeSignOutSpec extends munit.FunSuite {
   private val nowMillis = 1789185600000L
 
   private val keychainReader: ClaudeCredentialReader =
-    new ClaudeCredentials(new Fakes.FakeKeychain(Fakes.claudeBlob.asRight))
+    new ClaudeCredentials(new Fakes.FakeKeychain(Fakes.claudeBlob.asRight), Fakes.keychainAccount)
 
   /** A flag file in a new temp directory, written only when `content` is present. */
   private def flag(content: Option[String]): os.Path = {

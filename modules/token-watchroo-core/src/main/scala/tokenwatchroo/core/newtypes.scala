@@ -153,6 +153,28 @@ object CodexHome extends Newtype[NonEmptyString], CatsEqShow[NonEmptyString] {
   given render: Render[CodexHome] = Render.render(_.value.value)
 }
 
+/** The account (`acct`) of a generic password item in the keychain. */
+type KeychainAccount = KeychainAccount.Type
+object KeychainAccount extends Newtype[NonEmptyString], CatsEqShow[NonEmptyString] {
+  given render: Render[KeychainAccount] = Render.render(_.value.value)
+
+  val ClaudeCodeFallback: KeychainAccount = KeychainAccount(NonEmptyString("claude-code-user"))
+
+  private val ClaudeCodeValidName: scala.util.matching.Regex = "[a-zA-Z0-9._-]+".r
+
+  /** Only a whole name of `[a-zA-Z0-9._-]` characters. No trim, because Claude Code does not trim. */
+  def fromName(name: String): Option[KeychainAccount] =
+    if (ClaudeCodeValidName.matches(name)) NonEmptyString.from(name).toOption.map(KeychainAccount(_))
+    else none[KeychainAccount]
+
+  /** The same rule as Claude Code: `USER`, else the login name, and `claude-code-user` when the name is missing or has
+    * a character outside `[a-zA-Z0-9._-]`. An invalid `USER` gives the fallback, and the login name is not tried, as in
+    * Claude Code.
+    */
+  def claudeCode(user: Option[String], loginName: => Option[String]): KeychainAccount =
+    user.orElse(loginName).flatMap(fromName).getOrElse(ClaudeCodeFallback)
+}
+
 type UserAgent = UserAgent.Type
 object UserAgent extends Newtype[NonEmptyString], CatsEqShow[NonEmptyString] {
   given render: Render[UserAgent] = Render.render(_.value.value)

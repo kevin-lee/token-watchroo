@@ -3,13 +3,18 @@ package tokenwatchroo.providers
 import cats.effect.IO
 import cats.syntax.all.*
 import scala.concurrent.duration.FiniteDuration
+import tokenwatchroo.core.*
 
 /** Reads generic passwords from the login keychain. */
 trait KeychainReader {
-  def readGenericPassword(service: String, timeout: FiniteDuration): IO[Either[ProviderError, String]]
+  def readGenericPassword(
+    service: String,
+    account: Option[KeychainAccount],
+    timeout: FiniteDuration,
+  ): IO[Either[ProviderError, String]]
 }
 
-/** Shells out to `/usr/bin/security find-generic-password -s <service> -w`.
+/** Shells out to `/usr/bin/security find-generic-password -s <service> [-a <account>] -w`.
   *
   * Why the CLI and not `SecItemCopyMatching`: the "Claude Code-credentials" item's ACL whitelists `/usr/bin/security`,
   * so this path is silent after one "Always Allow", while a direct read from a third-party binary prompts on every
@@ -23,9 +28,18 @@ object SecurityCli extends KeychainReader {
   private val ExitNotFound     = 44
   private val ExitAccessDenied = 45
 
-  override def readGenericPassword(service: String, timeout: FiniteDuration): IO[Either[ProviderError, String]] =
+  override def readGenericPassword(
+    service: String,
+    account: Option[KeychainAccount],
+    timeout: FiniteDuration,
+  ): IO[Either[ProviderError, String]] =
     Processes
-      .run(List(Executable, "find-generic-password", "-s", service, "-w"), timeout)
+      .run(
+        List(Executable, "find-generic-password", "-s", service) ++
+          account.toList.flatMap(a => List("-a", a.value.value)) ++
+          List("-w"),
+        timeout,
+      )
       .map(_.flatMap { output =>
         output.exitCode match {
           case 0 => output.stdout.trim.asRight[ProviderError]
