@@ -1,6 +1,7 @@
 package tokenwatchroo.providers
 
 import cats.effect.IO
+import tokenwatchroo.core.KeychainAccount
 import tokenwatchroo.info.TokenWatchrooInfo
 
 /** Everything a provider may touch outside the process, so tests can substitute all of it. */
@@ -34,7 +35,13 @@ object Providers {
     for {
       claude <- ClaudeCodeProvider.make(
                   deps.http,
-                  SimulatedClaudeSignOut.wrap(new ClaudeCredentials(deps.keychain), deps.env),
+                  SimulatedClaudeSignOut.wrap(
+                    new ClaudeCredentials(
+                      deps.keychain,
+                      KeychainAccount.claudeCode(deps.env.get("USER"), deps.env.loginName),
+                    ),
+                    deps.env,
+                  ),
                   ClaudeCli.detectVersion(deps.env),
                   deps.nowMillis,
                 )

@@ -15,7 +15,12 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
 
   private def make(http: HttpClient, keychain: KeychainReader): IO[ClaudeCodeProvider] =
     ClaudeCodeProvider
-      .make(http, new ClaudeCredentials(keychain), IO.pure(none[ClaudeCodeVersion]), IO.pure(1789185600000L))
+      .make(
+        http,
+        new ClaudeCredentials(keychain, Fakes.keychainAccount),
+        IO.pure(none[ClaudeCodeVersion]),
+        IO.pure(1789185600000L),
+      )
 
   private def provider(http: HttpClient, keychain: KeychainReader): ClaudeCodeProvider =
     make(http, keychain).unsafeRunSync()

@@ -32,6 +32,11 @@ object Fakes {
   val claudeBlobOtherToken: String =
     """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-other","refreshToken":"r","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}"""
 
+  /** A keychain item that holds only MCP state, as an old item left by another account can (#90). */
+  val claudeMcpOnlyBlob: String = """{"mcpOAuth":{"server":{}}}"""
+
+  val keychainAccount: KeychainAccount = KeychainAccount(NonEmptyString("alex"))
+
   /** The verified profile shape, on a Max 20x organization. */
   val claudeProfile20x: String =
     """{"account":{"uuid":"a","full_name":"Test","display_name":"Test","email":"test@example.com","has_claude_max":true,"has_claude_pro":false},"organization":{"uuid":"o","name":"Org","organization_type":"claude_max","billing_type":"stripe_subscription","rate_limit_tier":"default_claude_max_20x","seat_tier":null,"subscription_status":"active"},"application":{"uuid":"p","name":"Claude Code","slug":"claude-code"},"enabled_plugins":[]}"""
@@ -122,7 +127,11 @@ object Fakes {
 
   /** Each read returns the head of the list and drops it, keeping the last element forever. */
   final class SequencedKeychain(results: Ref[IO, List[Either[ProviderError, String]]]) extends KeychainReader {
-    override def readGenericPassword(service: String, timeout: FiniteDuration): IO[Either[ProviderError, String]] =
+    override def readGenericPassword(
+      service: String,
+      account: Option[KeychainAccount],
+      timeout: FiniteDuration,
+    ): IO[Either[ProviderError, String]] =
       results.modify {
         case head :: next :: rest => (next :: rest, head)
         case head :: Nil => (head :: Nil, head)
@@ -136,8 +145,35 @@ object Fakes {
   }
 
   final class FakeKeychain(result: Either[ProviderError, String]) extends KeychainReader {
-    override def readGenericPassword(service: String, timeout: FiniteDuration): IO[Either[ProviderError, String]] =
+    override def readGenericPassword(
+      service: String,
+      account: Option[KeychainAccount],
+      timeout: FiniteDuration,
+    ): IO[Either[ProviderError, String]] =
       IO.pure(result)
+  }
+
+  final case class KeychainRead(service: String, account: Option[KeychainAccount], timeout: FiniteDuration)
+
+  /** One item for each account (`None` is the read with no account). A missing account is `CredentialsMissing`. */
+  final class KeyedKeychain(
+    items: Map[Option[KeychainAccount], Either[ProviderError, String]],
+    recorded: Ref[IO, List[KeychainRead]],
+  ) extends KeychainReader {
+    override def readGenericPassword(
+      service: String,
+      account: Option[KeychainAccount],
+      timeout: FiniteDuration,
+    ): IO[Either[ProviderError, String]] =
+      recorded.update(_ :+ KeychainRead(service, account, timeout)) >>
+        IO.pure(items.getOrElse(account, ProviderError.credentialsMissing.asLeft[String]))
+
+    def calls: IO[List[KeychainRead]] = recorded.get
+  }
+
+  object KeyedKeychain {
+    def make(items: Map[Option[KeychainAccount], Either[ProviderError, String]]): IO[KeyedKeychain] =
+      Ref.of[IO, List[KeychainRead]](Nil).map(new KeyedKeychain(items, _))
   }
 
   final class FakeCodexAuth(result: Either[ProviderError, CodexOAuth]) extends CodexAuthReader {
