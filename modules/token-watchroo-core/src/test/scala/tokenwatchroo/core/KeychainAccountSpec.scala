@@ -18,12 +18,16 @@ object KeychainAccountSpec extends Properties {
   private val genValidName: Gen[String] =
     Gen.string(Gen.choice1(Gen.alphaNum, Gen.element1('.', '_', '-')), Range.linear(1, 32))
 
+  /** Any string, so also empty and invalid names, and valid names too. */
+  private val genAnyName: Gen[String] =
+    Gen.choice1(genValidName, Gen.constant(""), Gen.string(Gen.unicode, Range.linear(0, 32)))
+
   private def nameOf(account: KeychainAccount): String = account.value.value
 
   def testValidUser: Property =
     for {
       user      <- genValidName.log("user")
-      loginName <- genValidName.option.log("loginName")
+      loginName <- genAnyName.option.log("loginName")
     } yield nameOf(KeychainAccount.claudeCode(user.some, loginName)) ==== user
 
   def testLoginName: Property =
