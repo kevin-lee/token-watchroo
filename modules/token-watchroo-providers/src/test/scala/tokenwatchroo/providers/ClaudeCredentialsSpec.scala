@@ -41,7 +41,20 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
     assertEquals(
       result,
       ProviderError
-        .credentialsMalformed("Keychain item has no Claude sign-in (only MCP state). Run claude to sign in.")
+        .credentialsMalformed(
+          "Keychain item has no Claude sign-in (only MCP state). Run claude and use /login to sign in."
+        )
+        .asLeft[ClaudeOAuth],
+    )
+    assertEquals(calls, List(Fakes.KeychainRead(S, alex.some, t)))
+  }
+
+  test("an expired sign-in for the account does not fall back") {
+    val (result, calls) = read(Map(alex.some -> Fakes.claudeExpiredBlob.asRight, none -> Fakes.claudeBlob.asRight))
+    assertEquals(
+      result,
+      ProviderError
+        .credentialsMalformed("Claude Code sign-in expired. Run claude and use /login to sign in again.")
         .asLeft[ClaudeOAuth],
     )
     assertEquals(calls, List(Fakes.KeychainRead(S, alex.some, t)))

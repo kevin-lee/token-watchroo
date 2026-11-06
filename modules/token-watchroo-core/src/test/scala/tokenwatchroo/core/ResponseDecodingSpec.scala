@@ -41,6 +41,28 @@ object ResponseDecodingSpec extends Properties {
       "Claude keychain blob with an unknown subscription type keeps the capitalised label",
       testClaudeBlobUnknownSubscription,
     ),
+    example("Claude keychain blob with emptied tokens says the sign-in expired", testClaudeBlobSignInExpired),
+    example("Claude keychain blob with a time-limit login end says the sign-in expired", testClaudeBlobTimeLimit),
+    example(
+      "Claude keychain blob with loginEnded and live tokens says the sign-in expired",
+      testClaudeBlobLoginEndedAlone,
+    ),
+    example(
+      "Claude keychain blob with only an empty refresh token says the sign-in expired",
+      testClaudeBlobEmptyRefreshTokenOnly,
+    ),
+    example(
+      "Claude keychain blob without an access token but with a refresh token keeps the no access token message",
+      testClaudeBlobNoAccessTokenWithRefreshToken,
+    ),
+    example(
+      "Claude keychain blob without a refreshToken field is not an expired sign-in",
+      testClaudeBlobNoRefreshTokenField,
+    ),
+    example(
+      "Claude keychain blob keeps only whether the refresh token is present, never the value",
+      testClaudeBlobRefreshTokenNotKept,
+    ),
     example("Claude profile response gives the plan from the organization type and tier", testClaudeProfile),
     example("Claude profile response with a team seat gives Team Premium", testClaudeProfileTeamSeat),
     example("Claude profile response prefers the organization over the account flags", testClaudeProfileOrgWins),
@@ -212,7 +234,72 @@ object ResponseDecodingSpec extends Properties {
     )
 
   def testClaudeBlobMcpOnly: Result =
-    ClaudeCredentialsBlob.parse("""{"mcpOAuth":{"server":{}}}""", 0L).isLeft ==== true
+    ClaudeCredentialsBlob.parse("""{"mcpOAuth":{"server":{}}}""", 0L) ==== Left(
+      "Keychain item has no Claude sign-in (only MCP state). Run claude and use /login to sign in."
+    )
+
+  private val signInExpired = "Claude Code sign-in expired. Run claude and use /login to sign in again."
+
+  /** The item that Claude Code leaves after the server rejects the refresh token (#94). Made-up values. */
+  private val blobEmptied =
+    """{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":1790000000000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"},"mcpOAuth":{},"organizationUuid":"00000000-0000-0000-0000-000000000000"}"""
+
+  def testClaudeBlobSignInExpired: Result =
+    ClaudeCredentialsBlob.parse(blobEmptied, 1789185600000L) ==== Left(signInExpired)
+
+  def testClaudeBlobTimeLimit: Result = {
+    val blobTimeLimit =
+      """{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":1790000000000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","loginEnded":"time_limit"},"mcpOAuth":{}}"""
+    ClaudeCredentialsBlob.parse(blobTimeLimit, 1789185600000L) ==== Left(signInExpired)
+  }
+
+  def testClaudeBlobLoginEndedAlone: Result = {
+    val blobLoginEnded =
+      """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","refreshToken":"sk-ant-ort01-example","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","loginEnded":"time_limit"}}"""
+    ClaudeCredentialsBlob.parse(blobLoginEnded, 1789185600000L) ==== Left(signInExpired)
+  }
+
+  def testClaudeBlobEmptyRefreshTokenOnly: Result = {
+    val blobEmptyRefresh =
+      """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","refreshToken":"","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max"}}"""
+    ClaudeCredentialsBlob.parse(blobEmptyRefresh, 1789185600000L) ==== Left(signInExpired)
+  }
+
+  def testClaudeBlobNoAccessTokenWithRefreshToken: Result = {
+    val blobNoAccess =
+      """{"claudeAiOauth":{"refreshToken":"sk-ant-ort01-example","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max"}}"""
+    ClaudeCredentialsBlob.parse(blobNoAccess, 1789185600000L) ==== Left(
+      "Keychain item has no access token. Run claude to sign in."
+    )
+  }
+
+  def testClaudeBlobNoRefreshTokenField: Result = {
+    val blobNoRefreshField =
+      """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max"}}"""
+    ClaudeCredentialsBlob.parse(blobNoRefreshField, 1789185600000L).map(_.accessToken.value.value) ==== Right(
+      "sk-ant-oat01-example"
+    )
+  }
+
+  def testClaudeBlobRefreshTokenNotKept: Result =
+    codecs.readEither[ClaudeCredentialsBlob](blob).leftMap(_.message) match {
+      case Right(decoded) =>
+        Result.all(
+          List(
+            decoded.claudeAiOauth.flatMap(_.refreshToken) ==== Some(RefreshTokenState.Present),
+            Result.diffNamed(
+              "Show has no refresh token",
+              cats.Show[ClaudeCredentialsBlob].show(decoded),
+              "sk-ant-ort01"
+            )((shown, secret) => !shown.contains(secret)),
+            Result.diffNamed("toString has no refresh token", decoded.toString, "sk-ant-ort01")((shown, secret) =>
+              !shown.contains(secret)
+            ),
+          )
+        )
+      case Left(message) =>
+        Result.failure.log(message)
+    }
 
   private val blobWithTier =
     """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","expiresAt":4102444800000,"scopes":["user:profile"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}"""

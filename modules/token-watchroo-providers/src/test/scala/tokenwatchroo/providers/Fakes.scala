@@ -35,6 +35,10 @@ object Fakes {
   /** A keychain item that holds only MCP state, as an old item left by another account can (#90). */
   val claudeMcpOnlyBlob: String = """{"mcpOAuth":{"server":{}}}"""
 
+  /** The item that Claude Code leaves after the server rejects the refresh token (#94). */
+  val claudeExpiredBlob: String =
+    """{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":1790000000000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"},"mcpOAuth":{}}"""
+
   val keychainAccount: KeychainAccount = KeychainAccount(NonEmptyString("alex"))
 
   /** The verified profile shape, on a Max 20x organization. */
