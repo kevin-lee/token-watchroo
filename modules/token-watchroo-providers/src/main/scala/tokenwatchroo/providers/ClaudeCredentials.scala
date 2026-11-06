@@ -39,7 +39,7 @@ final class ClaudeCredentials(keychain: KeychainReader, account: KeychainAccount
               case ProfileScope.Missing =>
                 ProviderError
                   .unsupported(
-                    "Claude Code token cannot read usage (no user:profile scope). Run claude to sign in again."
+                    "Claude Code token cannot read usage (no user:profile scope). Run claude and use /login to sign in again."
                   )
                   .asLeft[ClaudeOAuth]
             }

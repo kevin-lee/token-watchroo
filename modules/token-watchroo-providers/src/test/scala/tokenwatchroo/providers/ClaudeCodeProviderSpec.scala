@@ -134,7 +134,10 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
     val blob =
       """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-x","expiresAt":4102444800000,"scopes":["user:inference"]}}"""
     val p    = provider(new Fakes.FakeHttp(Fakes.ok(Fakes.claudeUsage)), new Fakes.FakeKeychain(blob.asRight))
-    assert(scheduled(p, Fakes.now).unsafeRunSync().error.exists(_.value.value.contains("user:profile")))
+    assertEquals(
+      scheduled(p, Fakes.now).unsafeRunSync().error.map(_.value.value),
+      Some("Claude Code token cannot read usage (no user:profile scope). Run claude and use /login to sign in again."),
+    )
   }
 
   test("the User-Agent follows claude-code/<version>") {

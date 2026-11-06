@@ -287,6 +287,16 @@ object codecs {
   given claudeProfileResponseCodec: JsonValueCodec[ClaudeProfileResponse] = JsonCodecMaker.make(
     CodecMakerConfig.withSkipUnexpectedFields(true).withFieldNameMapper(JsonCodecMaker.enforce_snake_case)
   )
+  /* Only empty or present is kept, never the refresh token. The blob is only read, so the encoder is never used. */
+  given refreshTokenStateCodec: JsonValueCodec[RefreshTokenState]         =
+    mapped[String, RefreshTokenState](
+      RefreshTokenState.fromRaw,
+      {
+        case RefreshTokenState.Empty => ""
+        case RefreshTokenState.Present => "<redacted>"
+      },
+      RefreshTokenState.Present,
+    )
   given claudeCredentialsBlobCodec: JsonValueCodec[ClaudeCredentialsBlob] =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
   given codexUsageResponseCodec: JsonValueCodec[CodexUsageResponse]       = JsonCodecMaker.make(

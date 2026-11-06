@@ -91,7 +91,15 @@ object ClaudePlanSpec extends Properties {
     )
 
   private def oauth(subscriptionType: Option[String], rateLimitTier: Option[String]): ClaudeAiOauth =
-    ClaudeAiOauth(none[String], none[Long], none[List[String]], subscriptionType, rateLimitTier)
+    ClaudeAiOauth(
+      none[String],
+      none[RefreshTokenState],
+      none[Long],
+      none[List[String]],
+      subscriptionType,
+      rateLimitTier,
+      none[String],
+    )
 
   def testCredentials: Result =
     Result.all(

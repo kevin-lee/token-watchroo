@@ -7,21 +7,47 @@ import refined4s.types.all.*
 import tokenwatchroo.core.*
 import tokenwatchroo.core.codecs.given
 
+/** Whether `claudeAiOauth.refreshToken` is empty. Claude Code writes `""` when the server rejects the refresh token
+  * (#94). The value itself is never kept, because Token Watchroo never refreshes: a second app that refreshes signs the
+  * CLI out.
+  */
+enum RefreshTokenState derives CanEqual, Eq, Show {
+  case Empty
+  case Present
+}
+
+object RefreshTokenState {
+  def empty: RefreshTokenState   = RefreshTokenState.Empty
+  def present: RefreshTokenState = RefreshTokenState.Present
+
+  def fromRaw(raw: String): RefreshTokenState =
+    if (raw.isEmpty) RefreshTokenState.Empty else RefreshTokenState.Present
+}
+
 /** The `claudeAiOauth` entry of the "Claude Code-credentials" keychain item. `rateLimitTier` is camelCase in the
-  * keychain (verified 2026-09-12), and the blob codec has no field-name mapper.
+  * keychain (verified 2026-09-12), and the blob codec has no field-name mapper. `refreshToken` keeps only whether the
+  * token is empty or present. `loginEnded` is `"time_limit"` when the sign-in reached its time limit.
   */
 final case class ClaudeAiOauth(
   accessToken: Option[String],
+  refreshToken: Option[RefreshTokenState],
   expiresAt: Option[Long],
   scopes: Option[List[String]],
   subscriptionType: Option[String],
   rateLimitTier: Option[String],
+  loginEnded: Option[String],
 ) derives CanEqual,
       Eq,
       Show
 
 object ClaudeAiOauth {
   extension (oauth: ClaudeAiOauth) {
+
+    /** Claude Code empties the refresh token when the server rejects it, and `/status` then says the login expired. A
+      * missing refresh token is not an ended sign-in, the same as in Claude Code.
+      */
+    def signInEnded: Boolean =
+      oauth.refreshToken.contains(RefreshTokenState.Empty) || oauth.loginEnded.isDefined
 
     /** The login-time snapshot of the plan, the offline fallback for the badge. When `subscriptionType` is present it
       * is the plan word and `rateLimitTier` is only a multiplier source. Without a word the tier alone decides.
@@ -54,7 +80,12 @@ object ClaudeCredentialsBlob {
       blob  <- codecs.readEither[ClaudeCredentialsBlob](raw).leftMap(_.message)
       oauth <- blob
                  .claudeAiOauth
-                 .toRight("Keychain item has no Claude sign-in (only MCP state). Run claude to sign in.")
+                 .toRight("Keychain item has no Claude sign-in (only MCP state). Run claude and use /login to sign in.")
+      _     <- Either.cond(
+                 !oauth.signInEnded,
+                 (),
+                 "Claude Code sign-in expired. Run claude and use /login to sign in again.",
+               )
       token <- oauth
                  .accessToken
                  .flatMap(t => NonEmptyString.from(t).toOption)
