@@ -3,6 +3,7 @@ logLevel := sbt.Level.Warn
 addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "0.13.1")
 
 val sbtDevOopsVersion = "3.8.0"
+
 addSbtPlugin("io.kevinlee" % "sbt-devoops-scala"     % sbtDevOopsVersion)
 addSbtPlugin("io.kevinlee" % "sbt-devoops-sbt-extra" % sbtDevOopsVersion)
 addSbtPlugin("io.kevinlee" % "sbt-devoops-github"    % sbtDevOopsVersion)
@@ -16,4 +17,4 @@ addSbtPlugin("com.github.sbt" % "sbt-dynver" % "5.1.1")
  * another version) are patched copies of this version's javalib files, and
  * native-overrides/scala-native-0.5.12/immix_commix/RegistersCapture.h of its nativelib header (#63, build.sbt refuses
  * another version). On an upgrade, diff all three against the new sources before changing the version. */
-addSbtPlugin("org.scala-native"   % "sbt-scala-native"              % "0.5.12")
+addSbtPlugin("org.scala-native" % "sbt-scala-native" % "0.5.12")
