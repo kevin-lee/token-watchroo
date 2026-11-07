@@ -167,13 +167,36 @@ object codecs {
       ),
     )
 
-  /* Config: the JSON key is `refreshIntervalSeconds`, the field is `refreshInterval`. */
+  /* Config: the JSON key is `refreshIntervalSeconds`, the field is `refreshInterval`. A missing `agents` is an empty
+   * list. In an agent entry only `id` is required: a missing `billing`, `plan` or `enabled` gives its default. An entry
+   * with an unknown `id`, `billing` or `plan` is skipped, so a config written by a later version still decodes (#8). */
+
+  final private case class AgentConfigWire(
+    id: String,
+    billing: Option[String],
+    plan: Option[String],
+    enabled: Option[Boolean],
+  )
+
+  private given agentConfigWireCodec: JsonValueCodec[AgentConfigWire] =
+    JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
+
+  private def agentConfigFromWire(w: AgentConfigWire): Option[AgentConfig] =
+    (for {
+      id      <- AgentId.parse(w.id)
+      billing <- w.billing.fold(Billing.default.asRight[String])(Billing.parse)
+      plan    <- w.plan.fold(PlanKind.default.asRight[String])(PlanKind.parse)
+    } yield AgentConfig(id, billing, plan, w.enabled.fold(Enabled.default)(Enabled.fromBoolean))).toOption
+
+  private def agentConfigToWire(a: AgentConfig): AgentConfigWire =
+    AgentConfigWire(a.id.wire, a.billing.wire.some, a.plan.wire.some, a.enabled.isOn.some)
 
   final private case class ConfigWire(
     stateDir: StateDir,
     refreshIntervalSeconds: RefreshIntervalSeconds,
     codexHome: Option[CodexHome],
     claudeCodeVersionOverride: Option[ClaudeCodeVersion],
+    agents: List[AgentConfigWire],
   )
 
   private given configWireCodec: JsonValueCodec[ConfigWire] =
@@ -181,8 +204,22 @@ object codecs {
 
   given configCodec: JsonValueCodec[Config] =
     mapped[ConfigWire, Config](
-      w => Config(w.stateDir, w.refreshIntervalSeconds, w.codexHome, w.claudeCodeVersionOverride),
-      c => ConfigWire(c.stateDir, c.refreshInterval, c.codexHome, c.claudeCodeVersionOverride),
+      w =>
+        Config(
+          w.stateDir,
+          w.refreshIntervalSeconds,
+          w.codexHome,
+          w.claudeCodeVersionOverride,
+          w.agents.flatMap(agentConfigFromWire),
+        ),
+      c =>
+        ConfigWire(
+          c.stateDir,
+          c.refreshInterval,
+          c.codexHome,
+          c.claudeCodeVersionOverride,
+          c.agents.map(agentConfigToWire),
+        ),
       Config.default(StateDir(NonEmptyString.unsafeFrom("-"))),
     )
 

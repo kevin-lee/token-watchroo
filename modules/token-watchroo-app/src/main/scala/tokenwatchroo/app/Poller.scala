@@ -7,7 +7,7 @@ import scala.concurrent.duration.*
 import tokenwatchroo.core.*
 import tokenwatchroo.providers.UsageProvider
 
-/** The refresh loop. One tick detects providers, fetches them in parallel, derives the snapshot, runs the alert
+/** The refresh loop. One tick selects and detects providers, fetches them in parallel, derives the snapshot, runs the alert
   * engine, persists the state before anything is emitted, and then emits the snapshot and every alert. A tick never
   * fails: a total failure becomes an error envelope. Between ticks the loop sleeps for the refresh interval unless a
   * command arrives first. A `Refresh` command runs the next tick as `FetchTrigger.Manual`, so providers bypass their
@@ -15,15 +15,27 @@ import tokenwatchroo.providers.UsageProvider
   * `ManualRefreshWindow` after the end of the last manual tick is dropped, so a burst of clicks on "Refresh now" costs
   * one tick, and a dropped command does not move the next scheduled tick (issue #51). `SetConfig` and `Shutdown` are
   * never delayed.
+  *
+  * The providers are a registry built once. Each tick selects from it with `AgentChoice.of` and `Config.agents` (#8):
+  * an agent without an entry is detected first, an enabled subscription entry is fetched without detection and gets the
+  * plan badge of its entry, an enabled API entry gives an unavailable card without a call to the provider, and a
+  * disabled entry gives no card. `SetConfig` replaces only the config, so the providers and their caches (the Claude
+  * plan badge, the last good snapshots), the alert state, and the schedule are kept.
   */
 object Poller {
+
+  /** What a tick does with one selected agent. */
+  private enum Planned {
+    case Fetch(provider: UsageProvider, plan: PlanKind)
+    case Ready(snapshot: AgentSnapshot)
+  }
 
   /** A `Refresh` that arrives within this many seconds after the end of a manual tick is dropped (issue #51). */
   val ManualRefreshWindow: Seconds = Seconds(10L)
 
   def run(
     initial: Config,
-    providers: List[UsageProvider],
+    registry: List[UsageProvider],
     queue: Queue[IO, Command],
     sink: EnvelopeSink,
     store: StateStore,
@@ -31,7 +43,7 @@ object Poller {
   ): IO[Unit] = {
     def loop(config: Config, trigger: FetchTrigger, lastManualAt: Option[EpochSeconds]): IO[Unit] =
       for {
-        _     <- tick(config, providers, sink, store, clock, trigger)
+        _     <- tick(config, registry, sink, store, clock, trigger)
         after <- clock
         last = trigger match {
                  case FetchTrigger.Manual => after.some
@@ -62,7 +74,7 @@ object Poller {
 
   def tick(
     config: Config,
-    providers: List[UsageProvider],
+    registry: List[UsageProvider],
     sink: EnvelopeSink,
     store: StateStore,
     clock: IO[EpochSeconds],
@@ -70,9 +82,12 @@ object Poller {
   ): IO[Unit] = {
     val refresh =
       for {
-        now      <- clock
-        detected <- providers.filterA(_.detect(config).map(_.isDetected))
-        agents   <- detected.parTraverse(_.fetch(now, config, trigger))
+        now     <- clock
+        planned <- registry.traverseFilter(provider => plan(provider, config, now))
+        agents  <- planned.parTraverse {
+                     case Planned.Fetch(provider, kind) => provider.fetch(now, config, trigger).map(_.withPlan(kind))
+                     case Planned.Ready(snapshot) => IO.pure(snapshot)
+                   }
         snapshot = Snapshot.of(now, agents)
         state <- store.read
         stepped        = AlertEngine.step(state, snapshot, now)
@@ -85,4 +100,17 @@ object Poller {
       sink.emit(seq => Envelope.error(seq, s"${e.getClass.getName}: ${Option(e.getMessage).getOrElse("")}"))
     }
   }
+
+  /** Detection runs one provider after the other, as before #8. */
+  private def plan(provider: UsageProvider, config: Config, now: EpochSeconds): IO[Option[Planned]] =
+    AgentChoice.of(config, provider.id) match {
+      case AgentChoice.AutoDetect =>
+        provider
+          .detect(config)
+          .map(detection => Option.when(detection.isDetected)(Planned.Fetch(provider, PlanKind.Individual)))
+      case AgentChoice.Fetch(kind) => IO.pure(Planned.Fetch(provider, kind).some)
+      case AgentChoice.ApiNotSupported =>
+        IO.pure(Planned.Ready(AgentSnapshot.unavailable(provider.id, now, AgentChoice.ApiNotSupportedMessage)).some)
+      case AgentChoice.Hidden => IO.pure(none[Planned])
+    }
 }

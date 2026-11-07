@@ -9,6 +9,7 @@ final class MenuBuilder {
     private static let sidePadding: CGFloat = 10
     static let waitingTitle = "Waiting for the first refresh…"
     static let noAgentTitle = "No agent detected. Run claude or codex once."
+    static let settingsTitle = "Settings..."
     static let aboutTitle = "About Token Watchroo"
     static let checkForUpdatesTitle = "Check for Updates..."
     /// The header is item 0.
@@ -46,6 +47,10 @@ final class MenuBuilder {
         let refresh = NSMenuItem(title: "Refresh now", action: #selector(StatusItemController.refreshNow(_:)), keyEquivalent: "r")
         refresh.target = target
         menu.addItem(refresh)
+
+        let settings = NSMenuItem(title: MenuBuilder.settingsTitle, action: #selector(StatusItemController.showSettings(_:)), keyEquivalent: ",")
+        settings.target = target
+        menu.addItem(settings)
 
         let launch = NSMenuItem(title: "Launch at Login", action: #selector(StatusItemController.toggleLaunchAtLogin(_:)), keyEquivalent: "")
         launch.target = target
