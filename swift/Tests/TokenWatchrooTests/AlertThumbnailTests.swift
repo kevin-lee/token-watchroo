@@ -22,4 +22,15 @@ final class AlertThumbnailTests: XCTestCase {
         XCTAssertEqual(reset?.drawsArc, false)
         XCTAssertNil(AlertThumbnail.style(for: "unknown", percent: 90))
     }
+
+    /// Level alerts other than 70 and 85 (#9): the band colour of the percent, white under 50 or without a percent.
+    func testALevelAlertHasTheColourOfItsBand() {
+        XCTAssertEqual(AlertThumbnail.style(for: "level60", percent: 60)?.color, RingIcon.elevatedColor)
+        XCTAssertEqual(AlertThumbnail.style(for: "level30", percent: 30)?.color, .white)
+        XCTAssertEqual(AlertThumbnail.style(for: "level60", percent: nil)?.color, .white)
+        XCTAssertEqual(AlertThumbnail.style(for: "level60", percent: 60)?.drawsArc, true)
+        XCTAssertEqual(AlertThumbnail.style(for: "threshold80", percent: 30)?.color, RingIcon.warningColor)
+        XCTAssertNil(AlertThumbnail.style(for: "level0", percent: 60))
+        XCTAssertNil(AlertThumbnail.style(for: "levelx", percent: 60))
+    }
 }

@@ -1,5 +1,6 @@
 package tokenwatchroo.core
 
+import cats.syntax.all.*
 import extras.render.syntax.*
 
 /** Notification copy, following `.ai/docs/design/ui/Alerts.dc.html`. Per-model rows read "Claude Code is near its
@@ -7,18 +8,13 @@ import extras.render.syntax.*
   */
 object AlertText {
 
-  def warning(agent: AgentId, window: UsageWindow, now: EpochSeconds): Alert =
-    build(
-      agent,
-      window,
-      now,
-      AlertKind.Warning,
-      render"$agent is near its ${window.id.limitNoun} limit",
-      usageBody(window, now)
-    )
-
-  def critical(agent: AgentId, window: UsageWindow, now: EpochSeconds): Alert =
-    build(agent, window, now, AlertKind.Critical, render"$agent is almost out", usageBody(window, now))
+  /** "is almost out" when the window is in the red band (#9), so the title and the "Almost out" pill always agree. */
+  def level(agent: AgentId, window: UsageWindow, now: EpochSeconds, level: AlertLevel): Alert = {
+    val title =
+      if (UsageBand.of(window.usedPercent) === UsageBand.Critical) render"$agent is almost out"
+      else render"$agent is near its ${window.id.limitNoun} limit"
+    build(agent, window, now, AlertKind.level(level), title, usageBody(window, now))
+  }
 
   def reset(agent: AgentId, window: UsageWindow, now: EpochSeconds): Alert =
     build(

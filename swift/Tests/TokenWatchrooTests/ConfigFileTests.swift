@@ -75,11 +75,40 @@ final class ConfigFileTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(AgentConfig.self, from: Data(fromCore.utf8)), entry)
     }
 
+    func testAlertLevelsAreReadLeniently() throws {
+        try write(#"""
+        {"agents":[{"id":"codex","alertLevels":[60,90]},{"id":"claude-code","alertLevels":[70,72]}]}
+        """#)
+        XCTAssertEqual(ConfigFile.load(from: url, stateDir: "/state").config.agents.map(\.alertLevels),
+                       [[60, 90], AlertLevelRules.defaults])
+        try write(#"{"agents":[{"id":"codex","alertLevels":"x"},{"id":"claude-code","alertLevels":[]}]}"#)
+        XCTAssertEqual(ConfigFile.load(from: url, stateDir: "/state").config.agents.map(\.alertLevels),
+                       [AlertLevelRules.defaults, []])
+    }
+
+    /// The same rules as in the Scala `CodecsSpec`: the defaults are left out, other levels and `[]` are written.
+    func testAlertLevelsAreWrittenOnlyWhenNotTheDefaults() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        func json(_ levels: [Int]) throws -> String {
+            var entry = AgentConfig.defaults(.codex)
+            entry.alertLevels = levels
+            return String(decoding: try encoder.encode(entry), as: UTF8.self)
+        }
+        XCTAssertFalse(try json(AlertLevelRules.defaults).contains("alertLevels"))
+        XCTAssertTrue(try json([60, 90]).contains(#""alertLevels":[60,90]"#))
+        XCTAssertTrue(try json([]).contains(#""alertLevels":[]"#))
+        let strict = #"{"id":"codex","billing":"subscription","plan":"team","enabled":true,"alertLevels":[70,72]}"#
+        XCTAssertEqual(try JSONDecoder().decode(AgentConfig.self, from: Data(strict.utf8)).alertLevels,
+                       AlertLevelRules.defaults)
+    }
+
     func testWriteThenLoadGivesTheSameConfig() throws {
         var config = Config.defaults(stateDir: "/state")
         config.codexHome = "/Users/someone/.codex"
         config.agents = [AgentConfig(id: .codex, billing: .subscription, plan: .team, enabled: .on),
-                         AgentConfig(id: .claudeCode, billing: .subscription, plan: .individual, enabled: .off)]
+                         AgentConfig(id: .claudeCode, billing: .subscription, plan: .individual, enabled: .off,
+                                     alertLevels: [])]
         try ConfigFile.write(config, to: url)
         XCTAssertEqual(ConfigFile.load(from: url, stateDir: "/state").config, config)
         XCTAssertTrue(String(decoding: try Data(contentsOf: url), as: UTF8.self).contains(#""codexHome" : "/Users/someone/.codex""#))

@@ -100,7 +100,7 @@ object Poller {
                    }
         snapshot = Snapshot.of(now, agents)
         state <- store.read
-        stepped        = AlertEngine.step(state, snapshot, now)
+        stepped        = AlertEngine.step(state, snapshot, now, AlertLevels.of(config, _))
         (next, alerts) = stepped
         _ <- store.write(next)
         _ <- sink.emit(seq => Envelope.snapshot(seq, snapshot))

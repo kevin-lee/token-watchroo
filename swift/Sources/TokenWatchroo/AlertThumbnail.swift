@@ -34,18 +34,30 @@ enum AlertThumbnail {
     }
 
     /// The colour of the menubar ring at the alert's percent (#101), white with the artboard's empty arc on reset.
-    /// Without a percent, or in the band with no colour, the kind's colour: amber for `threshold80`, red for
-    /// `threshold95`. Any other kind gets no attachment.
+    /// A level alert (#9) without a percent, or in the band with no colour, gets the kind's colour: amber for
+    /// `threshold80` (level 70), red for `threshold95` (level 85), white for `level<n>`. Any other kind gets no
+    /// attachment.
     static func style(for kind: String, percent: Double?) -> Style? {
         let fallback: NSColor
         switch kind {
         case "threshold80": fallback = RingIcon.warningColor
         case "threshold95": fallback = RingIcon.criticalColor
         case "reset": return Style(color: .white, drawsArc: false)
-        default: return nil
+        default:
+            guard isLevelKind(kind) else { return nil }
+            fallback = .white
         }
         let color = percent.flatMap { RingIcon.color(for: UsageBand.of(percent: $0)) } ?? fallback
         return Style(color: color, drawsArc: true)
+    }
+
+    /// `level<n>` with `n` from 1 to 100, the wire value of a level other than 70 and 85 (#9).
+    static func isLevelKind(_ kind: String) -> Bool {
+        guard kind.hasPrefix("level") else { return false }
+        let number = kind.dropFirst("level".count)
+        guard !number.isEmpty, number.allSatisfy(\.isASCII), number.allSatisfy(\.isNumber),
+              let value = Int(number) else { return false }
+        return (1...100).contains(value)
     }
 
     /// The 38 by 38 tile with the 22 by 22 ring of the artboard, scaled to `size`, on a transparent background.

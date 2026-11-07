@@ -47,15 +47,16 @@ object AgentStatusSpec extends Properties {
     def at(p: Double): AgentStatus = ofWindows(List(Fixtures.window(WindowId.Session, p, now.some)))
     Result.all(
       List(
-        at(50.0d) ==== AgentStatus.Ok,
-        at(50.4d) ==== AgentStatus.Ok,
-        at(50.5d) ==== AgentStatus.Elevated,
-        at(70.0d) ==== AgentStatus.Elevated,
-        at(70.4d) ==== AgentStatus.Elevated,
-        at(70.5d) ==== AgentStatus.Warning,
-        at(85.0d) ==== AgentStatus.Warning,
-        at(85.4d) ==== AgentStatus.Warning,
-        at(85.5d) ==== AgentStatus.Critical,
+        at(49.0d) ==== AgentStatus.Ok,
+        at(49.4d) ==== AgentStatus.Ok,
+        at(49.5d) ==== AgentStatus.Elevated,
+        at(50.0d) ==== AgentStatus.Elevated,
+        at(69.4d) ==== AgentStatus.Elevated,
+        at(69.5d) ==== AgentStatus.Warning,
+        at(70.0d) ==== AgentStatus.Warning,
+        at(84.4d) ==== AgentStatus.Warning,
+        at(84.5d) ==== AgentStatus.Critical,
+        at(85.0d) ==== AgentStatus.Critical,
         at(99.9d) ==== AgentStatus.Critical,
         at(100.0d) ==== AgentStatus.Exhausted,
         ofWindows(
@@ -98,8 +99,11 @@ object AgentStatusSpec extends Properties {
     Result.all(
       List(
         spendOf("0.05", "200.00") ==== AgentStatus.Ok,
+        spendOf("100", "200") ==== AgentStatus.Elevated,
         spendOf("120", "200") ==== AgentStatus.Elevated,
+        spendOf("140", "200") ==== AgentStatus.Warning,
         spendOf("160", "200") ==== AgentStatus.Warning,
+        spendOf("170", "200") ==== AgentStatus.Critical,
         spendOf("190", "200") ==== AgentStatus.Critical,
         spendOf("200", "200") ==== AgentStatus.Exhausted,
         spendOf("0", "0") ==== AgentStatus.Exhausted,

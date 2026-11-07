@@ -145,8 +145,8 @@ class PollerSpec extends munit.FunSuite {
     val (first, second) = program.timeoutAndForget(TestTimeout).unsafeRunSync()
     assertEquals(first.map(_.wire), List("snapshot", "alert"))
     assertEquals(snapshots(first).flatMap(_.agents.map(_.id)), List(AgentId.ClaudeCode, AgentId.Codex))
-    assertEquals(snapshots(first).map(_.menubar.kind), List(MenubarKind.Warning))
-    assertEquals(alerts(first).map(_.kind), List(AlertKind.Warning))
+    assertEquals(snapshots(first).map(_.menubar.kind), List(MenubarKind.Critical))
+    assertEquals(alerts(first).map(_.kind), List(AlertKind.level(AlertLevel.unsafeFrom(85))))
     assertEquals(first.map(_.seq.value), List(1L, 2L))
     assertEquals(second.drop(2).map(_.wire), List("snapshot"))
   }
@@ -338,7 +338,7 @@ class PollerSpec extends munit.FunSuite {
     } yield snapshots(all)).timeoutAndForget(TestTimeout).unsafeRunSync()
 
   test("SetConfig with an agent disabled removes its card from the next snapshot") {
-    val disabled = configWith(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Individual, Enabled.Off))
+    val disabled = configWith(AgentConfig.defaults(AgentId.Codex).copy(enabled = Enabled.Off))
     val all      = runWithConfigs(List(claudeAt(10.0d), codexAt(40.0d, Detection.Detected)), List(disabled))
     assertEquals(
       all.map(_.agents.map(_.id)),
@@ -347,7 +347,7 @@ class PollerSpec extends munit.FunSuite {
   }
 
   test("SetConfig with an empty list goes back to auto-detection") {
-    val disabled = configWith(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Individual, Enabled.Off))
+    val disabled = configWith(AgentConfig.defaults(AgentId.Codex).copy(enabled = Enabled.Off))
     val all      =
       runWithConfigs(List(claudeAt(10.0d), codexAt(40.0d, Detection.Detected)), List(disabled, configWith()))
     assertEquals(
@@ -402,6 +402,16 @@ class PollerSpec extends munit.FunSuite {
     assertEquals(Poller.rescheduled(EpochSeconds(1000L), fiveMinutes, oneMinute), EpochSeconds(760L))
   }
 
+  test("the alert levels of the agent's entry are used (#9)") {
+    val ninety = AlertLevels.from(List(90)).getOrElse(AlertLevels.defaults)
+    val all    = oneTick(
+      configWith(AgentConfig.defaults(AgentId.ClaudeCode).copy(alertLevels = ninety)),
+      List(claudeAt(85.0d)),
+    )
+    assertEquals(all.map(_.wire), List("snapshot"))
+    assertEquals(alerts(all), Nil)
+  }
+
   test("an enabled entry is fetched without detection") {
     val all = oneTick(
       configWith(AgentConfig.defaults(AgentId.Codex)),
@@ -412,7 +422,7 @@ class PollerSpec extends munit.FunSuite {
 
   test("an Api entry gives the unavailable card and does not call the provider") {
     val all    = oneTick(
-      configWith(AgentConfig(AgentId.Codex, Billing.Api, PlanKind.Enterprise, Enabled.On)),
+      configWith(AgentConfig.defaults(AgentId.Codex).copy(billing = Billing.Api, plan = PlanKind.Enterprise)),
       List(claudeAt(10.0d), codexMustNotFetch),
     )
     val agents = snapshots(all).flatMap(_.agents)
@@ -443,7 +453,7 @@ class PollerSpec extends munit.FunSuite {
     )
 
   test("a provider label wins over the plan, and the plan fills a missing label") {
-    val team         = configWith(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Team, Enabled.On))
+    val team         = configWith(AgentConfig.defaults(AgentId.Codex).copy(plan = PlanKind.Team))
     val withLabel    = oneTick(team, List(codexAt(40.0d, Detection.Detected)))
     val withoutLabel = oneTick(team, List(codexWithoutLabel))
     assertEquals(snapshots(withLabel).flatMap(_.agents.map(_.planLabel)), List(Some(PlanLabel(NonEmptyString("Plus")))))
