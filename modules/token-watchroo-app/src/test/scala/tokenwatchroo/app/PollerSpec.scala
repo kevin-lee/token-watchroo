@@ -23,7 +23,8 @@ class PollerSpec extends munit.FunSuite {
       StateDir(NonEmptyString("/tmp/token-watchroo-app-tests")),
       RefreshIntervalSeconds.clamp(15),
       none[CodexHome],
-      none[ClaudeCodeVersion]
+      none[ClaudeCodeVersion],
+      List.empty[AgentConfig],
     )
 
   final private class Stub(
@@ -277,6 +278,132 @@ class PollerSpec extends munit.FunSuite {
     assertEquals(
       snapshots(all).map(_.menubar.kind),
       List(MenubarKind.Normal, MenubarKind.Unavailable, MenubarKind.Normal, MenubarKind.Normal),
+    )
+  }
+
+  /* Config.agents (#8) */
+
+  private def configWith(agents: AgentConfig*): Config = config.copy(agents = agents.toList)
+
+  private def codexAt(percent: Double, detection: Detection): UsageProvider =
+    new Stub(
+      AgentId.Codex,
+      detection,
+      (at, _) =>
+        IO.pure(
+          AgentSnapshot.available(
+            AgentId.Codex,
+            PlanLabel(NonEmptyString("Plus")).some,
+            UsageMeters(List(window(percent)), none[Spend]),
+            Source.Api,
+            at,
+            none[ErrorMessage],
+          )
+        ),
+    )
+
+  private val codexMustNotFetch: UsageProvider =
+    new Stub(
+      AgentId.Codex,
+      Detection.Detected,
+      (_, _) => IO.raiseError(new IllegalStateException("must not be fetched")),
+    )
+
+  private def oneTick(tickConfig: Config, registry: List[UsageProvider]): List[Envelope] =
+    (for {
+      (ref, sink, store) <- setup
+      _                  <- Poller.tick(tickConfig, registry, sink, store, IO.pure(now), FetchTrigger.Scheduled)
+      all                <- ref.get
+    } yield all).timeoutAndForget(TestTimeout).unsafeRunSync()
+
+  /** Runs the loop, sends each config after the previous snapshot, and returns one snapshot per step. */
+  private def runWithConfigs(registry: List[UsageProvider], next: List[Config]): List[Snapshot] =
+    (for {
+      (ref, sink, store) <- setup
+      queue              <- Queue.unbounded[IO, Command]
+      fiber              <- Poller.run(config, registry, queue, sink, store, IO.pure(now)).start
+      _                  <- awaitSnapshots(ref, 1).timeout(5.seconds)
+      _                  <- next.zipWithIndex.traverse_ {
+                              case (nextConfig, index) =>
+                                queue.offer(Command.setConfig(nextConfig)) >>
+                                  awaitSnapshots(ref, index + 2).timeout(5.seconds)
+                            }
+      _                  <- queue.offer(Command.shutdown)
+      _                  <- fiber.joinWithNever.timeout(5.seconds)
+      all                <- ref.get
+    } yield snapshots(all)).timeoutAndForget(TestTimeout).unsafeRunSync()
+
+  test("SetConfig with an agent disabled removes its card from the next snapshot") {
+    val disabled = configWith(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Individual, Enabled.Off))
+    val all      = runWithConfigs(List(claudeAt(10.0d), codexAt(40.0d, Detection.Detected)), List(disabled))
+    assertEquals(
+      all.map(_.agents.map(_.id)),
+      List(List(AgentId.ClaudeCode, AgentId.Codex), List(AgentId.ClaudeCode)),
+    )
+  }
+
+  test("SetConfig with an empty list goes back to auto-detection") {
+    val disabled = configWith(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Individual, Enabled.Off))
+    val all      =
+      runWithConfigs(List(claudeAt(10.0d), codexAt(40.0d, Detection.Detected)), List(disabled, configWith()))
+    assertEquals(
+      all.map(_.agents.map(_.id)),
+      List(
+        List(AgentId.ClaudeCode, AgentId.Codex),
+        List(AgentId.ClaudeCode),
+        List(AgentId.ClaudeCode, AgentId.Codex),
+      ),
+    )
+  }
+
+  test("an enabled entry is fetched without detection") {
+    val all = oneTick(
+      configWith(AgentConfig.defaults(AgentId.Codex)),
+      List(claudeAt(10.0d), codexAt(40.0d, Detection.NotDetected)),
+    )
+    assertEquals(snapshots(all).flatMap(_.agents.map(_.id)), List(AgentId.ClaudeCode, AgentId.Codex))
+  }
+
+  test("an Api entry gives the unavailable card and does not call the provider") {
+    val all    = oneTick(
+      configWith(AgentConfig(AgentId.Codex, Billing.Api, PlanKind.Enterprise, Enabled.On)),
+      List(claudeAt(10.0d), codexMustNotFetch),
+    )
+    val agents = snapshots(all).flatMap(_.agents)
+    assertEquals(all.map(_.wire), List("snapshot"))
+    assertEquals(agents.map(_.id), List(AgentId.ClaudeCode, AgentId.Codex))
+    assertEquals(agents.find(_.id === AgentId.Codex).map(_.status), Some(AgentStatus.Unavailable))
+    assertEquals(
+      agents.find(_.id === AgentId.Codex).flatMap(_.error),
+      Some(ErrorMessage(NonEmptyString("API budget agents are not supported yet"))),
+    )
+  }
+
+  private val codexWithoutLabel: UsageProvider =
+    new Stub(
+      AgentId.Codex,
+      Detection.Detected,
+      (at, _) =>
+        IO.pure(
+          AgentSnapshot.available(
+            AgentId.Codex,
+            none[PlanLabel],
+            UsageMeters(List(window(40.0d)), none[Spend]),
+            Source.Api,
+            at,
+            none[ErrorMessage],
+          )
+        ),
+    )
+
+  test("a provider label wins over the plan, and the plan fills a missing label") {
+    val team         = configWith(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Team, Enabled.On))
+    val withLabel    = oneTick(team, List(codexAt(40.0d, Detection.Detected)))
+    val withoutLabel = oneTick(team, List(codexWithoutLabel))
+    assertEquals(snapshots(withLabel).flatMap(_.agents.map(_.planLabel)), List(Some(PlanLabel(NonEmptyString("Plus")))))
+    assertEquals(
+      snapshots(withoutLabel).flatMap(_.agents.map(_.planLabel)),
+      List(Some(PlanLabel(NonEmptyString("Team"))))
     )
   }
 }

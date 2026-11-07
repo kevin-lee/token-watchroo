@@ -2,11 +2,135 @@ import Foundation
 
 // Mirrors of the JSON contract in the design doc, section 7. Wire strings are the Scala `wire` values.
 
-struct Config: Encodable {
-    let stateDir: String
-    let refreshIntervalSeconds: Int
-    let codexHome: String?
-    let claudeCodeVersionOverride: String?
+/// The config that Swift owns in `<stateDir>/config.json` and sends to the library (#8). Every key is optional when it
+/// is read, so an older file still loads, and an agent entry that this version cannot read is skipped.
+struct Config: Codable, Equatable {
+    var stateDir: String
+    var refreshIntervalSeconds: Int
+    var codexHome: String?
+    var claudeCodeVersionOverride: String?
+    var agents: [AgentConfig]
+
+    static let defaultRefreshIntervalSeconds = 60
+
+    static func defaults(stateDir: String) -> Config {
+        Config(stateDir: stateDir, refreshIntervalSeconds: defaultRefreshIntervalSeconds, codexHome: nil,
+               claudeCodeVersionOverride: nil, agents: [])
+    }
+}
+
+extension Config {
+
+    private enum CodingKeys: String, CodingKey {
+        case stateDir, refreshIntervalSeconds, codexHome, claudeCodeVersionOverride, agents
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stateDir = try container.decodeIfPresent(String.self, forKey: .stateDir) ?? ""
+        refreshIntervalSeconds = try container.decodeIfPresent(Int.self, forKey: .refreshIntervalSeconds)
+            ?? Config.defaultRefreshIntervalSeconds
+        codexHome = try container.decodeIfPresent(String.self, forKey: .codexHome)
+        claudeCodeVersionOverride = try container.decodeIfPresent(String.self, forKey: .claudeCodeVersionOverride)
+        agents = (try container.decodeIfPresent([LenientAgentConfig].self, forKey: .agents) ?? []).compactMap(\.agent)
+    }
+}
+
+/// How an agent is paid for. Mirrors `Billing` in the core.
+enum Billing: String, Codable, CaseIterable {
+    case subscription
+    case api
+
+    var displayName: String {
+        switch self {
+        case .subscription: return "Subscription plan"
+        case .api: return "API"
+        }
+    }
+
+    /// The plans the Add-agent sheet offers for this billing, per `AddAgent.dc.html`.
+    var planChoices: [PlanKind] {
+        switch self {
+        case .subscription: return [.individual, .team]
+        case .api: return [.enterprise]
+        }
+    }
+}
+
+/// The plan the user says an agent is on. Mirrors `PlanKind` in the core.
+enum PlanKind: String, Codable {
+    case individual
+    case team
+    case enterprise
+
+    var displayName: String {
+        switch self {
+        case .individual: return "Individual"
+        case .team: return "Team"
+        case .enterprise: return "Enterprise"
+        }
+    }
+}
+
+/// Whether a configured agent is shown. A JSON boolean on the wire.
+enum Enabled: Codable, Equatable {
+    case on
+    case off
+
+    var isOn: Bool { self == .on }
+
+    init(isOn: Bool) { self = isOn ? .on : .off }
+
+    init(from decoder: Decoder) throws {
+        self.init(isOn: try decoder.singleValueContainer().decode(Bool.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(isOn)
+    }
+}
+
+/// One entry of `Config.agents`. Mirrors `AgentConfig` in the core.
+struct AgentConfig: Codable, Equatable {
+    let id: AgentId
+    var billing: Billing
+    var plan: PlanKind
+    var enabled: Enabled
+
+    static func defaults(_ id: AgentId) -> AgentConfig {
+        AgentConfig(id: id, billing: .subscription, plan: .individual, enabled: .on)
+    }
+}
+
+/// An agent entry read without failing: an unknown `id`, `billing` or `plan` gives no agent, so the entry is skipped
+/// as the core does.
+private struct LenientAgentConfig: Decodable {
+    let id: String?
+    let billing: String?
+    let plan: String?
+    let enabled: Bool?
+
+    var agent: AgentConfig? {
+        guard let id = id.flatMap(AgentId.init(rawValue:)) else { return nil }
+        let billing = self.billing.map(Billing.init(rawValue:)) ?? .subscription
+        let plan = self.plan.map(PlanKind.init(rawValue:)) ?? .individual
+        guard let billing, let plan else { return nil }
+        return AgentConfig(id: id, billing: billing, plan: plan, enabled: Enabled(isOn: enabled ?? true))
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, billing, plan, enabled
+    }
+
+    /// A value of the wrong type is read as absent, so one odd entry cannot make the whole file unreadable.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try? container.decodeIfPresent(String.self, forKey: .id)
+        billing = try? container.decodeIfPresent(String.self, forKey: .billing)
+        plan = try? container.decodeIfPresent(String.self, forKey: .plan)
+        enabled = try? container.decodeIfPresent(Bool.self, forKey: .enabled)
+    }
 }
 
 struct EnvelopeHead: Decodable {
@@ -27,7 +151,7 @@ struct ErrorEnvelope: Decodable {
     let message: String
 }
 
-enum AgentId: String, Decodable {
+enum AgentId: String, Codable, CaseIterable {
     case claudeCode = "claude-code"
     case codex
 

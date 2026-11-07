@@ -25,7 +25,59 @@ object CodecsSpec extends Properties {
     example("currency encodes as the code or credits and rejects lower-case codes", testCurrency),
     example("an agent without spend leaves spend out of the JSON", testSpendOmitted),
     example("observedAt is written when present and left out when absent", testObservedAt),
+    property("config round-trips with and without agents", testConfigRoundTrip),
+    example("a v1 config without agents decodes to no agents", testConfigWithoutAgents),
+    example("an agent entry with only an id decodes to the defaults", testAgentEntryDefaults),
+    example("agent entries with an unknown id, billing or plan are skipped and the others kept", testAgentEntrySkipped),
+    example("an agent entry writes its wire values", testAgentEntryWire),
   )
+
+  def testConfigRoundTrip: Property =
+    Fixtures.genConfig.log("config").map { config =>
+      val withoutAgents = config.copy(agents = List.empty[AgentConfig])
+      Result.all(
+        List(
+          codecs.readEither[Config](codecs.write(config)) ==== config.asRight[DecodeError],
+          codecs.readEither[Config](codecs.write(withoutAgents)) ==== withoutAgents.asRight[DecodeError],
+        )
+      )
+    }
+
+  private val V1ConfigJson =
+    """{"stateDir":"/tmp/tw","refreshIntervalSeconds":30,"codexHome":null,"claudeCodeVersionOverride":"2.1.269","future":true}"""
+
+  def testConfigWithoutAgents: Result =
+    codecs.readEither[Config](V1ConfigJson).map(_.agents) ==== Right(List.empty[AgentConfig])
+
+  def testAgentEntryDefaults: Result =
+    codecs
+      .readEither[Config]("""{"stateDir":"/tmp/tw","refreshIntervalSeconds":60,"agents":[{"id":"codex"}]}""")
+      .map(_.agents) ==== Right(List(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Individual, Enabled.On)))
+
+  def testAgentEntrySkipped: Result = {
+    val json =
+      """{"stateDir":"/tmp/tw","refreshIntervalSeconds":60,"agents":[""" +
+        """{"id":"cursor"},""" +
+        """{"id":"codex","billing":"budget"},""" +
+        """{"id":"codex","plan":"family"},""" +
+        """{"id":"claude-code","billing":"api","plan":"enterprise","enabled":false}""" +
+        """]}"""
+    codecs.readEither[Config](json).map(_.agents) ==== Right(
+      List(AgentConfig(AgentId.ClaudeCode, Billing.Api, PlanKind.Enterprise, Enabled.Off))
+    )
+  }
+
+  /** The same text is in the Swift `ConfigFileTests`, so both sides agree on the wire. */
+  def testAgentEntryWire: Result = {
+    val config = Config
+      .default(StateDir(NonEmptyString("/tmp/tw")))
+      .copy(agents = List(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Team, Enabled.On)))
+    codecs
+      .write(config)
+      .contains(
+        """"agents":[{"id":"codex","billing":"subscription","plan":"team","enabled":true}]"""
+      ) ==== true
+  }
 
   def testSpendRoundTrip: Property =
     Fixtures.genSpend.log("spend").map { spend =>

@@ -8,6 +8,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private let core: Core
     private let updater: Updater?
+    private let settings: SettingsWindowController?
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let builder = MenuBuilder()
 
@@ -20,9 +21,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private static let staleAfter: TimeInterval = 30
 
-    init(core: Core, updater: Updater? = nil) {
+    init(core: Core, updater: Updater? = nil, settings: SettingsWindowController? = nil) {
         self.core = core
         self.updater = updater
+        self.settings = settings
         super.init()
         render()
         installMenu()
@@ -119,6 +121,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc func refreshNow(_ sender: Any?) {
         core.refresh()
+    }
+
+    @objc func showSettings(_ sender: Any?) {
+        settings?.show()
     }
 
     @objc func toggleLaunchAtLogin(_ sender: Any?) {

@@ -30,6 +30,31 @@ object Fixtures {
     Gen.choice1(Gen.constant(WindowId.session), Gen.constant(WindowId.weekly), genModelName.map(WindowId.model))
   val genAgentId: Gen[AgentId]   = Gen.element1(AgentId.ClaudeCode, AgentId.Codex)
 
+  val genBilling: Gen[Billing]   = Gen.element1(Billing.Subscription, Billing.Api)
+  val genPlanKind: Gen[PlanKind] = Gen.element1(PlanKind.Individual, PlanKind.Team, PlanKind.Enterprise)
+  val genEnabled: Gen[Enabled]   = Gen.element1(Enabled.On, Enabled.Off)
+
+  val genAgentConfig: Gen[AgentConfig] =
+    for {
+      id      <- genAgentId
+      billing <- genBilling
+      plan    <- genPlanKind
+      enabled <- genEnabled
+    } yield AgentConfig(id, billing, plan, enabled)
+
+  /** Paths without characters that JSON escapes, so the round trip compares plain strings. */
+  private val genPath: Gen[NonEmptyString] =
+    StringGens.genNonEmptyString(Gen.alphaNum, PosInt(16)).map(s => NonEmptyString.unsafeFrom(s"/tmp/${s.value}"))
+
+  val genConfig: Gen[Config] =
+    for {
+      stateDir  <- genPath.map(StateDir(_))
+      interval  <- Gen.int(Range.linear(15, 3600)).map(RefreshIntervalSeconds.clamp)
+      codexHome <- genPath.map(CodexHome(_)).option
+      version   <- Gen.constant(ClaudeCodeVersion.fallback).option
+      agents    <- genAgentConfig.list(Range.linear(0, 3))
+    } yield Config(stateDir, interval, codexHome, version, agents)
+
   def window(id: WindowId, percent: Double, resetsAt: Option[EpochSeconds]): UsageWindow =
     UsageWindow.clamped(id, percent, resetsAt, Seconds(18000L).some)
 

@@ -6,18 +6,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: StatusItemController?
     private let updater = Updater()
+    private var settingsStore: SettingsStore?
+    private var settingsWindow: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let stateDirectory = AppDelegate.stateDirectory()
-        let config = Config(
-            stateDir: stateDirectory.path,
-            refreshIntervalSeconds: 60,
-            codexHome: nil,
-            claudeCodeVersionOverride: nil
-        )
+        let configURL = ConfigFile.url(in: stateDirectory)
+        let config = AppDelegate.loadConfig(from: configURL, stateDir: stateDirectory.path)
 
         let core = Core.shared
-        let controller = StatusItemController(core: core, updater: updater)
+        let store = SettingsStore(config: config, fileURL: configURL, push: { core.setConfig($0) }, pushDelay: 1)
+        let settings = SettingsWindowController(store: store)
+        settingsStore = store
+        settingsWindow = settings
+        let controller = StatusItemController(core: core, updater: updater, settings: settings)
         statusItem = controller
 
         core.snapshotHandler = { [weak controller] snapshot in controller?.apply(snapshot: snapshot) }
@@ -38,6 +40,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         Core.shared.shutdown()
+    }
+
+    /// The config from `config.json` (#8). A missing file is the first run and gives the defaults without a file. An
+    /// undecodable file is moved to `config.json.bad`, so the user's text is kept and the next save does not replace
+    /// it, and the defaults are used. An unreadable file stays where it is.
+    private static func loadConfig(from url: URL, stateDir: String) -> Config {
+        let loaded = ConfigFile.load(from: url, stateDir: stateDir)
+        switch loaded {
+        case .missing, .loaded:
+            break
+        case .undecodable(_, let detail):
+            do {
+                try ConfigFile.moveAside(url)
+                Log.settings.error("config.json could not be read, moved to \(ConfigFile.asideFileName): \(detail)")
+            } catch {
+                Log.settings.error("config.json could not be read and could not be moved aside: \(detail), \(error)")
+            }
+        case .unreadable(_, let detail):
+            Log.settings.error("config.json could not be read: \(detail)")
+        }
+        return loaded.config
     }
 
     /// `~/Library/Application Support/Token Watchroo`, created if needed.

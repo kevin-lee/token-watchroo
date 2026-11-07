@@ -73,10 +73,10 @@ object AppRuntime {
 
   private def program(config: Config, callback: CFuncPtr2[CString, Ptr[Byte], Unit], ctx: Ptr[Byte]): IO[Unit] =
     for {
-      _         <- CurlHttp.globalInit
-      bridge    <- Bridge.make(callback, ctx)
-      providers <- Providers.live
-      _         <- run(state, config, providers, bridge, new FileStateStore(config.stateDir), clock)
+      _        <- CurlHttp.globalInit
+      bridge   <- Bridge.make(callback, ctx)
+      registry <- Providers.live
+      _        <- run(state, config, registry, bridge, new FileStateStore(config.stateDir), clock)
     } yield ()
 
   /** The runtime-facing core of the program, shared with `AppRuntimeSpec`: creates the sequential dispatcher and the
@@ -87,7 +87,7 @@ object AppRuntime {
   private[app] def run(
     state: AtomicReference[Lifecycle],
     config: Config,
-    providers: List[UsageProvider],
+    registry: List[UsageProvider],
     sink: EnvelopeSink,
     store: StateStore,
     clock: IO[EpochSeconds],
@@ -95,7 +95,7 @@ object AppRuntime {
     (Dispatcher.sequential[IO], Resource.eval(Queue.unbounded[IO, Command])).tupled.use {
       case (dispatcher, queue) =>
         IO(publish(state, new Handles(dispatcher, queue)))
-          .ifM(Poller.run(config, providers, queue, sink, store, clock), IO.unit)
+          .ifM(Poller.run(config, registry, queue, sink, store, clock), IO.unit)
     }
 
   private def publish(state: AtomicReference[Lifecycle], handles: Handles): Boolean =

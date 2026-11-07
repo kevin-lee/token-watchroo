@@ -39,6 +39,7 @@ class AppRuntimeSpec extends munit.FunSuite {
       RefreshIntervalSeconds.clamp(15),
       none[CodexHome],
       none[ClaudeCodeVersion],
+      List.empty[AgentConfig],
     )
 
   private def window(percent: Double): UsageWindow =

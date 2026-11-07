@@ -3,7 +3,7 @@ import Foundation
 
 /// The only place that calls the library. Every `tw_*` call happens on the main thread, the callback copies its
 /// bytes and hops to the main queue, and envelopes are applied in `seq` order. A dropped envelope is logged with its
-/// reason through `Log.core`.
+/// reason through `Log.core`. `setConfig` sends a config changed in the settings window through `tw_set_config`.
 @MainActor
 final class Core {
 
@@ -36,6 +36,20 @@ final class Core {
         let code = json.withCString { tw_start($0, coreCallback, context) }
         started = code == 0
         return code
+    }
+
+    /// Sends a changed config (#8). The library runs one fetch at once and keeps its providers, alert state and schedule.
+    func setConfig(_ config: Config) {
+        precondition(Thread.isMainThread, "tw_set_config must be called from the main thread")
+        guard started else { return }
+        guard let data = try? JSONEncoder().encode(config), let json = String(data: data, encoding: .utf8) else {
+            Log.core.error("tw_set_config: the config could not be encoded")
+            return
+        }
+        let code = json.withCString { tw_set_config($0) }
+        if code != 0 {
+            Log.core.error("tw_set_config returned \(code)")
+        }
     }
 
     func refresh() {

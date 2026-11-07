@@ -17,6 +17,8 @@ struct Log: Sendable {
     static let update = Log(category: "update")
     /// Launch, `tw_start`, and the log file.
     static let app = Log(category: "app")
+    /// `config.json`: a file that cannot be read or written (#8).
+    static let settings = Log(category: "settings")
 
     let category: String
     private let logger: Logger

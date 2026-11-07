@@ -69,5 +69,9 @@ object AgentSnapshot {
       */
     def withStatusAt(now: EpochSeconds): AgentSnapshot =
       snapshot.copy(status = AgentStatus.at(snapshot.windows, snapshot.spend, now))
+
+    /** Fills a missing badge with the plan from the settings window (`PlanKind.badge`). A provider label wins. */
+    def withPlan(plan: PlanKind): AgentSnapshot =
+      snapshot.copy(planLabel = plan.badge(snapshot.planLabel))
   }
 }
