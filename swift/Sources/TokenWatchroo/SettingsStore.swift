@@ -2,7 +2,8 @@ import Foundation
 
 /// Holds the current config for the settings window (#8). A committed change is written to `config.json` at once and
 /// pushed to the library after `pushDelay` without another change, so a burst of clicks gives one `tw_set_config` and
-/// one fetch. A failed write is logged, and the change is still pushed, so the running app follows the user.
+/// one fetch. A failed write is logged, and the change is still pushed, so the running app follows the user. Adding a
+/// detected agent that has no entry (#100) is a change too.
 @MainActor
 final class SettingsStore {
 
@@ -33,6 +34,16 @@ final class SettingsStore {
         schedulePush()
     }
 
+    /// Adds an entry for each agent in a snapshot that has none (#100). Nothing is written or pushed when every agent
+    /// has an entry.
+    func addDetected(_ ids: [AgentId]) {
+        let next = config.agents.addingDetected(ids)
+        guard next != config.agents else { return }
+        let added = next.dropFirst(config.agents.count).map(\.id.rawValue).joined(separator: ", ")
+        Log.settings.notice("added detected agents: \(added)")
+        setAgents(next)
+    }
+
     private func schedulePush() {
         pushTimer?.invalidate()
         pushTimer = Timer.scheduledTimer(withTimeInterval: pushDelay, repeats: false) { [weak self] _ in
@@ -57,8 +68,12 @@ extension Array where Element == AgentConfig {
         }
     }
 
-    func removing(_ id: AgentId) -> [AgentConfig] {
-        filter { $0.id != id }
+    /// The detected agents that have no entry yet, appended with the defaults, in the order given (#100). Existing
+    /// entries are kept as they are.
+    func addingDetected(_ ids: [AgentId]) -> [AgentConfig] {
+        ids.reduce(self) { agents, id in
+            agents.contains(where: { $0.id == id }) ? agents : agents + [AgentConfig.defaults(id)]
+        }
     }
 
     func settingEnabled(_ enabled: Enabled, for id: AgentId) -> [AgentConfig] {
