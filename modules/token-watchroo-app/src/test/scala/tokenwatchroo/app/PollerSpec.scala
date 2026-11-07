@@ -180,7 +180,8 @@ class PollerSpec extends munit.FunSuite {
   }
 
   /** The `SetConfig` commands are barriers: their snapshot proves every command queued before them was processed, so a
-    * clock change cannot race a queued `Refresh`.
+    * clock change cannot race a queued `Refresh`. Each barrier has another `codexHome`, so it needs a fetch and runs a
+    * tick (#104: a change that needs no fetch does not tick).
     */
   test("refresh commands inside the manual window are dropped and one after the window ticks again") {
     val program     =
@@ -193,10 +194,10 @@ class PollerSpec extends munit.FunSuite {
         fiber <- Poller.run(config, List(provider), queue, sink, store, clock.get).start
         _     <- awaitSnapshots(ref, 1).timeout(5.seconds)
         _     <- queue.offer(Command.refresh) >> queue.offer(Command.refresh) >> queue.offer(Command.refresh)
-        _     <- queue.offer(Command.setConfig(config))
+        _     <- queue.offer(Command.setConfig(barrier("/tmp/barrier-1")))
         _     <- awaitSnapshots(ref, 3).timeout(5.seconds)
         _     <- clock.set(EpochSeconds(now.value + 9L))
-        _     <- queue.offer(Command.refresh) >> queue.offer(Command.setConfig(config))
+        _     <- queue.offer(Command.refresh) >> queue.offer(Command.setConfig(barrier("/tmp/barrier-2")))
         _     <- awaitSnapshots(ref, 4).timeout(5.seconds)
         _     <- clock.set(EpochSeconds(now.value + Poller.ManualRefreshWindow.value))
         _     <- queue.offer(Command.refresh)
@@ -220,6 +221,9 @@ class PollerSpec extends munit.FunSuite {
       ),
     )
   }
+
+  private def barrier(codexHome: String): Config =
+    config.copy(codexHome = CodexHome(NonEmptyString.unsafeFrom(codexHome)).some)
 
   test("a failing state store turns the tick into an error envelope instead of a crash") {
     val broken: StateStore = new StateStore {
@@ -356,12 +360,54 @@ class PollerSpec extends munit.FunSuite {
     )
   }
 
+  test("the snapshot lists the agents in the order of config.agents, then the others") {
+    val registry = List(claudeAt(10.0d), codexAt(40.0d, Detection.Detected))
+    val both     =
+      oneTick(configWith(AgentConfig.defaults(AgentId.Codex), AgentConfig.defaults(AgentId.ClaudeCode)), registry)
+    val oneEntry = oneTick(configWith(AgentConfig.defaults(AgentId.Codex)), registry)
+    assertEquals(snapshots(both).flatMap(_.agents.map(_.id)), List(AgentId.Codex, AgentId.ClaudeCode))
+    assertEquals(snapshots(oneEntry).flatMap(_.agents.map(_.id)), List(AgentId.Codex, AgentId.ClaudeCode))
+  }
+
+  test("a SetConfig with only a new order does not fetch") {
+    val ordered     = configWith(AgentConfig.defaults(AgentId.ClaudeCode), AgentConfig.defaults(AgentId.Codex))
+    val reversed    = configWith(AgentConfig.defaults(AgentId.Codex), AgentConfig.defaults(AgentId.ClaudeCode))
+    val program     =
+      for {
+        (ref, sink, store) <- setup
+        triggers           <- Ref.of[IO, List[FetchTrigger]](Nil)
+        queue              <- Queue.unbounded[IO, Command]
+        registry = List(claudeRecording(10.0d, triggers), codexAt(40.0d, Detection.Detected))
+        fiber <- Poller.run(ordered, registry, queue, sink, store, IO.pure(now)).start
+        _     <- awaitSnapshots(ref, 1).timeout(5.seconds)
+        _     <- queue.offer(Command.setConfig(reversed)) >> queue.offer(Command.refresh)
+        _     <- awaitSnapshots(ref, 2).timeout(5.seconds)
+        _     <- queue.offer(Command.shutdown)
+        _     <- fiber.joinWithNever.timeout(5.seconds)
+        all   <- ref.get
+        seen  <- triggers.get
+      } yield (all, seen)
+    val (all, seen) = program.timeoutAndForget(TestTimeout).unsafeRunSync()
+    assertEquals(seen, List(FetchTrigger.Scheduled, FetchTrigger.Manual))
+    assertEquals(
+      snapshots(all).map(_.agents.map(_.id)),
+      List(List(AgentId.ClaudeCode, AgentId.Codex), List(AgentId.Codex, AgentId.ClaudeCode))
+    )
+  }
+
+  test("rescheduled moves the deadline by the interval difference") {
+    val oneMinute   = config.copy(refreshInterval = RefreshIntervalSeconds.clamp(60))
+    val fiveMinutes = config.copy(refreshInterval = RefreshIntervalSeconds.clamp(300))
+    assertEquals(Poller.rescheduled(EpochSeconds(1000L), oneMinute, fiveMinutes), EpochSeconds(1240L))
+    assertEquals(Poller.rescheduled(EpochSeconds(1000L), fiveMinutes, oneMinute), EpochSeconds(760L))
+  }
+
   test("an enabled entry is fetched without detection") {
     val all = oneTick(
       configWith(AgentConfig.defaults(AgentId.Codex)),
       List(claudeAt(10.0d), codexAt(40.0d, Detection.NotDetected)),
     )
-    assertEquals(snapshots(all).flatMap(_.agents.map(_.id)), List(AgentId.ClaudeCode, AgentId.Codex))
+    assertEquals(snapshots(all).flatMap(_.agents.map(_.id)), List(AgentId.Codex, AgentId.ClaudeCode))
   }
 
   test("an Api entry gives the unavailable card and does not call the provider") {
@@ -371,7 +417,7 @@ class PollerSpec extends munit.FunSuite {
     )
     val agents = snapshots(all).flatMap(_.agents)
     assertEquals(all.map(_.wire), List("snapshot"))
-    assertEquals(agents.map(_.id), List(AgentId.ClaudeCode, AgentId.Codex))
+    assertEquals(agents.map(_.id), List(AgentId.Codex, AgentId.ClaudeCode))
     assertEquals(agents.find(_.id === AgentId.Codex).map(_.status), Some(AgentStatus.Unavailable))
     assertEquals(
       agents.find(_.id === AgentId.Codex).flatMap(_.error),

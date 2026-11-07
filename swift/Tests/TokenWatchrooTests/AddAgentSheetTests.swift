@@ -6,7 +6,7 @@ final class AddAgentSheetTests: XCTestCase {
 
     @MainActor
     func testPlanChoicesFollowTheArtboard() {
-        XCTAssertEqual(Billing.subscription.planChoices, [.individual, .team])
+        XCTAssertEqual(Billing.subscription.planChoices, [.individual, .team, .enterprise])
         XCTAssertEqual(Billing.api.planChoices, [.enterprise])
         XCTAssertEqual(AddAgentSheet.alertAtText, "Over 70% and over 85% of a window")
     }
@@ -22,7 +22,7 @@ final class AddAgentSheetTests: XCTestCase {
     func testTheSubscriptionVariantShowsTheAlertAtRow() {
         let sheet = sheet(.add(addable: [.codex]))
         XCTAssertEqual(sheet.selectedBilling, .subscription)
-        XCTAssertEqual(sheet.planTitles, ["Individual", "Team"])
+        XCTAssertEqual(sheet.planTitles, ["Individual", "Team", "Enterprise"])
         XCTAssertEqual(sheet.subtitleText, AddAgentSheet.subscriptionSubtitle)
         XCTAssertEqual(sheet.hintText, AddAgentSheet.subscriptionHint)
         XCTAssertTrue(sheet.isAlertAtVisible)

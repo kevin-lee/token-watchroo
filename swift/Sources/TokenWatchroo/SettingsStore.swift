@@ -24,7 +24,15 @@ final class SettingsStore {
     }
 
     func setAgents(_ agents: [AgentConfig]) {
-        config.agents = agents
+        commit { $0.agents = agents }
+    }
+
+    func setRefreshInterval(_ seconds: Int) {
+        commit { $0.refreshIntervalSeconds = seconds }
+    }
+
+    private func commit(_ change: (inout Config) -> Void) {
+        change(&config)
         do {
             try ConfigFile.write(config, to: fileURL)
         } catch {
@@ -74,6 +82,23 @@ extension Array where Element == AgentConfig {
         ids.reduce(self) { agents, id in
             agents.contains(where: { $0.id == id }) ? agents : agents + [AgentConfig.defaults(id)]
         }
+    }
+
+    /// Moves the entry at `source` to before the row `destination` (a table drop index, `count` for the end), as
+    /// `NSTableView` drops do (#104).
+    func moving(from source: Int, to destination: Int) -> [AgentConfig] {
+        guard indices.contains(source), destination >= 0, destination <= count else { return self }
+        let target = newIndex(movingFrom: source, to: destination)
+        guard target != source else { return self }
+        var moved = self
+        let entry = moved.remove(at: source)
+        moved.insert(entry, at: target)
+        return moved
+    }
+
+    /// The row of the moved entry after `moving(from:to:)`.
+    func newIndex(movingFrom source: Int, to destination: Int) -> Int {
+        destination > source ? destination - 1 : destination
     }
 
     func settingEnabled(_ enabled: Enabled, for id: AgentId) -> [AgentConfig] {
