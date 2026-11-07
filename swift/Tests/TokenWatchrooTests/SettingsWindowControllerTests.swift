@@ -36,8 +36,12 @@ final class SettingsWindowControllerTests: XCTestCase {
         let empty = controller([])
         XCTAssertTrue(empty.isAddEnabled)
         XCTAssertFalse(empty.isEditEnabled)
-        XCTAssertFalse(empty.isRemoveEnabled)
         let full = controller([AgentConfig.defaults(.claudeCode), AgentConfig.defaults(.codex)])
         XCTAssertFalse(full.isAddEnabled)
+    }
+
+    @MainActor
+    func testThereIsNoRemoveButton() {
+        XCTAssertEqual(controller([AgentConfig.defaults(.codex)]).buttonTitles, ["Add Agent...", "Edit..."])
     }
 }

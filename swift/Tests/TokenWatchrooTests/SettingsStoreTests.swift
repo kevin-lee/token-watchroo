@@ -46,12 +46,48 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual([AgentConfig.defaults(.claudeCode)].adding(codexTeam), [AgentConfig.defaults(.claudeCode), codexTeam])
     }
 
-    func testRemovingAndSettingEnabled() {
+    func testSettingEnabled() {
         let list = [codexTeam, AgentConfig.defaults(.claudeCode)]
-        XCTAssertEqual(list.removing(.codex), [AgentConfig.defaults(.claudeCode)])
         var disabled = codexTeam
         disabled.enabled = .off
         XCTAssertEqual(list.settingEnabled(.off, for: .codex), [disabled, AgentConfig.defaults(.claudeCode)])
+    }
+
+    func testAddingDetectedAppendsOnlyAgentsWithoutAnEntry() {
+        var disabledCodex = codexTeam
+        disabledCodex.enabled = .off
+        XCTAssertEqual([AgentConfig]().addingDetected([.claudeCode, .codex]),
+                       [AgentConfig.defaults(.claudeCode), AgentConfig.defaults(.codex)])
+        XCTAssertEqual([codexTeam].addingDetected([.claudeCode, .codex]), [codexTeam, AgentConfig.defaults(.claudeCode)])
+        XCTAssertEqual([disabledCodex].addingDetected([.codex]), [disabledCodex])
+        XCTAssertEqual([AgentConfig]().addingDetected([.codex, .codex]), [AgentConfig.defaults(.codex)])
+        XCTAssertEqual([codexTeam].addingDetected([]), [codexTeam])
+    }
+
+    @MainActor
+    func testAddDetectedWritesAndPushesOnlyAChange() {
+        var config = Config.defaults(stateDir: folder.path)
+        config.agents = [codexTeam]
+        let url = ConfigFile.url(in: folder)
+        var pushed: [Config] = []
+        let store = SettingsStore(config: config, fileURL: url, push: { pushed.append($0) }, pushDelay: 0.05)
+
+        store.addDetected([.codex])
+        let quiet = expectation(description: "no push")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { quiet.fulfill() }
+        wait(for: [quiet], timeout: 2)
+        guard case .missing = ConfigFile.load(from: url, stateDir: folder.path) else {
+            return XCTFail("config.json was written without a change")
+        }
+        XCTAssertTrue(pushed.isEmpty)
+
+        store.addDetected([.claudeCode, .codex])
+        XCTAssertEqual(ConfigFile.load(from: url, stateDir: folder.path).config.agents,
+                       [codexTeam, AgentConfig.defaults(.claudeCode)])
+        let settled = expectation(description: "one push")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { settled.fulfill() }
+        wait(for: [settled], timeout: 2)
+        XCTAssertEqual(pushed.map(\.agents), [[codexTeam, AgentConfig.defaults(.claudeCode)]])
     }
 
     func testAddableIsEveryAgentNotInTheList() {

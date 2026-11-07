@@ -1,13 +1,13 @@
 import AppKit
 
-/// The settings window (#8): the agent list from `config.json` with Add, Edit, Remove and an "Enabled" checkbox per
-/// row. There is no artboard for the window. Every change goes through `SettingsStore`, which writes the file and
-/// pushes the config to the library. An agent without an entry is still shown when it is detected.
+/// The settings window (#8): the agent list from `config.json` with Add, Edit and an "Enabled" checkbox per row.
+/// There is no artboard for the window. Every change goes through `SettingsStore`, which writes the file and pushes the
+/// config to the library. A detected agent without an entry is added to the list (#100).
 @MainActor
 final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     static let title = "Token Watchroo Settings"
-    static let footnote = "Agents that are not in this list are shown when they are detected."
+    static let footnote = "Detected agents are added to this list. Clear Enabled to hide an agent."
     static let contentSize = NSSize(width: 420, height: 300)
 
     private enum Column: String, CaseIterable {
@@ -45,7 +45,6 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
     private let table = NSTableView()
     private let addButton = NSButton(title: "Add Agent...", target: nil, action: nil)
     private let editButton = NSButton(title: "Edit...", target: nil, action: nil)
-    private let removeButton = NSButton(title: "Remove", target: nil, action: nil)
     private var shownOnce = false
 
     private(set) lazy var window: NSWindow = makeWindow()
@@ -70,7 +69,10 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
     var agents: [AgentConfig] { store.config.agents }
     var isAddEnabled: Bool { _ = window; return addButton.isEnabled }
     var isEditEnabled: Bool { _ = window; return editButton.isEnabled }
-    var isRemoveEnabled: Bool { _ = window; return removeButton.isEnabled }
+    var buttonTitles: [String] {
+        _ = window
+        return window.contentView?.subviews.compactMap { ($0 as? NSButton)?.title } ?? []
+    }
 
     /// The column titles whose whole width is inside the visible part of the table.
     var fullyVisibleColumnTitles: [String] {
@@ -129,8 +131,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         content.addSubview(scroll)
 
         var x = inset
-        for (button, action) in [(addButton, #selector(addAgent(_:))), (editButton, #selector(editSelected(_:))),
-                                 (removeButton, #selector(removeSelected(_:)))] {
+        for (button, action) in [(addButton, #selector(addAgent(_:))), (editButton, #selector(editSelected(_:)))] {
             button.target = self
             button.action = action
             button.bezelStyle = .rounded
@@ -166,7 +167,6 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         let hasSelection = table.selectedRow >= 0 && table.selectedRow < agents.count
         addButton.isEnabled = !agents.addable.isEmpty
         editButton.isEnabled = hasSelection
-        removeButton.isEnabled = hasSelection
     }
 
     // MARK: table
@@ -236,12 +236,6 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         let row = table.selectedRow
         guard agents.indices.contains(row) else { return }
         presentSheet(.edit(agents[row]))
-    }
-
-    @objc func removeSelected(_ sender: Any?) {
-        let row = table.selectedRow
-        guard agents.indices.contains(row) else { return }
-        store.setAgents(agents.removing(agents[row].id))
     }
 
     @objc private func toggleEnabled(_ sender: NSButton) {

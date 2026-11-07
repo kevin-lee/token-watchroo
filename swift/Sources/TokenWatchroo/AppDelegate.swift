@@ -22,7 +22,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = StatusItemController(core: core, updater: updater, settings: settings)
         statusItem = controller
 
-        core.snapshotHandler = { [weak controller] snapshot in controller?.apply(snapshot: snapshot) }
+        core.snapshotHandler = { [weak controller, weak store] snapshot in
+            controller?.apply(snapshot: snapshot)
+            store?.addDetected(snapshot.agents.map(\.id))
+        }
         core.alertHandler = { alert in Notifier.shared.post(alert) }
 
         let code = core.start(config: config)
