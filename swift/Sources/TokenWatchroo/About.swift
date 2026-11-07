@@ -15,6 +15,10 @@ enum About {
     static let lightIconName = "AboutIcon-light"
     static let darkIconName = "AboutIcon-dark"
 
+    /// The About panel once found. AppKit does not return it and reuses it while it exists, so a later call finds no new
+    /// window.
+    private static weak var panel: NSWindow?
+
     /// The architecture the executable was built for, with the labels the disk image names use.
     enum Architecture {
         case arm64, x64
@@ -110,14 +114,21 @@ enum About {
         return options
     }
 
-    /// The app is `LSUIElement`, so without the activation the panel can open behind the frontmost app.
+    /// AppKit does not return the panel, so it is the one window that the call added, else the panel found before.
     static func show() {
-        NSApp.activate()
-        NSApp.orderFrontStandardAboutPanel(options: options(
-            infoDictionary: Bundle.main.infoDictionary,
-            architecture: architectureLabel(.current, translated: isTranslated()),
-            icon: bundledIcon(in: .main)
-        ))
+        WindowFront.show {
+            let before = NSApp.windows.map(ObjectIdentifier.init)
+            NSApp.orderFrontStandardAboutPanel(options: options(
+                infoDictionary: Bundle.main.infoDictionary,
+                architecture: architectureLabel(.current, translated: isTranslated()),
+                icon: bundledIcon(in: .main)
+            ))
+            let after = NSApp.windows
+            if let id = WindowFront.newWindow(before: before, after: after.map(ObjectIdentifier.init)) {
+                panel = after.first { ObjectIdentifier($0) == id }
+            }
+            return panel
+        }
     }
 
     private static func displayed(_ link: String) -> String {
