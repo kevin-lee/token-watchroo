@@ -5,8 +5,11 @@ import cats.syntax.all.*
 /** Text helpers for notification copy. Short menu labels and local times are rendered by the Swift shell. */
 object Format {
 
+  /** The shown whole percent. The colour bands use it too (#101), so the text and the colour always agree. */
+  def wholePercent(p: UsedPercent): Long = math.round(p.value)
+
   /** "72%" */
-  def percent(p: UsedPercent): String = s"${math.round(p.value)}%"
+  def percent(p: UsedPercent): String = s"${wholePercent(p)}%"
 
   /** "under a minute", "11 minutes", "1 hour 12 minutes", "2 days 3 hours" */
   def longDuration(seconds: Seconds): String = {

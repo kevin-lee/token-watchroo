@@ -146,7 +146,7 @@ class PollerSpec extends munit.FunSuite {
     assertEquals(first.map(_.wire), List("snapshot", "alert"))
     assertEquals(snapshots(first).flatMap(_.agents.map(_.id)), List(AgentId.ClaudeCode, AgentId.Codex))
     assertEquals(snapshots(first).map(_.menubar.kind), List(MenubarKind.Warning))
-    assertEquals(alerts(first).map(_.kind), List(AlertKind.Warning80))
+    assertEquals(alerts(first).map(_.kind), List(AlertKind.Warning))
     assertEquals(first.map(_.seq.value), List(1L, 2L))
     assertEquals(second.drop(2).map(_.wire), List("snapshot"))
   }

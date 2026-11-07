@@ -6,6 +6,7 @@ import cats.syntax.all.*
 
 enum MenubarKind derives CanEqual, Eq, Show {
   case Normal
+  case Elevated
   case Warning
   case Critical
   case Exhausted
@@ -14,6 +15,7 @@ enum MenubarKind derives CanEqual, Eq, Show {
 
 object MenubarKind {
   def normal: MenubarKind      = MenubarKind.Normal
+  def elevated: MenubarKind    = MenubarKind.Elevated
   def warning: MenubarKind     = MenubarKind.Warning
   def critical: MenubarKind    = MenubarKind.Critical
   def exhausted: MenubarKind   = MenubarKind.Exhausted
@@ -22,6 +24,7 @@ object MenubarKind {
   extension (kind: MenubarKind) {
     def wire: String = kind match {
       case MenubarKind.Normal => "normal"
+      case MenubarKind.Elevated => "elevated"
       case MenubarKind.Warning => "warning"
       case MenubarKind.Critical => "critical"
       case MenubarKind.Exhausted => "exhausted"
@@ -31,6 +34,7 @@ object MenubarKind {
 
   def parse(s: String): Either[String, MenubarKind] = s match {
     case "normal" => MenubarKind.Normal.asRight[String]
+    case "elevated" => MenubarKind.Elevated.asRight[String]
     case "warning" => MenubarKind.Warning.asRight[String]
     case "critical" => MenubarKind.Critical.asRight[String]
     case "exhausted" => MenubarKind.Exhausted.asRight[String]
@@ -72,11 +76,15 @@ object MenubarState {
             MenubarState(MenubarKind.Exhausted, maxPercent.some, earliest.some)
           case Nil =>
             if (anyExhausted) MenubarState(MenubarKind.Exhausted, maxPercent.some, none[EpochSeconds])
-            else if (maxPercent >= Thresholds.critical)
-              MenubarState(MenubarKind.Critical, maxPercent.some, none[EpochSeconds])
-            else if (maxPercent >= Thresholds.warning)
-              MenubarState(MenubarKind.Warning, maxPercent.some, none[EpochSeconds])
-            else MenubarState(MenubarKind.Normal, maxPercent.some, none[EpochSeconds])
+            else {
+              val kind = UsageBand.of(maxPercent) match {
+                case UsageBand.Normal => MenubarKind.Normal
+                case UsageBand.Elevated => MenubarKind.Elevated
+                case UsageBand.Warning => MenubarKind.Warning
+                case UsageBand.Critical => MenubarKind.Critical
+              }
+              MenubarState(kind, maxPercent.some, none[EpochSeconds])
+            }
         }
     }
   }

@@ -207,7 +207,7 @@ enum WindowId: Decodable, Equatable {
 }
 
 enum AgentStatus: String, Decodable {
-    case ok, warning, critical, exhausted, unavailable
+    case ok, elevated, warning, critical, exhausted, unavailable
 }
 
 enum Source: String, Decodable {
@@ -216,7 +216,20 @@ enum Source: String, Decodable {
 }
 
 enum MenubarKind: String, Decodable {
-    case normal, warning, critical, exhausted, unavailable
+    case normal, elevated, warning, critical, exhausted, unavailable
+}
+
+/// Mirrors `UsageBand` in the core (#101), on the shown whole percent.
+enum UsageBand {
+    case normal, elevated, warning, critical
+
+    static func of(percent: Double) -> UsageBand {
+        let shown = Int(percent.rounded())
+        if shown > 85 { return .critical }
+        if shown > 70 { return .warning }
+        if shown > 50 { return .elevated }
+        return .normal
+    }
 }
 
 struct UsageWindow: Decodable {

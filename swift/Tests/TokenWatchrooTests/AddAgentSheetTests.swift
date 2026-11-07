@@ -8,7 +8,7 @@ final class AddAgentSheetTests: XCTestCase {
     func testPlanChoicesFollowTheArtboard() {
         XCTAssertEqual(Billing.subscription.planChoices, [.individual, .team])
         XCTAssertEqual(Billing.api.planChoices, [.enterprise])
-        XCTAssertEqual(AddAgentSheet.alertAtText, "80% and 95% of a window")
+        XCTAssertEqual(AddAgentSheet.alertAtText, "Over 70% and over 85% of a window")
     }
 
     @MainActor

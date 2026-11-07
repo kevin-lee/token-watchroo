@@ -98,7 +98,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeRollouts(none[List[String]])
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
-    assertEquals(snapshot.status, AgentStatus.Ok)
+    assertEquals(snapshot.status, AgentStatus.Warning)
     assertEquals(snapshot.source, Some(Source.Api))
     assertEquals(snapshot.planLabel.map(_.value.value), Some("Team"))
     assertEquals(
@@ -165,7 +165,7 @@ class CodexProviderSpec extends munit.FunSuite {
         } yield (first, second)
       }
     assertEquals(first.status, AgentStatus.Warning)
-    assertEquals(second.status, AgentStatus.Ok)
+    assertEquals(second.status, AgentStatus.Elevated)
     assertEquals(second.windows, first.windows)
   }
 

@@ -57,6 +57,13 @@ final class SnapshotDecodingTests: XCTestCase {
         XCTAssertEqual(AgentCardView.height(for: spendOnly), AgentCardView.height(for: oneWindow))
     }
 
+    func testElevatedDecodesForTheStatusAndTheMenubar() throws {
+        let json = #"{"version":1,"type":"snapshot","seq":40,"data":{"updatedAt":1789367347,"agents":[{"id":"codex","status":"elevated","windows":[{"id":"session","usedPercent":60.0,"resetsAt":1789370000,"windowLength":18000}],"source":"api","fetchedAt":1789367347}],"menubar":{"kind":"elevated","usedPercent":60.0}}}"#
+        let snapshot = try Self.snapshot(from: json)
+        XCTAssertEqual(snapshot.agents.first?.status, .elevated)
+        XCTAssertEqual(snapshot.menubar.kind, .elevated)
+    }
+
     private static func snapshot(from json: String) throws -> Snapshot {
         try JSONDecoder().decode(SnapshotEnvelope.self, from: Data(json.utf8)).data
     }

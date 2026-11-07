@@ -94,7 +94,7 @@ class BridgeSpec extends munit.FunSuite {
     Alert(
       AgentId.Codex,
       WindowId.Session,
-      AlertKind.Warning80,
+      AlertKind.Warning,
       resetsAt,
       UsedPercent.clamp(80.0d + (index % 20).toDouble),
       s"Codex is near its session limit ($index)",

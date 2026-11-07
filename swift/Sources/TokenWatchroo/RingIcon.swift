@@ -5,6 +5,7 @@ import AppKit
 /// clock glyph.
 enum RingIcon {
 
+    static let elevatedColor = NSColor(srgbRed: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255, alpha: 1)
     static let warningColor = NSColor(srgbRed: 0xF0 / 255, green: 0xB7 / 255, blue: 0x3A / 255, alpha: 1)
     static let criticalColor = NSColor(srgbRed: 0xFF / 255, green: 0x6B / 255, blue: 0x5C / 255, alpha: 1)
 
@@ -20,9 +21,19 @@ enum RingIcon {
 
     static func tint(for kind: MenubarKind) -> NSColor? {
         switch kind {
+        case .elevated: return elevatedColor
         case .warning: return warningColor
         case .critical, .exhausted: return criticalColor
         case .normal, .unavailable: return nil
+        }
+    }
+
+    static func color(for band: UsageBand) -> NSColor? {
+        switch band {
+        case .normal: return nil
+        case .elevated: return elevatedColor
+        case .warning: return warningColor
+        case .critical: return criticalColor
         }
     }
 
