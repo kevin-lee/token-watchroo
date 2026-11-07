@@ -22,9 +22,7 @@ object ClaudePlanSpec extends Properties {
   private def labelOf(plan: Option[ClaudePlan]): Option[String] = plan.map(_.label.value.value)
 
   def testMaxTierRoundTrip: Property =
-    for {
-      n <- NumGens.genPosInt(PosInt(1), PosInt(100)).log("n")
-    } yield {
+    NumGens.genPosInt(PosInt(1), PosInt(100)).log("n").map { n =>
       val expected = ClaudePlan.max(UsageMultiplier(n).some)
       Result.all(
         List(
@@ -90,8 +88,8 @@ object ClaudePlanSpec extends Properties {
       )
     )
 
-  private def oauth(subscriptionType: Option[String], rateLimitTier: Option[String]): ClaudeAiOauth =
-    ClaudeAiOauth(
+  private def oauth(subscriptionType: Option[String], rateLimitTier: Option[String]): ClaudeAiOAuth =
+    ClaudeAiOAuth(
       none[String],
       none[RefreshTokenState],
       none[Long],
@@ -132,9 +130,7 @@ object ClaudePlanSpec extends Properties {
     )
 
   def testLabelPrefix: Property =
-    for {
-      plan <- Fixtures.genClaudePlan.log("plan")
-    } yield {
+    Fixtures.genClaudePlan.log("plan").map { plan =>
       val text   = plan.label.value.value
       val prefix = plan match {
         case ClaudePlan.Max(_) => "Max"

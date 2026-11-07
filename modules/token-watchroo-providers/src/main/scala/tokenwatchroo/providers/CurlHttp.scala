@@ -43,6 +43,9 @@ object CurlHttp extends HttpClient {
     Zone {
       val totalSeconds = math.max(1L, timeout.toSeconds)
       val curl         = LibCurl.curl_easy_init()
+      /* The `== null` and `!= null` checks in this method stay on purpose. libcurl and `CurlBuffer` return C NULL for
+       * a failure, and `curl_slist_append` starts from NULL, so these are pointer checks at the C boundary. Cats has no
+       * `Eq` for `Ptr`, and `Option(ptr)` would only add a box for each pointer. */
       if (curl == null) ProviderError.network("curl_easy_init failed").asLeft[HttpResponse]
       else {
         val buffer     = CurlBuffer.create()

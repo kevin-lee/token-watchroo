@@ -176,9 +176,7 @@ object ResponseDecodingSpec extends Properties {
     ).isLeft ==== true
 
   def testSortedByName: Property =
-    for {
-      names <- Fixtures.genPlainModelName.list(Range.linear(0, 6)).map(_.distinct).log("names")
-    } yield {
+    Fixtures.genPlainModelName.list(Range.linear(0, 6)).map(_.distinct).log("names").map { names =>
       val entries  = names.map { name =>
         ClaudeLimitEntry(
           "weekly_scoped".some,

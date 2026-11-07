@@ -1,12 +1,14 @@
 package tokenwatchroo.providers
 
+import cats.syntax.all.*
+
 /** Environment lookups, injectable so tests never depend on the machine. */
 trait Env {
   def get(name: String): Option[String]
   def home: Option[String] = get("HOME")
 
   /** The user name of the process, used only when `USER` is not set. */
-  def loginName: Option[String] = None
+  def loginName: Option[String] = none[String]
 }
 
 object Env {

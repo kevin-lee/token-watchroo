@@ -31,9 +31,9 @@ object KeychainAccountSpec extends Properties {
     } yield nameOf(KeychainAccount.claudeCode(user.some, loginName)) ==== user
 
   def testLoginName: Property =
-    for {
-      loginName <- genValidName.log("loginName")
-    } yield nameOf(KeychainAccount.claudeCode(none[String], loginName.some)) ==== loginName
+    genValidName.log("loginName").map { loginName =>
+      nameOf(KeychainAccount.claudeCode(none[String], loginName.some)) ==== loginName
+    }
 
   def testInvalidName: Property =
     for {
@@ -56,6 +56,9 @@ object KeychainAccountSpec extends Properties {
   def testNoName: Result =
     KeychainAccount.claudeCode(none[String], none[String]) ==== KeychainAccount.ClaudeCodeFallback
 
+  /** The `throw` is on purpose: it is the login name argument, so the test fails if `claudeCode` evaluates it when USER
+    * is valid.
+    */
   def testLoginNameNotEvaluated: Result =
     nameOf(KeychainAccount.claudeCode("alex".some, throw new AssertionError("loginName was evaluated"))) ==== "alex"
 }

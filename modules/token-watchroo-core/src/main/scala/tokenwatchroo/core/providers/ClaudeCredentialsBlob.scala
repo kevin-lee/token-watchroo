@@ -27,8 +27,12 @@ object RefreshTokenState {
 /** The `claudeAiOauth` entry of the "Claude Code-credentials" keychain item. `rateLimitTier` is camelCase in the
   * keychain (verified 2026-09-12), and the blob codec has no field-name mapper. `refreshToken` keeps only whether the
   * token is empty or present. `loginEnded` is `"time_limit"` when the sign-in reached its time limit.
+  *
+  * The type is `ClaudeAiOAuth`, not `ClaudeAiOauth` like the JSON key: `OAuth` is the protocol's name, short for Open
+  * Authorization. The field `claudeAiOauth` in `ClaudeCredentialsBlob` keeps the key's spelling because the codec
+  * reads the key by the field name.
   */
-final case class ClaudeAiOauth(
+final case class ClaudeAiOAuth(
   accessToken: Option[String],
   refreshToken: Option[RefreshTokenState],
   expiresAt: Option[Long],
@@ -40,8 +44,8 @@ final case class ClaudeAiOauth(
       Eq,
       Show
 
-object ClaudeAiOauth {
-  extension (oauth: ClaudeAiOauth) {
+object ClaudeAiOAuth {
+  extension (oauth: ClaudeAiOAuth) {
 
     /** Claude Code empties the refresh token when the server rejects it, and `/status` then says the login expired. A
       * missing refresh token is not an ended sign-in, the same as in Claude Code.
@@ -60,9 +64,13 @@ object ClaudeAiOauth {
 }
 
 /** The JSON payload stored as the keychain password. It may hold only MCP state and no OAuth entry. */
-final case class ClaudeCredentialsBlob(claudeAiOauth: Option[ClaudeAiOauth]) derives CanEqual, Eq, Show
+final case class ClaudeCredentialsBlob(claudeAiOauth: Option[ClaudeAiOAuth]) derives CanEqual, Eq, Show
 
-/** What the provider needs from the keychain. */
+/** What the provider needs from the keychain.
+  *
+  * `OAuth` keeps its own spelling, not `Oauth`: it is the protocol's name, short for Open Authorization, and the
+  * usual spelling is easier to read.
+  */
 final case class ClaudeOAuth(
   accessToken: AccessToken,
   expiresAtMillis: Option[Long],

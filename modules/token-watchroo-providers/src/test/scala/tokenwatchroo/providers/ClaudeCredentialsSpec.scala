@@ -16,7 +16,7 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
 
   private def read(
     items: Map[Option[KeychainAccount], Either[ProviderError, String]],
-    attempt: ReadAttempt = ReadAttempt.First,
+    attempt: ReadAttempt,
   ): (Either[ProviderError, ClaudeOAuth], List[Fakes.KeychainRead]) =
     (for {
       keychain <- Fakes.KeyedKeychain.make(items)
@@ -24,20 +24,25 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
       calls    <- keychain.calls
     } yield (result, calls)).unsafeRunSync()
 
+  private def readFirst(
+    items: Map[Option[KeychainAccount], Either[ProviderError, String]]
+  ): (Either[ProviderError, ClaudeOAuth], List[Fakes.KeychainRead]) =
+    read(items, ReadAttempt.First)
+
   test("the item with the account wins over an MCP-only item with another account") {
-    val (result, calls) = read(Map(alex.some -> Fakes.claudeBlob.asRight, none -> Fakes.claudeMcpOnlyBlob.asRight))
+    val (result, calls) = readFirst(Map(alex.some -> Fakes.claudeBlob.asRight, none -> Fakes.claudeMcpOnlyBlob.asRight))
     assert(result.isRight, result)
     assertEquals(calls, List(Fakes.KeychainRead(S, alex.some, t)))
   }
 
   test("no item with the account falls back to the read with no account") {
-    val (result, calls) = read(Map(none -> Fakes.claudeBlob.asRight))
+    val (result, calls) = readFirst(Map(none -> Fakes.claudeBlob.asRight))
     assert(result.isRight, result)
     assertEquals(calls, List(Fakes.KeychainRead(S, alex.some, t), Fakes.KeychainRead(S, none, t)))
   }
 
   test("an MCP-only item with the account does not fall back") {
-    val (result, calls) = read(Map(alex.some -> Fakes.claudeMcpOnlyBlob.asRight, none -> Fakes.claudeBlob.asRight))
+    val (result, calls) = readFirst(Map(alex.some -> Fakes.claudeMcpOnlyBlob.asRight, none -> Fakes.claudeBlob.asRight))
     assertEquals(
       result,
       ProviderError
@@ -50,7 +55,7 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
   }
 
   test("an expired sign-in for the account does not fall back") {
-    val (result, calls) = read(Map(alex.some -> Fakes.claudeExpiredBlob.asRight, none -> Fakes.claudeBlob.asRight))
+    val (result, calls) = readFirst(Map(alex.some -> Fakes.claudeExpiredBlob.asRight, none -> Fakes.claudeBlob.asRight))
     assertEquals(
       result,
       ProviderError
@@ -62,13 +67,13 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
 
   test("access denied for the account does not fall back") {
     val (result, calls) =
-      read(Map(alex.some -> ProviderError.credentialsAccessDenied.asLeft, none -> Fakes.claudeBlob.asRight))
+      readFirst(Map(alex.some -> ProviderError.credentialsAccessDenied.asLeft, none -> Fakes.claudeBlob.asRight))
     assertEquals(result, ProviderError.credentialsAccessDenied.asLeft[ClaudeOAuth])
     assertEquals(calls, List(Fakes.KeychainRead(S, alex.some, t)))
   }
 
   test("no item at all is CredentialsMissing") {
-    val (result, calls) = read(Map.empty)
+    val (result, calls) = readFirst(Map.empty)
     assertEquals(result, ProviderError.credentialsMissing.asLeft[ClaudeOAuth])
     assertEquals(calls, List(Fakes.KeychainRead(S, alex.some, t), Fakes.KeychainRead(S, none, t)))
   }

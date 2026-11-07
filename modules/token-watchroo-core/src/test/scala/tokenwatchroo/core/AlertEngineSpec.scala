@@ -39,9 +39,7 @@ object AlertEngineSpec extends Properties {
     )
 
   def testIdempotent: Property =
-    for {
-      windows <- Fixtures.genAgentWindows.log("windows")
-    } yield {
+    Fixtures.genAgentWindows.log("windows").map { windows =>
       val snapshot          = Fixtures.snapshot(now, Fixtures.available(AgentId.Codex, now, windows*))
       val (state1, alerts1) = AlertEngine.step(AlertState.empty, snapshot, now)
       val (state2, alerts2) = AlertEngine.step(state1, snapshot, now)
@@ -49,21 +47,20 @@ object AlertEngineSpec extends Properties {
     }
 
   def testOnePerKind: Property =
-    for {
-      percents <- Fixtures
-                    .genPercent
-                    .list(Range.linear(1, 12))
-                    .map(_.sorted(using cats.Order[UsedPercent].toOrdering))
-                    .log("percents")
-    } yield {
-      val (_, alerts) = percents.foldLeft((AlertState.empty, List.empty[Alert])) {
-        case ((state, acc), p) =>
-          val (next, emitted) = AlertEngine.step(state, claude(p.value, resetsAt, now), now)
-          (next, acc ++ emitted)
+    Fixtures
+      .genPercent
+      .list(Range.linear(1, 12))
+      .map(_.sorted(using cats.Order[UsedPercent].toOrdering))
+      .log("percents")
+      .map { percents =>
+        val (_, alerts) = percents.foldLeft((AlertState.empty, List.empty[Alert])) {
+          case ((state, acc), p) =>
+            val (next, emitted) = AlertEngine.step(state, claude(p.value, resetsAt, now), now)
+            (next, acc ++ emitted)
+        }
+        val counts      = alerts.groupBy(_.kind).view.mapValues(_.size).toMap
+        Result.assert(counts.values.forall(_ <= 1)).log(s"alerts: $alerts")
       }
-      val counts      = alerts.groupBy(_.kind).view.mapValues(_.size).toMap
-      Result.assert(counts.values.forall(_ <= 1)).log(s"alerts: $alerts")
-    }
 
   def testIdle: Result = {
     val snapshot    = Fixtures.snapshot(

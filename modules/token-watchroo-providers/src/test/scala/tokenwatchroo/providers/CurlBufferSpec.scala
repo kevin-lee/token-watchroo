@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import scala.concurrent.duration.*
 import scala.scalanative.unsafe.*
 import scala.scalanative.unsigned.*
+import tokenwatchroo.providers.CurlBufferSpec.{firstMismatch, pattern}
 
 /** Drives the real libcurl write callback (`curl_write_buffer.c`, reached through [[CurlBuffer]]) while collections
   * are forced, without libcurl.
@@ -60,9 +61,6 @@ class CurlBufferSpec extends munit.FunSuite {
 
   override def afterAll(): Unit = runtime.shutdown()
 
-  /** The byte the C feeder writes at `index`. */
-  private def pattern(index: Int): Byte = ((index * 31 + 7) & 0xff).toByte
-
   private val buffer: Resource[IO, Ptr[Byte]] =
     Resource.make(
       IO(Option(CurlBuffer.create()))
@@ -89,17 +87,6 @@ class CurlBufferSpec extends munit.FunSuite {
       val _ = CurlBuffer.copy(buffer, bytes.at(0), length.toCSize)
     } else ()
     bytes
-  }
-
-  /** The first index whose byte differs from the pattern, if any. */
-  private def firstMismatch(bytes: Array[Byte]): Option[Int] = {
-    var index = 0
-    var found = none[Int]
-    while (found.isEmpty && index < bytes.length) {
-      if (bytes(index) =!= pattern(index)) found = index.some else ()
-      index += 1
-    }
-    found
   }
 
   test(
@@ -176,6 +163,13 @@ class CurlBufferSpec extends munit.FunSuite {
 }
 
 object CurlBufferSpec {
+
+  /** The byte the C feeder writes at `index`. */
+  private[providers] def pattern(index: Int): Byte = ((index * 31 + 7) & 0xff).toByte
+
+  /** The first index whose byte differs from the pattern, if any. */
+  private[providers] def firstMismatch(bytes: Array[Byte]): Option[Int] =
+    bytes.indices.find(index => bytes(index) =!= pattern(index))
 
   /** What the test reads back after the feed: the bytes accepted and assembled, the C failure flag, the chunk count,
     * and the collections completed during the feed.

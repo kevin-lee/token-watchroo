@@ -115,12 +115,12 @@ object AgentStatusSpec extends Properties {
     }
 
   def testAt: Property =
-    for {
-      windows <- Fixtures.genAgentWindows.log("windows")
-    } yield AgentStatus.at(windows, none[Spend], now) ==== AgentStatus.of(
-      windows.filterNot(_.isExpiredAt(now)),
-      none[Spend]
-    )
+    Fixtures.genAgentWindows.log("windows").map { windows =>
+      AgentStatus.at(windows, none[Spend], now) ==== AgentStatus.of(
+        windows.filterNot(_.isExpiredAt(now)),
+        none[Spend]
+      )
+    }
 
   def testExpired: Result = {
     val expiredSession = Fixtures.window(WindowId.Session, 90.0d, EpochSeconds(now.value - 1L).some)

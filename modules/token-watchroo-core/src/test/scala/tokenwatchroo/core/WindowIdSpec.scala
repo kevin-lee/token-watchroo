@@ -20,9 +20,9 @@ object WindowIdSpec extends Properties {
   private def model(name: String): WindowId = WindowId.model(ModelName(NonEmptyString.unsafeFrom(name)))
 
   def testRoundTrip: Property =
-    for {
-      id <- Fixtures.genWindowId.log("id")
-    } yield WindowId.parse(id.wire) ==== Right(id)
+    Fixtures.genWindowId.log("id").map { id =>
+      WindowId.parse(id.wire) ==== Right(id)
+    }
 
   def testTexts: Result =
     Result.all(
@@ -76,7 +76,7 @@ object WindowIdSpec extends Properties {
     )
 
   def testRender: Property =
-    for {
-      id <- Fixtures.genWindowId.log("id")
-    } yield Render[WindowId].render(id) ==== id.label
+    Fixtures.genWindowId.log("id").map { id =>
+      Render[WindowId].render(id) ==== id.label
+    }
 }
