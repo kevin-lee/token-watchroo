@@ -19,7 +19,11 @@ final case class CodexAuthFile(
       Eq,
       Show
 
-/** What the provider needs from the auth file. */
+/** What the provider needs from the auth file.
+  *
+  * `OAuth` keeps its own spelling, not `Oauth`: it is the protocol's name, short for Open Authorization, and the
+  * usual spelling is easier to read.
+  */
 final case class CodexOAuth(accessToken: AccessToken, accountId: Option[AccountId]) derives CanEqual, Eq, Show
 
 object CodexAuthFile {

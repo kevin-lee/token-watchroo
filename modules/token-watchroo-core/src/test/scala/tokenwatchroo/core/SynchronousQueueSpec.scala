@@ -41,7 +41,7 @@ object SynchronousQueueSpec extends Properties {
     Result.all(
       List(
         Result.assert(offered).log("offer returned true"),
-        Result.assert(received.get() == Integer.valueOf(42)).log(s"poll got ${String.valueOf(received.get())}"),
+        (Option(received.get()).map(_.intValue) ==== Some(42)).log("poll got the offered element"),
       )
     )
   }
@@ -58,32 +58,42 @@ object SynchronousQueueSpec extends Properties {
       stop.set(true)
     }
 
+    /* `poll` is a Java API that returns `null` when it times out, and the check stays `!= null` on purpose: this loop
+     * is the race of #83, and `Option(...)` would allocate a `Some` for each hand-off, which adds GC work that the
+     * race does not need. */
+    @annotation.tailrec
+    def pollUntilStopped(turn: Int): Unit =
+      if (stop.get()) ()
+      else {
+        val nanos = PollTimeoutNanos(turn % PollTimeoutNanos.length)
+        if (queue.poll(nanos, TimeUnit.NANOSECONDS) != null) {
+          val _ = handOffs.incrementAndGet()
+        } else ()
+        pollUntilStopped(turn + 1)
+      }
+
     val pollers = (0 until PollerCount).toList.map { n =>
       startDaemon(s"sq-poller-$n") { () =>
-        try {
-          var i = 0
-          while (!stop.get()) {
-            val nanos = PollTimeoutNanos(i % PollTimeoutNanos.length)
-            if (queue.poll(nanos, TimeUnit.NANOSECONDS) != null) {
-              val _ = handOffs.incrementAndGet()
-            }
-            i += 1
-          }
-        } catch { case t: Throwable => record(t) }
+        try pollUntilStopped(0)
+        catch { case t: Throwable => record(t) }
       }
     }
 
-    val start    = System.currentTimeMillis()
+    val start = System.currentTimeMillis()
+
+    @annotation.tailrec
+    def offerUntilStopped(turn: Int): Unit =
+      if (stop.get() || System.currentTimeMillis() - start >= OfferMillis) ()
+      else {
+        val _ = queue.offer(Integer.valueOf(turn))
+        val _ = offers.incrementAndGet()
+        offerUntilStopped(turn + 1)
+      }
+
     val offerers = (0 until OffererCount).toList.map { n =>
       startDaemon(s"sq-offerer-$n") { () =>
-        try {
-          var i = 0
-          while (!stop.get() && System.currentTimeMillis() - start < OfferMillis) {
-            val _ = queue.offer(Integer.valueOf(i))
-            val _ = offers.incrementAndGet()
-            i += 1
-          }
-        } catch { case t: Throwable => record(t) }
+        try offerUntilStopped(0)
+        catch { case t: Throwable => record(t) }
       }
     }
 

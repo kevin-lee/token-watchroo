@@ -22,9 +22,7 @@ object Iso8601Spec extends Properties {
   )
 
   def testStartOfNextUtcMonth: Property =
-    for {
-      epoch <- Fixtures.genEpoch.log("epoch")
-    } yield {
+    Fixtures.genEpoch.log("epoch").map { epoch =>
       val next = Iso8601.startOfNextUtcMonth(epoch)
       Result.all(
         List(
@@ -51,9 +49,9 @@ object Iso8601Spec extends Properties {
   }
 
   def testRoundTrip: Property =
-    for {
-      epoch <- Fixtures.genEpoch.log("epoch")
-    } yield Iso8601.parseToEpochSeconds(Iso8601.format(epoch)) ==== Right(epoch)
+    Fixtures.genEpoch.log("epoch").map { epoch =>
+      Iso8601.parseToEpochSeconds(Iso8601.format(epoch)) ==== Right(epoch)
+    }
 
   def testZeroOffset: Result =
     Iso8601.parseToEpochSeconds("2026-05-11T18:00:00+00:00") ==== Iso8601.parseToEpochSeconds("2026-05-11T18:00:00Z")

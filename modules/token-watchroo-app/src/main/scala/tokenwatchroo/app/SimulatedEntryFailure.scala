@@ -23,6 +23,9 @@ object SimulatedEntryFailure {
   def shouldFail(flagFile: os.Path): Boolean =
     Either.catchNonFatal(os.exists(flagFile) && os.read(flagFile).trim === Fail).getOrElse(false)
 
+  /** Throws on purpose, and does not return an `Either`: the debug path must reach the `catch` in `Entry.managed`, which
+    * is the only code that turns a `Throwable` into `Entry.Internal`.
+    */
   def check(flagFile: Option[os.Path]): Unit =
     if (flagFile.exists(shouldFail)) throw new Failure else ()
 }

@@ -131,7 +131,7 @@ lazy val providers = module("providers")
 lazy val app = module("app")
   .enablePlugins(ScalaNativePlugin)
   .settings(
-    libraryDependencies ++= libs.tests.munit.value,
+    libraryDependencies ++= libs.tests.munit.value ++ libs.tests.hedgehog.value,
     nativeConfig := Def.uncached(
       commonNativeConfig((LocalRootProject / baseDirectory).value)(nativeConfig.value)
         .withBuildTarget(BuildTarget.libraryStatic)

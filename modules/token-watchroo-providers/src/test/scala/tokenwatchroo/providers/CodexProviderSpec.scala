@@ -33,7 +33,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(Fakes.ok(UsageFixtures.codexEnterpriseUsage)),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(None)
+      new Fakes.FakeRollouts(none[List[String]])
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Ok)
@@ -50,7 +50,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(Fakes.ok(UsageFixtures.codexRateLimitNullNoSpend)),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(None)
+      new Fakes.FakeRollouts(none[List[String]])
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
@@ -61,7 +61,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(Fakes.ok(UsageFixtures.codexRateLimitNullNoSpend)),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLineCurrent)))
+      new Fakes.FakeRollouts(List(Fakes.rolloutLineCurrent).some)
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))
@@ -74,7 +74,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(Fakes.ok(Fakes.codexUsage)),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(None)
+      new Fakes.FakeRollouts(none[List[String]])
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Warning)
@@ -95,7 +95,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(Fakes.ok(UsageFixtures.codexTeamUsage)),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(None)
+      new Fakes.FakeRollouts(none[List[String]])
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Ok)
@@ -115,7 +115,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(ProviderError.network("curl 6").asLeft),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLineCurrent)))
+      new Fakes.FakeRollouts(List(Fakes.rolloutLineCurrent).some)
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))
@@ -130,7 +130,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(ProviderError.network("curl 6").asLeft),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine)))
+      new Fakes.FakeRollouts(List(Fakes.rolloutLine).some)
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
@@ -156,7 +156,7 @@ class CodexProviderSpec extends munit.FunSuite {
       withRouting(
         Fakes.ok(Fakes.codexUsage),
         new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-        new Fakes.FakeRollouts(None),
+        new Fakes.FakeRollouts(none[List[String]]),
       ) { (p, http) =>
         for {
           first  <- fetch(p, Fakes.now, FetchTrigger.Scheduled)
@@ -173,7 +173,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(ProviderError.http(HttpStatus(500)).asLeft),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(None)
+      new Fakes.FakeRollouts(none[List[String]])
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
@@ -185,7 +185,7 @@ class CodexProviderSpec extends munit.FunSuite {
       withRouting(
         Fakes.ok(Fakes.codexUsage),
         new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-        new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine))),
+        new Fakes.FakeRollouts(List(Fakes.rolloutLine).some),
       ) { (p, http) =>
         for {
           first  <- fetch(p, Fakes.now, FetchTrigger.Scheduled)
@@ -205,7 +205,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(ProviderError.rateLimited.asLeft),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(Some(List(Fakes.rolloutLineCurrent)))
+      new Fakes.FakeRollouts(List(Fakes.rolloutLineCurrent).some)
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))
@@ -217,7 +217,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p        = provider(
       new Fakes.FakeHttp(ProviderError.rateLimited.asLeft),
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-      new Fakes.FakeRollouts(None)
+      new Fakes.FakeRollouts(none[List[String]])
     )
     val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
@@ -229,7 +229,7 @@ class CodexProviderSpec extends munit.FunSuite {
       withRouting(
         Fakes.ok(Fakes.codexUsage),
         new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
-        new Fakes.FakeRollouts(Some(List(Fakes.rolloutLine))),
+        new Fakes.FakeRollouts(List(Fakes.rolloutLine).some),
       ) { (p, http) =>
         fetch(p, Fakes.now, FetchTrigger.Scheduled) >>
           http.set(UsageUrl, ProviderError.http(HttpStatus(500)).asLeft) >>
@@ -244,7 +244,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val auth            =
       Fakes.SequencedCodexAuth.make(List(Fakes.codexOAuth.asRight, Fakes.codexOAuthOther.asRight)).unsafeRunSync()
     val (first, second) =
-      withRouting(Fakes.ok(Fakes.codexUsage), auth, new Fakes.FakeRollouts(None)) { (p, http) =>
+      withRouting(Fakes.ok(Fakes.codexUsage), auth, new Fakes.FakeRollouts(none[List[String]])) { (p, http) =>
         for {
           first  <- fetch(p, Fakes.now, FetchTrigger.Scheduled)
           _      <- http.set(UsageUrl, ProviderError.rateLimited.asLeft)
@@ -260,7 +260,7 @@ class CodexProviderSpec extends munit.FunSuite {
     val p = provider(
       new Fakes.FakeHttp(Fakes.ok(Fakes.codexUsage)),
       new Fakes.FakeCodexAuth(ProviderError.credentialsMissing.asLeft),
-      new Fakes.FakeRollouts(None)
+      new Fakes.FakeRollouts(none[List[String]])
     )
     assertEquals(p.detect(config).unsafeRunSync(), Detection.NotDetected)
   }

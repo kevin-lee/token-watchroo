@@ -13,7 +13,11 @@ import scala.scalanative.unsafe.*
 object LibCurl {
   type Curl     = Ptr[Byte]
   type CurlCode = CInt
-  type SList    = Ptr[Byte]
+
+  /** `struct curl_slist`, a linked list of strings. `SList` keeps the capital `L` because `S` and `List` are two
+    * words, the same as in `OAuth`.
+    */
+  type SList = Ptr[Byte]
 
   def curl_global_init(flags: CLong): CurlCode                         = extern
   def curl_easy_init(): Curl                                           = extern

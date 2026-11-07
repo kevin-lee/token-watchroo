@@ -1,6 +1,7 @@
 package tokenwatchroo.providers
 
 import cats.effect.unsafe.implicits.global
+import cats.syntax.all.*
 import java.nio.file.{Files, Paths}
 import refined4s.types.all.*
 import scala.concurrent.duration.*
@@ -11,7 +12,9 @@ class SecurityCliSpec extends munit.FunSuite {
   test("an unknown service is CredentialsMissing") {
     assume(Files.exists(Paths.get(SecurityCli.Executable)), s"${SecurityCli.Executable} is not available")
     val result =
-      SecurityCli.readGenericPassword("token-watchroo-no-such-service-2f0c", None, 5.seconds).unsafeRunSync()
+      SecurityCli
+        .readGenericPassword("token-watchroo-no-such-service-2f0c", none[KeychainAccount], 5.seconds)
+        .unsafeRunSync()
     assertEquals(result, Left(ProviderError.CredentialsMissing))
   }
 
@@ -19,7 +22,7 @@ class SecurityCliSpec extends munit.FunSuite {
     assume(Files.exists(Paths.get(SecurityCli.Executable)), s"${SecurityCli.Executable} is not available")
     val account = KeychainAccount(NonEmptyString("token-watchroo-no-such-account-2f0c"))
     val result  =
-      SecurityCli.readGenericPassword("token-watchroo-no-such-service-2f0c", Some(account), 5.seconds).unsafeRunSync()
+      SecurityCli.readGenericPassword("token-watchroo-no-such-service-2f0c", account.some, 5.seconds).unsafeRunSync()
     assertEquals(result, Left(ProviderError.CredentialsMissing))
   }
 

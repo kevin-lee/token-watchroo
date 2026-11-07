@@ -45,7 +45,7 @@ final class Bridge(
           .println(
             s"[token-watchroo] envelope ${seq.value}: the C string differed from the JSON ${converted.mismatches} time(s) and was converted again (#44)"
           )
-      }
+      } else ()
       GcState.set(MutatorState.Unmanaged)
       callback(converted.cString, ctx)
       GcState.yieldNow()
@@ -86,14 +86,16 @@ object Bridge {
     attempt(0)
   }
 
-  private def matches(cString: CString, expected: Array[Byte]): Boolean = {
-    var index = 0
-    var same  = true
-    while (same && index < expected.length) {
-      same = cString(index) == expected(index)
-      index += 1
-    }
-    same && cString(expected.length) == 0
+  /** Compares with `==` on purpose, not `===`: Scala 3 ignores `@specialized`, so `===` would box every byte and
+    * allocate while this checks for the GC corruption of #44.
+    */
+  private[app] def matches(cString: CString, expected: Array[Byte]): Boolean = {
+    @tailrec
+    def sameFrom(index: Int): Boolean =
+      if (index >= expected.length) cString(index) == 0
+      else if (cString(index) == expected(index)) sameFrom(index + 1)
+      else false
+    sameFrom(0)
   }
 
   private def copy(bytes: Array[Byte])(using zone: Zone): CString = {

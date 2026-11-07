@@ -37,9 +37,7 @@ object FormatSpec extends Properties {
     )
 
   def testPercentShape: Property =
-    for {
-      p <- Fixtures.genPercent.log("p")
-    } yield {
+    Fixtures.genPercent.log("p").map { p =>
       val s = Format.percent(p)
       Result.all(List(Result.assert(s.endsWith("%")), Result.assert(!s.contains("."))))
     }

@@ -28,9 +28,7 @@ object CodecsSpec extends Properties {
   )
 
   def testSpendRoundTrip: Property =
-    for {
-      spend <- Fixtures.genSpend.log("spend")
-    } yield {
+    Fixtures.genSpend.log("spend").map { spend =>
       val json = codecs.write(spend)
       Result.all(
         List(
@@ -101,23 +99,21 @@ object CodecsSpec extends Properties {
   }
 
   def testEpochRoundTrip: Property =
-    for {
-      epoch <- Fixtures.genEpoch.log("epoch")
-    } yield {
+    Fixtures.genEpoch.log("epoch").map { epoch =>
       val json = codecs.write(epoch)
       Result.all(List(json ==== epoch.value.toString, codecs.readEither[EpochSeconds](json) ==== Right(epoch)))
     }
 
   def testUsedPercent: Property =
-    for {
-      p <- Fixtures.genPercent.log("p")
-    } yield Result.all(
-      List(
-        codecs.readEither[UsedPercent](codecs.write(p)) ==== Right(p),
-        codecs.readEither[UsedPercent]("150.0").isLeft ==== true,
-        codecs.readEither[UsedPercent]("-1").isLeft ==== true,
+    Fixtures.genPercent.log("p").map { p =>
+      Result.all(
+        List(
+          codecs.readEither[UsedPercent](codecs.write(p)) ==== Right(p),
+          codecs.readEither[UsedPercent]("150.0").isLeft ==== true,
+          codecs.readEither[UsedPercent]("-1").isLeft ==== true,
+        )
       )
-    )
+    }
 
   def testRefreshInterval: Result =
     Result.all(
@@ -129,9 +125,7 @@ object CodecsSpec extends Properties {
     )
 
   def testPlanLabel: Property =
-    for {
-      s <- StringGens.genNonEmptyString(Gen.alphaNum, PosInt(16)).log("s")
-    } yield {
+    StringGens.genNonEmptyString(Gen.alphaNum, PosInt(16)).log("s").map { s =>
       val label = PlanLabel(s)
       Result.all(
         List(
