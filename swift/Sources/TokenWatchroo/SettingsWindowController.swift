@@ -62,14 +62,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
             window.center()
             shownOnce = true
         }
-        // The menu is still open when its action runs, so wait until it has closed. `activate()` is only a request since
-        // macOS 14, and the system can refuse it for an LSUIElement app, which left the window behind the frontmost
-        // app (#8 manual check). `orderFrontRegardless()` puts the window in front of other apps' windows even then.
-        DispatchQueue.main.async {
-            NSApp.activate()
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-        }
+        WindowFront.show { window }
     }
 
     // MARK: test access
