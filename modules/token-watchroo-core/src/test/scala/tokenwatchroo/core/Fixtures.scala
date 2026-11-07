@@ -34,13 +34,28 @@ object Fixtures {
   val genPlanKind: Gen[PlanKind] = Gen.element1(PlanKind.Individual, PlanKind.Team, PlanKind.Enterprise)
   val genEnabled: Gen[Enabled]   = Gen.element1(Enabled.On, Enabled.Off)
 
+  /** Valid levels: a start from 1 to 20, then up to 4 steps of 5 to 25, kept at 100 or below. */
+  val genAlertLevelValues: Gen[List[Int]] =
+    for {
+      start <- Gen.int(Range.linear(1, 20))
+      steps <- Gen.int(Range.linear(5, 25)).list(Range.linear(0, 4))
+    } yield steps.scanLeft(start)(_ + _).takeWhile(_ <= 100)
+
+  val genAlertLevels: Gen[AlertLevels] =
+    Gen.choice1(
+      Gen.constant(AlertLevels.defaults),
+      Gen.constant(AlertLevels.none),
+      genAlertLevelValues.map(levels => AlertLevels.from(levels).getOrElse(AlertLevels.defaults)),
+    )
+
   val genAgentConfig: Gen[AgentConfig] =
     for {
       id      <- genAgentId
       billing <- genBilling
       plan    <- genPlanKind
       enabled <- genEnabled
-    } yield AgentConfig(id, billing, plan, enabled)
+      levels  <- genAlertLevels
+    } yield AgentConfig(id, billing, plan, enabled, levels)
 
   /** Paths without characters that JSON escapes, so the round trip compares plain strings. */
   private val genPath: Gen[NonEmptyString] =

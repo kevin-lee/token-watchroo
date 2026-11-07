@@ -1,11 +1,14 @@
 package tokenwatchroo.core
 
-import cats.syntax.all.*
-
 /** Decides which notifications to fire for a snapshot. Pure, deterministic, and idempotent: applying the same snapshot
   * twice emits nothing the second time. Windows that expired at `now` are not observed, so stale values never fire
   * (issue #81). Their records stay until `prune` drops them, so the reset alert still fires when the next window
   * arrives.
+  *
+  * Alarm-clock rule (#9): a level of the agent fires when the shown whole percent crosses it, from the last shown
+  * percent of the same window (0 for a window with no record or a new window) to the shown percent now. Only the highest
+  * crossed level fires, and all crossed levels are marked as fired, so each level fires at most once per window. A
+  * level change never fires by itself.
   */
 object AlertEngine {
 
@@ -15,7 +18,12 @@ object AlertEngine {
   /** Usage drop tolerated before a window counts as new. */
   val UsageDropTolerance: Double = 20.0d
 
-  def step(state: AlertState, snapshot: Snapshot, now: EpochSeconds): (AlertState, List[Alert]) = {
+  def step(
+    state: AlertState,
+    snapshot: Snapshot,
+    now: EpochSeconds,
+    levelsOf: AgentId => AlertLevels,
+  ): (AlertState, List[Alert]) = {
     val observations =
       for {
         agent    <- snapshot.agents.filter(_.isAvailable)
@@ -25,7 +33,7 @@ object AlertEngine {
 
     val (nextState, alerts) = observations.foldLeft((state, List.empty[Alert])) {
       case ((accState, accAlerts), (agentId, window, resetsAt)) =>
-        val (updatedState, newAlerts) = stepWindow(accState, agentId, window, resetsAt, now)
+        val (updatedState, newAlerts) = stepWindow(accState, agentId, levelsOf(agentId), window, resetsAt, now)
         (updatedState, accAlerts ++ newAlerts)
     }
     val observed            = observations.map { case (agentId, window, _) => WindowKey(agentId, window.id) }.toSet
@@ -35,38 +43,36 @@ object AlertEngine {
   private def stepWindow(
     state: AlertState,
     agentId: AgentId,
+    levels: AlertLevels,
     window: UsageWindow,
     resetsAt: EpochSeconds,
     now: EpochSeconds,
   ): (AlertState, List[Alert]) = {
     val key = WindowKey(agentId, window.id)
 
-    val (record, resetAlerts) = state.records.get(key) match {
+    val (record, resetAlerts, from) = state.records.get(key) match {
       case Some(existing) if isSameWindow(existing, window, resetsAt) =>
-        (existing, List.empty[Alert])
+        (existing, List.empty[Alert], Format.wholePercent(existing.lastPercent))
       case Some(previous) =>
-        val crossedThreshold =
-          previous.fired.contains(AlertKind.Warning) || previous.fired.contains(AlertKind.Critical)
-        val alreadyReset     = previous.fired.contains(AlertKind.Reset)
-        val alerts = Option.when(crossedThreshold && !alreadyReset)(AlertText.reset(agentId, window, now)).toList
-        val fired  = if (alerts.nonEmpty) Set[AlertKind](AlertKind.Reset) else Set.empty[AlertKind]
-        (WindowRecord(resetsAt, window.usedPercent, fired), alerts)
+        val crossedLevel = previous.fired.exists(_.isLevel)
+        val alreadyReset = previous.fired.contains(AlertKind.Reset)
+        val alerts       = Option.when(crossedLevel && !alreadyReset)(AlertText.reset(agentId, window, now)).toList
+        val fired        = if (alerts.nonEmpty) Set[AlertKind](AlertKind.Reset) else Set.empty[AlertKind]
+        (WindowRecord(resetsAt, window.usedPercent, fired), alerts, 0L)
       case None =>
-        (WindowRecord(resetsAt, window.usedPercent, Set.empty[AlertKind]), List.empty[Alert])
+        (WindowRecord(resetsAt, window.usedPercent, Set.empty[AlertKind]), List.empty[Alert], 0L)
     }
 
-    val band                     = UsageBand.of(window.usedPercent)
-    val (fired, thresholdAlerts) =
-      if (band === UsageBand.Critical && !record.fired.contains(AlertKind.Critical)) {
-        (record.fired + AlertKind.Critical + AlertKind.Warning, List(AlertText.critical(agentId, window, now)))
-      } else if (band.isAtLeast(UsageBand.Warning) && !record.fired.contains(AlertKind.Warning)) {
-        (record.fired + AlertKind.Warning, List(AlertText.warning(agentId, window, now)))
-      } else {
-        (record.fired, List.empty[Alert])
-      }
+    val crossed     = levels.crossed(from, Format.wholePercent(window.usedPercent))
+    val fired       = record.fired ++ crossed.map(AlertKind.level)
+    val levelAlerts = crossed
+      .lastOption
+      .filterNot(highest => record.fired.contains(AlertKind.level(highest)))
+      .map(highest => AlertText.level(agentId, window, now, highest))
+      .toList
 
     val updated = WindowRecord(resetsAt, window.usedPercent, fired)
-    (state.updated(key, updated), resetAlerts ++ thresholdAlerts)
+    (state.updated(key, updated), resetAlerts ++ levelAlerts)
   }
 
   private def isSameWindow(record: WindowRecord, window: UsageWindow, resetsAt: EpochSeconds): Boolean =

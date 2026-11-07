@@ -23,13 +23,38 @@ class StateStoreSpec extends munit.FunSuite {
     val state    = AlertState(
       Map(
         WindowKey(AgentId.Codex, WindowId.Session) ->
-          WindowRecord(EpochSeconds(1789187040L), UsedPercent.clamp(82.0d), Set(AlertKind.Warning))
+          WindowRecord(
+            EpochSeconds(1789187040L),
+            UsedPercent.clamp(82.0d),
+            Set(AlertKind.level(AlertLevel.unsafeFrom(70)))
+          )
       )
     )
     (s.write(state) *> s.write(state)).unsafeRunSync()
     assertEquals(s.read.unsafeRunSync(), state)
     assert(Files.exists(dir.resolve(FileStateStore.FileName)))
     assert(!Files.exists(dir.resolve(FileStateStore.FileName + ".tmp")))
+  }
+
+  test("a file with a fired kind that cannot be parsed keeps its records (#9)") {
+    val (s, dir) = store()
+    val json     =
+      """{"records":[{"agent":"codex","window":"session","resetsAt":1789187040,"lastPercent":82.0,""" +
+        """"fired":["threshold80","spend-level70"]}]}"""
+    val _        = Files.write(dir.resolve(FileStateStore.FileName), json.getBytes(StandardCharsets.UTF_8))
+    assertEquals(
+      s.read.unsafeRunSync(),
+      AlertState(
+        Map(
+          WindowKey(AgentId.Codex, WindowId.Session) ->
+            WindowRecord(
+              EpochSeconds(1789187040L),
+              UsedPercent.clamp(82.0d),
+              Set(AlertKind.level(AlertLevel.unsafeFrom(70))),
+            )
+        )
+      ),
+    )
   }
 
   test("a corrupt file reads as the empty state") {

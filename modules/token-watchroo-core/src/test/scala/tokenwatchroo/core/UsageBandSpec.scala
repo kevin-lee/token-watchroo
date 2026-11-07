@@ -18,13 +18,15 @@ object UsageBandSpec extends Properties {
     Result.all(
       List(
         band(0.0d) ==== UsageBand.Normal,
-        band(50.0d) ==== UsageBand.Normal,
-        band(50.4d) ==== UsageBand.Normal,
-        band(50.5d) ==== UsageBand.Elevated,
-        band(70.0d) ==== UsageBand.Elevated,
-        band(70.5d) ==== UsageBand.Warning,
-        band(85.0d) ==== UsageBand.Warning,
-        band(85.5d) ==== UsageBand.Critical,
+        band(49.4d) ==== UsageBand.Normal,
+        band(49.5d) ==== UsageBand.Elevated,
+        band(50.0d) ==== UsageBand.Elevated,
+        band(69.4d) ==== UsageBand.Elevated,
+        band(69.5d) ==== UsageBand.Warning,
+        band(70.0d) ==== UsageBand.Warning,
+        band(84.4d) ==== UsageBand.Warning,
+        band(84.5d) ==== UsageBand.Critical,
+        band(85.0d) ==== UsageBand.Critical,
         band(100.0d) ==== UsageBand.Critical,
       )
     )

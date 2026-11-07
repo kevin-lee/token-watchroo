@@ -113,7 +113,7 @@ object codecs {
   given agentStatusCodec: JsonValueCodec[AgentStatus] = wireString(AgentStatus.parse, _.wire, AgentStatus.Unavailable)
   given sourceCodec: JsonValueCodec[Source]           = wireString(Source.parse, _.wire, Source.Api)
   given menubarKindCodec: JsonValueCodec[MenubarKind] = wireString(MenubarKind.parse, _.wire, MenubarKind.Unavailable)
-  given alertKindCodec: JsonValueCodec[AlertKind]     = wireString(AlertKind.parse, _.wire, AlertKind.Warning)
+  given alertKindCodec: JsonValueCodec[AlertKind]     = wireString(AlertKind.parse, _.wire, AlertKind.Reset)
   given currencyCodec: JsonValueCodec[Currency]       = wireString(Currency.parse, _.wire, Currency.Credits)
 
   /* Records. */
@@ -159,7 +159,7 @@ object codecs {
       Alert(
         AgentId.ClaudeCode,
         WindowId.Session,
-        AlertKind.Warning,
+        AlertKind.Reset,
         EpochSeconds(0L),
         UsedPercent.clamp(0.0d),
         "",
@@ -169,13 +169,16 @@ object codecs {
 
   /* Config: the JSON key is `refreshIntervalSeconds`, the field is `refreshInterval`. A missing `agents` is an empty
    * list. In an agent entry only `id` is required: a missing `billing`, `plan` or `enabled` gives its default. An entry
-   * with an unknown `id`, `billing` or `plan` is skipped, so a config written by a later version still decodes (#8). */
+   * with an unknown `id`, `billing` or `plan` is skipped, so a config written by a later version still decodes (#8).
+   * A missing `alertLevels`, or levels that break the rules, give the default levels, and the default levels are left
+   * out on write (#9). */
 
   final private case class AgentConfigWire(
     id: String,
     billing: Option[String],
     plan: Option[String],
     enabled: Option[Boolean],
+    alertLevels: Option[List[Int]],
   )
 
   private given agentConfigWireCodec: JsonValueCodec[AgentConfigWire] =
@@ -186,10 +189,22 @@ object codecs {
       id      <- AgentId.parse(w.id)
       billing <- w.billing.fold(Billing.default.asRight[String])(Billing.parse)
       plan    <- w.plan.fold(PlanKind.default.asRight[String])(PlanKind.parse)
-    } yield AgentConfig(id, billing, plan, w.enabled.fold(Enabled.default)(Enabled.fromBoolean))).toOption
+    } yield AgentConfig(
+      id,
+      billing,
+      plan,
+      w.enabled.fold(Enabled.default)(Enabled.fromBoolean),
+      w.alertLevels.flatMap(levels => AlertLevels.from(levels).toOption).getOrElse(AlertLevels.defaults),
+    )).toOption
 
   private def agentConfigToWire(a: AgentConfig): AgentConfigWire =
-    AgentConfigWire(a.id.wire, a.billing.wire.some, a.plan.wire.some, a.enabled.isOn.some)
+    AgentConfigWire(
+      a.id.wire,
+      a.billing.wire.some,
+      a.plan.wire.some,
+      a.enabled.isOn.some,
+      Option.when(a.alertLevels =!= AlertLevels.defaults)(a.alertLevels.levels.map(_.value)),
+    )
 
   final private case class ConfigWire(
     stateDir: StateDir,
@@ -223,14 +238,15 @@ object codecs {
       Config.default(StateDir(NonEmptyString.unsafeFrom("-"))),
     )
 
-  /* Alert state: a map keyed by (agent, window) stored as a list of records with the key fields inlined. */
+  /* Alert state: a map keyed by (agent, window) stored as a list of records with the key fields inlined. A `fired` kind
+   * that this version cannot parse is skipped, so the rest of the file is kept when a later version added kinds (#9). */
 
   final private case class WindowRecordWire(
     agent: AgentId,
     window: WindowId,
     resetsAt: EpochSeconds,
     lastPercent: UsedPercent,
-    fired: List[AlertKind],
+    fired: List[String],
   )
 
   final private case class AlertStateWire(records: List[WindowRecordWire])
@@ -244,7 +260,11 @@ object codecs {
         AlertState(
           w.records
             .map { r =>
-              WindowKey(r.agent, r.window) -> WindowRecord(r.resetsAt, r.lastPercent, r.fired.toSet)
+              WindowKey(r.agent, r.window) -> WindowRecord(
+                r.resetsAt,
+                r.lastPercent,
+                r.fired.flatMap(kind => AlertKind.parse(kind).toOption).toSet,
+              )
             }
             .toMap
         ),
@@ -256,7 +276,7 @@ object codecs {
               key.window,
               record.resetsAt,
               record.lastPercent,
-              record.fired.toList.sortBy(_.wire)
+              record.fired.toList.map(_.wire).sorted
             )
         }),
       AlertState.empty,

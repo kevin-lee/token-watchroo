@@ -103,11 +103,17 @@ object Enabled {
   }
 }
 
-/** One entry of `Config.agents`, written by the settings window of the Swift shell. */
-final case class AgentConfig(id: AgentId, billing: Billing, plan: PlanKind, enabled: Enabled) derives CanEqual, Eq, Show
+/** One entry of `Config.agents`, written by the settings window of the Swift shell. `alertLevels` are the window alert
+  * levels of the agent (#9).
+  */
+final case class AgentConfig(id: AgentId, billing: Billing, plan: PlanKind, enabled: Enabled, alertLevels: AlertLevels)
+    derives CanEqual,
+      Eq,
+      Show
 
 object AgentConfig {
 
   /** The values that an entry with only an `id` decodes to. */
-  def defaults(id: AgentId): AgentConfig = AgentConfig(id, Billing.default, PlanKind.default, Enabled.default)
+  def defaults(id: AgentId): AgentConfig =
+    AgentConfig(id, Billing.default, PlanKind.default, Enabled.default, AlertLevels.defaults)
 }

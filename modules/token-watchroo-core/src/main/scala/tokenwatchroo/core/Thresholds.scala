@@ -1,7 +1,7 @@
 package tokenwatchroo.core
 
-/** The fixed colour bands and alert levels (#101) on the shown whole percent (`Format.wholePercent`): over `elevated`
-  * blue, over `warning` amber and the first alert, over `critical` red and the second alert.
+/** The fixed colour bands (#101) on the shown whole percent (`Format.wholePercent`): at `elevated` blue, at `warning`
+  * amber, at `critical` red (#9: at the number, before #9 over it). The default alert levels are `AlertLevels.defaults`.
   */
 object Thresholds {
   val elevated: Long = 50L

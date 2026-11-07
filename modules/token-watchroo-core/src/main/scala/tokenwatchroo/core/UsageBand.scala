@@ -3,7 +3,9 @@ package tokenwatchroo.core
 import cats.{Eq, Show}
 import cats.derived.*
 
-/** The colour band of a percent (#101). Exhausted is not a band: the status and the menubar check it first. */
+/** The colour band of a percent (#101), at the number since #9. Exhausted is not a band: the status and the menubar
+  * check it first.
+  */
 enum UsageBand derives CanEqual, Eq, Show {
   case Normal
   case Elevated
@@ -19,9 +21,9 @@ object UsageBand {
 
   def of(p: UsedPercent): UsageBand = {
     val shown = Format.wholePercent(p)
-    if (shown > Thresholds.critical) UsageBand.Critical
-    else if (shown > Thresholds.warning) UsageBand.Warning
-    else if (shown > Thresholds.elevated) UsageBand.Elevated
+    if (shown >= Thresholds.critical) UsageBand.Critical
+    else if (shown >= Thresholds.warning) UsageBand.Warning
+    else if (shown >= Thresholds.elevated) UsageBand.Elevated
     else UsageBand.Normal
   }
 

@@ -18,6 +18,7 @@ object AgentConfigSpec extends Properties {
     property("ordered puts listed agents first in list order, then the others in AgentId order", testOrdered),
     example("an empty list keeps AgentId order", testOrderedEmpty),
     property("a new order, plan or interval needs no fetch", testNoFetch),
+    property("a change of alert levels only needs no fetch", testNoFetchForLevels),
     example(
       "enabling, disabling, billing, codexHome and claudeCodeVersionOverride changes need a fetch",
       testFetch,
@@ -62,6 +63,18 @@ object AgentConfigSpec extends Properties {
         agents = agents.reverse.map(_.copy(plan = plan)),
         refreshInterval = RefreshIntervalSeconds.clamp(interval),
       )
+      Result.assert(!AgentChoice.needsFetch(old, next, AgentId.all))
+    }
+
+  /** The levels are used by the alert engine at the next tick (#9), so a change does not fetch again. */
+  def testNoFetchForLevels: Property =
+    for {
+      all <- Fixtures.genAgentConfig.list(Range.linear(1, 3)).log("all")
+      agents = all.distinctBy(_.id)
+      levels <- Fixtures.genAlertLevels.log("levels")
+    } yield {
+      val old  = configWith(agents*)
+      val next = old.copy(agents = agents.map(_.copy(alertLevels = levels)))
       Result.assert(!AgentChoice.needsFetch(old, next, AgentId.all))
     }
 
@@ -138,8 +151,8 @@ object AgentConfigSpec extends Properties {
     }
 
   def testFirstEntryWins: Result = {
-    val first  = AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Team, Enabled.On)
-    val second = AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Individual, Enabled.Off)
+    val first  = AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Team, Enabled.On, AlertLevels.defaults)
+    val second = AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Individual, Enabled.Off, AlertLevels.none)
     AgentChoice.of(configWith(first, second), AgentId.Codex) ==== AgentChoice.fetch(PlanKind.Team)
   }
 

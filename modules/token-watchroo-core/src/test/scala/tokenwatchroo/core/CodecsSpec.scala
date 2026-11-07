@@ -30,6 +30,9 @@ object CodecsSpec extends Properties {
     example("an agent entry with only an id decodes to the defaults", testAgentEntryDefaults),
     example("agent entries with an unknown id, billing or plan are skipped and the others kept", testAgentEntrySkipped),
     example("an agent entry writes its wire values", testAgentEntryWire),
+    example("alert kinds use the kept names for 70 and 85 and level<n> for the others", testAlertKindWire),
+    example("a fired kind that cannot be parsed is skipped and the rest of the state is kept", testUnknownFiredKind),
+    example("alertLevels: absent or broken gives the defaults, the defaults are left out on write", testAlertLevels),
   )
 
   def testConfigRoundTrip: Property =
@@ -52,7 +55,7 @@ object CodecsSpec extends Properties {
   def testAgentEntryDefaults: Result =
     codecs
       .readEither[Config]("""{"stateDir":"/tmp/tw","refreshIntervalSeconds":60,"agents":[{"id":"codex"}]}""")
-      .map(_.agents) ==== Right(List(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Individual, Enabled.On)))
+      .map(_.agents) ==== Right(List(AgentConfig.defaults(AgentId.Codex)))
 
   def testAgentEntrySkipped: Result = {
     val json =
@@ -63,7 +66,7 @@ object CodecsSpec extends Properties {
         """{"id":"claude-code","billing":"api","plan":"enterprise","enabled":false}""" +
         """]}"""
     codecs.readEither[Config](json).map(_.agents) ==== Right(
-      List(AgentConfig(AgentId.ClaudeCode, Billing.Api, PlanKind.Enterprise, Enabled.Off))
+      List(AgentConfig(AgentId.ClaudeCode, Billing.Api, PlanKind.Enterprise, Enabled.Off, AlertLevels.defaults))
     )
   }
 
@@ -71,7 +74,9 @@ object CodecsSpec extends Properties {
   def testAgentEntryWire: Result = {
     val config = Config
       .default(StateDir(NonEmptyString("/tmp/tw")))
-      .copy(agents = List(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Team, Enabled.On)))
+      .copy(agents =
+        List(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Team, Enabled.On, AlertLevels.defaults))
+      )
     codecs
       .write(config)
       .contains(
@@ -200,8 +205,8 @@ object CodecsSpec extends Properties {
         codecs.write(AgentStatus.Exhausted) ==== "\"exhausted\"",
         codecs.write(Source.LocalLog) ==== "\"local-log\"",
         codecs.write(MenubarKind.Critical) ==== "\"critical\"",
-        codecs.write(AlertKind.Critical) ==== "\"threshold95\"",
-        codecs.readEither[AlertKind]("\"threshold80\"") ==== Right(AlertKind.Warning),
+        codecs.write(AlertKind.level(AlertLevel.unsafeFrom(85))) ==== "\"threshold95\"",
+        codecs.readEither[AlertKind]("\"threshold80\"") ==== Right(AlertKind.level(AlertLevel.unsafeFrom(70))),
         codecs.readEither[AgentId]("\"nope\"").isLeft ==== true,
       )
     )
@@ -231,11 +236,19 @@ object CodecsSpec extends Properties {
     val state = AlertState(
       Map(
         WindowKey(AgentId.Codex, WindowId.Session)                                        ->
-          WindowRecord(EpochSeconds(1789187040L), UsedPercent.clamp(82.0d), Set(AlertKind.Warning)),
+          WindowRecord(
+            EpochSeconds(1789187040L),
+            UsedPercent.clamp(82.0d),
+            Set(AlertKind.level(AlertLevel.unsafeFrom(70)))
+          ),
         WindowKey(AgentId.ClaudeCode, WindowId.Weekly)                                    ->
           WindowRecord(EpochSeconds(1789617600L), UsedPercent.clamp(3.0d), Set.empty[AlertKind]),
         WindowKey(AgentId.ClaudeCode, WindowId.model(ModelName(NonEmptyString("Fable")))) ->
-          WindowRecord(EpochSeconds(1789617600L), UsedPercent.clamp(68.0d), Set(AlertKind.Warning)),
+          WindowRecord(
+            EpochSeconds(1789617600L),
+            UsedPercent.clamp(68.0d),
+            Set(AlertKind.level(AlertLevel.unsafeFrom(70)))
+          ),
       )
     )
     Result.all(
@@ -269,7 +282,12 @@ object CodecsSpec extends Properties {
       Fixtures.available(AgentId.Codex, now, Fixtures.window(WindowId.Session, 82.0d, EpochSeconds(1789187040L).some))
     )
     val alert     =
-      AlertText.warning(AgentId.Codex, Fixtures.window(WindowId.Session, 82.0d, EpochSeconds(1789187040L).some), now)
+      AlertText.level(
+        AgentId.Codex,
+        Fixtures.window(WindowId.Session, 82.0d, EpochSeconds(1789187040L).some),
+        now,
+        AlertLevel.unsafeFrom(70),
+      )
     val envelopes = List(
       Envelope.snapshot(SequenceNumber(42L), snapshot),
       Envelope.alert(SequenceNumber(43L), alert),
@@ -302,6 +320,72 @@ object CodecsSpec extends Properties {
       List(
         empty.contains(""""agents":[]""") ==== true,
         unavailable.contains(""""windows":[]""") ==== true,
+      )
+    )
+  }
+
+  def testAlertKindWire: Result = {
+    def kind(n: Int): AlertKind = AlertKind.level(AlertLevel.unsafeFrom(n))
+    Result.all(
+      List(
+        kind(70).wire ==== "threshold80",
+        kind(85).wire ==== "threshold95",
+        kind(60).wire ==== "level60",
+        kind(80).wire ==== "level80",
+        AlertKind.Reset.wire ==== "reset",
+        AlertKind.parse("threshold80") ==== Right(kind(70)),
+        AlertKind.parse("threshold95") ==== Right(kind(85)),
+        AlertKind.parse("level60") ==== Right(kind(60)),
+        AlertKind.parse("level80") ==== Right(kind(80)),
+        AlertKind.parse("level0").isLeft ==== true,
+        AlertKind.parse("level101").isLeft ==== true,
+        AlertKind.parse("levelx").isLeft ==== true,
+        AlertKind.parse("spend70").isLeft ==== true,
+      )
+    )
+  }
+
+  def testUnknownFiredKind: Result = {
+    val json =
+      """{"records":[{"agent":"codex","window":"session","resetsAt":1789187040,"lastPercent":82.0,""" +
+        """"fired":["threshold80","spend-level70","level60"]}]}"""
+    codecs.readEither[AlertState](json) ==== Right(
+      AlertState(
+        Map(
+          WindowKey(AgentId.Codex, WindowId.Session) ->
+            WindowRecord(
+              EpochSeconds(1789187040L),
+              UsedPercent.clamp(82.0d),
+              Set(AlertKind.level(AlertLevel.unsafeFrom(70)), AlertKind.level(AlertLevel.unsafeFrom(60))),
+            )
+        )
+      )
+    )
+  }
+
+  def testAlertLevels: Result = {
+    def entry(levels: String): String                                  =
+      s"""{"stateDir":"/tmp/tw","refreshIntervalSeconds":60,"agents":[{"id":"codex","plan":"team"$levels}]}"""
+    def levelsOf(json: String): Either[DecodeError, List[AlertLevels]] =
+      codecs.readEither[Config](json).map(_.agents.map(_.alertLevels))
+    val sixtyNinety                          = AlertLevels.from(List(60, 90)).getOrElse(AlertLevels.defaults)
+    def written(levels: AlertLevels): String =
+      codecs.write(
+        Config
+          .default(StateDir(NonEmptyString("/tmp/tw")))
+          .copy(agents = List(AgentConfig.defaults(AgentId.Codex).copy(alertLevels = levels)))
+      )
+    Result.all(
+      List(
+        levelsOf(entry("")) ==== Right(List(AlertLevels.defaults)),
+        levelsOf(entry(""","alertLevels":[60,90]""")) ==== Right(List(sixtyNinety)),
+        levelsOf(entry(""","alertLevels":[70,72]""")) ==== Right(List(AlertLevels.defaults)),
+        codecs.readEither[Config](entry(""","alertLevels":[70,72]""")).map(_.agents.map(_.plan)) ====
+          Right(List(PlanKind.Team)),
+        levelsOf(entry(""","alertLevels":[]""")) ==== Right(List(AlertLevels.none)),
+        written(AlertLevels.defaults).contains("alertLevels") ==== false,
+        written(sixtyNinety).contains(""""alertLevels":[60,90]""") ==== true,
+        written(AlertLevels.none).contains(""""alertLevels":[]""") ==== true,
       )
     )
   }

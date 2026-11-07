@@ -92,15 +92,121 @@ enum Enabled: Codable, Equatable {
     }
 }
 
-/// One entry of `Config.agents`. Mirrors `AgentConfig` in the core.
+/// One entry of `Config.agents`. Mirrors `AgentConfig` in the core. `alertLevels` are the agent's window alert levels
+/// (#9), left out of the JSON when they are the defaults, so a later change of the defaults applies to the entry.
 struct AgentConfig: Codable, Equatable {
     let id: AgentId
     var billing: Billing
     var plan: PlanKind
     var enabled: Enabled
+    var alertLevels: [Int] = AlertLevelRules.defaults
 
     static func defaults(_ id: AgentId) -> AgentConfig {
         AgentConfig(id: id, billing: .subscription, plan: .individual, enabled: .on)
+    }
+}
+
+extension AgentConfig {
+
+    private enum CodingKeys: String, CodingKey {
+        case id, billing, plan, enabled, alertLevels
+    }
+
+    /// Strict for `id`, `billing`, `plan` and `enabled`, as the synthesised decoder was. Levels with a wrong type or
+    /// that break the rules give the defaults, as in the core.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(AgentId.self, forKey: .id)
+        billing = try container.decode(Billing.self, forKey: .billing)
+        plan = try container.decode(PlanKind.self, forKey: .plan)
+        enabled = try container.decode(Enabled.self, forKey: .enabled)
+        alertLevels = AlertLevelRules.orDefaults((try? container.decodeIfPresent([Int].self, forKey: .alertLevels)) ?? nil)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(billing, forKey: .billing)
+        try container.encode(plan, forKey: .plan)
+        try container.encode(enabled, forKey: .enabled)
+        if alertLevels != AlertLevelRules.defaults {
+            try container.encode(alertLevels, forKey: .alertLevels)
+        }
+    }
+}
+
+/// The window alert level rules (#9). Mirrors `AlertLevels` in the core: whole percents from 1 to 100, up to 5,
+/// strictly increasing, at least 5 apart. A level fires when a window's shown percent reaches it.
+enum AlertLevelRules {
+    static let defaults = [70, 85]
+    static let maxCount = 5
+    static let minGap = 5
+
+    static let numberProblem = "Use a whole number from 1 to 100."
+    static let gapProblem = "Levels must be at least 5 apart."
+
+    /// The level of a field's text, or nil when it is not a whole number from 1 to 100.
+    static func level(_ text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed.count <= 3, trimmed.allSatisfy(\.isASCII), trimmed.allSatisfy(\.isNumber),
+              let value = Int(trimmed), (1...100).contains(value) else { return nil }
+        return value
+    }
+
+    /// The rows that break a rule: a text that is not a level, or a level less than 5 from another one.
+    static func marked(_ texts: [String]) -> Set<Int> {
+        let levels = texts.map(level)
+        var marked = Set(levels.indices.filter { levels[$0] == nil })
+        for i in levels.indices {
+            for j in levels.indices where j > i {
+                if let a = levels[i], let b = levels[j], abs(a - b) < minGap {
+                    marked.insert(i)
+                    marked.insert(j)
+                }
+            }
+        }
+        return marked
+    }
+
+    /// The message for the first broken rule, or nil when the texts are valid levels.
+    static func problem(_ texts: [String]) -> String? {
+        if texts.contains(where: { level($0) == nil }) { return numberProblem }
+        if !marked(texts).isEmpty { return gapProblem }
+        return nil
+    }
+
+    static func isValid(_ levels: [Int]) -> Bool {
+        levels.count <= maxCount
+            && levels.allSatisfy { (1...100).contains($0) }
+            && zip(levels, levels.dropFirst()).allSatisfy { $1 - $0 >= minGap }
+    }
+
+    /// The levels, or the defaults when they are absent or break the rules.
+    static func orDefaults(_ levels: [Int]?) -> [Int] {
+        guard let levels, isValid(levels) else { return defaults }
+        return levels
+    }
+
+    /// The level that "+" adds: 70 for none, else the first value that fits from the highest plus 5 up to 100, then
+    /// from the highest minus 5 down to 1. Nil when no value fits.
+    static func nextLevel(after levels: [Int]) -> Int? {
+        guard let highest = levels.max() else { return 70 }
+        let fits = { (value: Int) in levels.allSatisfy { abs($0 - value) >= minGap } }
+        if highest + minGap <= 100, let up = (highest + minGap...100).first(where: fits) { return up }
+        if highest - minGap >= 1, let down = stride(from: highest - minGap, through: 1, by: -1).first(where: fits) {
+            return down
+        }
+        return nil
+    }
+
+    /// The colour and the title that a level gives, for the chip next to its row.
+    static func chip(for level: Int) -> String {
+        switch UsageBand.of(percent: Double(level)) {
+        case .critical: return "Red · is almost out"
+        case .warning: return "Amber · is near its limit"
+        case .elevated: return "Blue · is near its limit"
+        case .normal: return "No colour · is near its limit"
+        }
     }
 }
 
@@ -111,17 +217,19 @@ private struct LenientAgentConfig: Decodable {
     let billing: String?
     let plan: String?
     let enabled: Bool?
+    let alertLevels: [Int]?
 
     var agent: AgentConfig? {
         guard let id = id.flatMap(AgentId.init(rawValue:)) else { return nil }
         let billing = self.billing.map(Billing.init(rawValue:)) ?? .subscription
         let plan = self.plan.map(PlanKind.init(rawValue:)) ?? .individual
         guard let billing, let plan else { return nil }
-        return AgentConfig(id: id, billing: billing, plan: plan, enabled: Enabled(isOn: enabled ?? true))
+        return AgentConfig(id: id, billing: billing, plan: plan, enabled: Enabled(isOn: enabled ?? true),
+                           alertLevels: AlertLevelRules.orDefaults(alertLevels))
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, billing, plan, enabled
+        case id, billing, plan, enabled, alertLevels
     }
 
     /// A value of the wrong type is read as absent, so one odd entry cannot make the whole file unreadable.
@@ -131,6 +239,7 @@ private struct LenientAgentConfig: Decodable {
         billing = try? container.decodeIfPresent(String.self, forKey: .billing)
         plan = try? container.decodeIfPresent(String.self, forKey: .plan)
         enabled = try? container.decodeIfPresent(Bool.self, forKey: .enabled)
+        alertLevels = (try? container.decodeIfPresent([Int].self, forKey: .alertLevels)) ?? nil
     }
 }
 
@@ -220,15 +329,15 @@ enum MenubarKind: String, Decodable {
     case normal, elevated, warning, critical, exhausted, unavailable
 }
 
-/// Mirrors `UsageBand` in the core (#101), on the shown whole percent.
+/// Mirrors `UsageBand` in the core (#101), on the shown whole percent, at the number since #9.
 enum UsageBand {
     case normal, elevated, warning, critical
 
     static func of(percent: Double) -> UsageBand {
         let shown = Int(percent.rounded())
-        if shown > 85 { return .critical }
-        if shown > 70 { return .warning }
-        if shown > 50 { return .elevated }
+        if shown >= 85 { return .critical }
+        if shown >= 70 { return .warning }
+        if shown >= 50 { return .elevated }
         return .normal
     }
 }
