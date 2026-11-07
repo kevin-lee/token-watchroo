@@ -60,7 +60,8 @@ object AgentSnapshot {
 
   extension (snapshot: AgentSnapshot) {
     def isAvailable: Boolean = snapshot.status match {
-      case AgentStatus.Ok | AgentStatus.Warning | AgentStatus.Critical | AgentStatus.Exhausted => true
+      case AgentStatus.Ok | AgentStatus.Elevated | AgentStatus.Warning | AgentStatus.Critical | AgentStatus.Exhausted =>
+        true
       case AgentStatus.Unavailable => false
     }
 

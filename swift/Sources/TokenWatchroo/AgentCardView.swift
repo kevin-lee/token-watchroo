@@ -241,10 +241,12 @@ enum Palette {
     static let sessionFill = dynamic(light: rgb(0x1D1D1F), dark: rgb(0xE6E6EA))
     static let weeklyFill = dynamic(light: rgb(0x8E8E93), dark: rgb(0x9A9AA0))
     static let amber = rgb(0xD9A021)
+    static let blue = rgb(0x0A84FF)
     static let red = rgb(0xFF6B5C)
 
     static func cardBorder(for status: AgentStatus) -> NSColor {
         switch status {
+        case .elevated: return rgb(0x0A84FF, alpha: 0.55)
         case .warning: return rgb(0xD9A021, alpha: 0.55)
         case .critical, .exhausted: return rgb(0xFF6B5C, alpha: 0.55)
         case .ok, .unavailable: return dynamic(light: rgb(0x000000, alpha: 0.10), dark: rgb(0xFFFFFF, alpha: 0.12))
@@ -254,6 +256,7 @@ enum Palette {
     static func statusPill(for status: AgentStatus) -> (String, NSColor, NSColor) {
         switch status {
         case .ok: return ("OK", dynamic(light: rgb(0x3A8F5A), dark: rgb(0x7FD1A7)), dynamic(light: rgb(0xE6F4EA), dark: rgb(0x1F3A2A)))
+        case .elevated: return ("Over half", dynamic(light: rgb(0x0060C0), dark: rgb(0x4DA3FF)), dynamic(light: rgb(0xE3EEFB), dark: rgb(0x1A2C43)))
         case .warning: return ("Near limit", dynamic(light: rgb(0x9A6B00), dark: rgb(0xF0B73A)), dynamic(light: rgb(0xFBF1D6), dark: rgb(0x3D3117)))
         case .critical: return ("Almost out", dynamic(light: rgb(0xB3261E), dark: rgb(0xFF6B5C)), dynamic(light: rgb(0xFDE7E5), dark: rgb(0x43221F)))
         case .exhausted: return ("Exhausted", dynamic(light: rgb(0xB3261E), dark: rgb(0xFF6B5C)), dynamic(light: rgb(0xFDE7E5), dark: rgb(0x43221F)))
@@ -262,9 +265,12 @@ enum Palette {
     }
 
     static func percentText(for percent: Double) -> NSColor {
-        if percent >= 95 { return red }
-        if percent >= 80 { return dynamic(light: rgb(0x9A6B00), dark: rgb(0xF0B73A)) }
-        return primaryText
+        switch UsageBand.of(percent: percent) {
+        case .critical: return red
+        case .warning: return dynamic(light: rgb(0x9A6B00), dark: rgb(0xF0B73A))
+        case .elevated: return dynamic(light: rgb(0x0060C0), dark: rgb(0x4DA3FF))
+        case .normal: return primaryText
+        }
     }
 
     static func barFill(for window: UsageWindow) -> NSColor {
@@ -272,8 +278,11 @@ enum Palette {
     }
 
     static func barFill(percent: Double, normal: NSColor) -> NSColor {
-        if percent >= 95 { return red }
-        if percent >= 80 { return amber }
-        return normal
+        switch UsageBand.of(percent: percent) {
+        case .critical: return red
+        case .warning: return amber
+        case .elevated: return blue
+        case .normal: return normal
+        }
     }
 }

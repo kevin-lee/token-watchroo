@@ -46,7 +46,7 @@ object AlertEngine {
         (existing, List.empty[Alert])
       case Some(previous) =>
         val crossedThreshold =
-          previous.fired.contains(AlertKind.Warning80) || previous.fired.contains(AlertKind.Critical95)
+          previous.fired.contains(AlertKind.Warning) || previous.fired.contains(AlertKind.Critical)
         val alreadyReset     = previous.fired.contains(AlertKind.Reset)
         val alerts = Option.when(crossedThreshold && !alreadyReset)(AlertText.reset(agentId, window, now)).toList
         val fired  = if (alerts.nonEmpty) Set[AlertKind](AlertKind.Reset) else Set.empty[AlertKind]
@@ -55,11 +55,12 @@ object AlertEngine {
         (WindowRecord(resetsAt, window.usedPercent, Set.empty[AlertKind]), List.empty[Alert])
     }
 
+    val band                     = UsageBand.of(window.usedPercent)
     val (fired, thresholdAlerts) =
-      if (window.usedPercent >= Thresholds.critical && !record.fired.contains(AlertKind.Critical95)) {
-        (record.fired + AlertKind.Critical95 + AlertKind.Warning80, List(AlertText.critical95(agentId, window, now)))
-      } else if (window.usedPercent >= Thresholds.warning && !record.fired.contains(AlertKind.Warning80)) {
-        (record.fired + AlertKind.Warning80, List(AlertText.warning80(agentId, window, now)))
+      if (band === UsageBand.Critical && !record.fired.contains(AlertKind.Critical)) {
+        (record.fired + AlertKind.Critical + AlertKind.Warning, List(AlertText.critical(agentId, window, now)))
+      } else if (band.isAtLeast(UsageBand.Warning) && !record.fired.contains(AlertKind.Warning)) {
+        (record.fired + AlertKind.Warning, List(AlertText.warning(agentId, window, now)))
       } else {
         (record.fired, List.empty[Alert])
       }

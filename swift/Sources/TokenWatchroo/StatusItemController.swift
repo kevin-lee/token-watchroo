@@ -56,7 +56,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         switch state.kind {
         case .exhausted:
             label = state.resetsAt.map { Formatting.shortCountdown(toEpoch: $0) } ?? "--"
-        case .normal, .warning, .critical:
+        case .normal, .elevated, .warning, .critical:
             label = state.usedPercent.map(Formatting.percent) ?? "--"
         case .unavailable:
             label = "--"

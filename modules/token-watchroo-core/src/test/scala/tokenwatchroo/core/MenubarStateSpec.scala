@@ -11,6 +11,7 @@ object MenubarStateSpec extends Properties {
     property("the ring shows the maximum percent across all windows of available agents", testMaximum),
     example("an exhausted window wins and carries the soonest reset", testExhausted),
     example("unavailable agents are ignored", testUnavailableIgnored),
+    example("a maximum over 50 is elevated", testElevated),
     example("no available agent gives the unavailable state", testNoAgents),
     example("an exhausted per-model window drives the ring", testExhaustedPerModel),
     property("the ring shows the maximum over windows and spends of available agents", testMaximumWithSpends),
@@ -91,6 +92,15 @@ object MenubarStateSpec extends Properties {
         derived.usedPercent ==== Some(UsedPercent.clamp(100.0d)),
       )
     )
+  }
+
+  def testElevated: Result = {
+    val derived =
+      MenubarState.derive(
+        List(Fixtures.available(AgentId.Codex, now, Fixtures.window(WindowId.Session, 60.0d, now.some))),
+        now
+      )
+    Result.all(List(derived.kind ==== MenubarKind.Elevated, derived.usedPercent ==== Some(UsedPercent.clamp(60.0d))))
   }
 
   def testUnavailableIgnored: Result = {

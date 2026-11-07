@@ -200,8 +200,8 @@ object CodecsSpec extends Properties {
         codecs.write(AgentStatus.Exhausted) ==== "\"exhausted\"",
         codecs.write(Source.LocalLog) ==== "\"local-log\"",
         codecs.write(MenubarKind.Critical) ==== "\"critical\"",
-        codecs.write(AlertKind.Critical95) ==== "\"threshold95\"",
-        codecs.readEither[AlertKind]("\"threshold80\"") ==== Right(AlertKind.Warning80),
+        codecs.write(AlertKind.Critical) ==== "\"threshold95\"",
+        codecs.readEither[AlertKind]("\"threshold80\"") ==== Right(AlertKind.Warning),
         codecs.readEither[AgentId]("\"nope\"").isLeft ==== true,
       )
     )
@@ -231,11 +231,11 @@ object CodecsSpec extends Properties {
     val state = AlertState(
       Map(
         WindowKey(AgentId.Codex, WindowId.Session)                                        ->
-          WindowRecord(EpochSeconds(1789187040L), UsedPercent.clamp(82.0d), Set(AlertKind.Warning80)),
+          WindowRecord(EpochSeconds(1789187040L), UsedPercent.clamp(82.0d), Set(AlertKind.Warning)),
         WindowKey(AgentId.ClaudeCode, WindowId.Weekly)                                    ->
           WindowRecord(EpochSeconds(1789617600L), UsedPercent.clamp(3.0d), Set.empty[AlertKind]),
         WindowKey(AgentId.ClaudeCode, WindowId.model(ModelName(NonEmptyString("Fable")))) ->
-          WindowRecord(EpochSeconds(1789617600L), UsedPercent.clamp(68.0d), Set(AlertKind.Warning80)),
+          WindowRecord(EpochSeconds(1789617600L), UsedPercent.clamp(68.0d), Set(AlertKind.Warning)),
       )
     )
     Result.all(
@@ -269,7 +269,7 @@ object CodecsSpec extends Properties {
       Fixtures.available(AgentId.Codex, now, Fixtures.window(WindowId.Session, 82.0d, EpochSeconds(1789187040L).some))
     )
     val alert     =
-      AlertText.warning80(AgentId.Codex, Fixtures.window(WindowId.Session, 82.0d, EpochSeconds(1789187040L).some), now)
+      AlertText.warning(AgentId.Codex, Fixtures.window(WindowId.Session, 82.0d, EpochSeconds(1789187040L).some), now)
     val envelopes = List(
       Envelope.snapshot(SequenceNumber(42L), snapshot),
       Envelope.alert(SequenceNumber(43L), alert),

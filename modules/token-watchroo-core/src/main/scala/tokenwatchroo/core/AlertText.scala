@@ -7,18 +7,18 @@ import extras.render.syntax.*
   */
 object AlertText {
 
-  def warning80(agent: AgentId, window: UsageWindow, now: EpochSeconds): Alert =
+  def warning(agent: AgentId, window: UsageWindow, now: EpochSeconds): Alert =
     build(
       agent,
       window,
       now,
-      AlertKind.Warning80,
+      AlertKind.Warning,
       render"$agent is near its ${window.id.limitNoun} limit",
       usageBody(window, now)
     )
 
-  def critical95(agent: AgentId, window: UsageWindow, now: EpochSeconds): Alert =
-    build(agent, window, now, AlertKind.Critical95, render"$agent is almost out", usageBody(window, now))
+  def critical(agent: AgentId, window: UsageWindow, now: EpochSeconds): Alert =
+    build(agent, window, now, AlertKind.Critical, render"$agent is almost out", usageBody(window, now))
 
   def reset(agent: AgentId, window: UsageWindow, now: EpochSeconds): Alert =
     build(

@@ -113,7 +113,7 @@ object codecs {
   given agentStatusCodec: JsonValueCodec[AgentStatus] = wireString(AgentStatus.parse, _.wire, AgentStatus.Unavailable)
   given sourceCodec: JsonValueCodec[Source]           = wireString(Source.parse, _.wire, Source.Api)
   given menubarKindCodec: JsonValueCodec[MenubarKind] = wireString(MenubarKind.parse, _.wire, MenubarKind.Unavailable)
-  given alertKindCodec: JsonValueCodec[AlertKind]     = wireString(AlertKind.parse, _.wire, AlertKind.Warning80)
+  given alertKindCodec: JsonValueCodec[AlertKind]     = wireString(AlertKind.parse, _.wire, AlertKind.Warning)
   given currencyCodec: JsonValueCodec[Currency]       = wireString(Currency.parse, _.wire, Currency.Credits)
 
   /* Records. */
@@ -159,7 +159,7 @@ object codecs {
       Alert(
         AgentId.ClaudeCode,
         WindowId.Session,
-        AlertKind.Warning80,
+        AlertKind.Warning,
         EpochSeconds(0L),
         UsedPercent.clamp(0.0d),
         "",

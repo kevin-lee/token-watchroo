@@ -1,8 +1,8 @@
 import AppKit
 import UserNotifications
 
-/// The Alerts artboard tile from `.ai/docs/design/ui/Alerts.dc.html`: a dark rounded square with the ring in the
-/// alert's colour, drawn per alert at the alert's percent and attached to the notification. The app icon on the left
+/// The Alerts artboard tile from `.ai/docs/design/ui/Alerts.dc.html`: a dark rounded square with the ring in the colour
+/// of the menubar ring at the alert's percent (#101), drawn per alert at that percent and attached to the notification. The app icon on the left
 /// of the banner is the bundle icon and cannot change, so the tile appears on the right.
 enum AlertThumbnail {
 
@@ -10,7 +10,7 @@ enum AlertThumbnail {
     private static let tileColor = NSColor(srgbRed: 0x1D / 255, green: 0x1D / 255, blue: 0x1F / 255, alpha: 1)
 
     static func attachment(for alert: AlertPayload) -> UNNotificationAttachment? {
-        guard let style = style(for: alert.kind) else { return nil }
+        guard let style = style(for: alert.kind, percent: alert.usedPercent) else { return nil }
         let percent = min(max(alert.usedPercent ?? 0, 0), 100)
         guard let png = render(color: style.color, percent: style.drawsArc ? percent : nil) else { return nil }
         let fileURL = FileManager.default.temporaryDirectory
@@ -28,19 +28,24 @@ enum AlertThumbnail {
         }
     }
 
-    private struct Style {
+    struct Style {
         let color: NSColor
         let drawsArc: Bool
     }
 
-    /// Amber at 80, red at 95, white with the artboard's empty arc on reset. Any other kind gets no attachment.
-    private static func style(for kind: String) -> Style? {
+    /// The colour of the menubar ring at the alert's percent (#101), white with the artboard's empty arc on reset.
+    /// Without a percent, or in the band with no colour, the kind's colour: amber for `threshold80`, red for
+    /// `threshold95`. Any other kind gets no attachment.
+    static func style(for kind: String, percent: Double?) -> Style? {
+        let fallback: NSColor
         switch kind {
-        case "threshold80": return Style(color: RingIcon.warningColor, drawsArc: true)
-        case "threshold95": return Style(color: RingIcon.criticalColor, drawsArc: true)
+        case "threshold80": fallback = RingIcon.warningColor
+        case "threshold95": fallback = RingIcon.criticalColor
         case "reset": return Style(color: .white, drawsArc: false)
         default: return nil
         }
+        let color = percent.flatMap { RingIcon.color(for: UsageBand.of(percent: $0)) } ?? fallback
+        return Style(color: color, drawsArc: true)
     }
 
     /// The 38 by 38 tile with the 22 by 22 ring of the artboard, scaled to `size`, on a transparent background.

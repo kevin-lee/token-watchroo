@@ -23,7 +23,7 @@ class StateStoreSpec extends munit.FunSuite {
     val state    = AlertState(
       Map(
         WindowKey(AgentId.Codex, WindowId.Session) ->
-          WindowRecord(EpochSeconds(1789187040L), UsedPercent.clamp(82.0d), Set(AlertKind.Warning80))
+          WindowRecord(EpochSeconds(1789187040L), UsedPercent.clamp(82.0d), Set(AlertKind.Warning))
       )
     )
     (s.write(state) *> s.write(state)).unsafeRunSync()

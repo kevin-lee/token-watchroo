@@ -81,7 +81,7 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
           profile   <- http.callsTo(ProfileUrl)
         } yield (snapshot, detection, usage, profile)
       }
-    assertEquals(snapshot.status, AgentStatus.Ok)
+    assertEquals(snapshot.status, AgentStatus.Warning)
     assertEquals(snapshot.source, Some(Source.Api))
     assertEquals(label(snapshot), Some("Max 20x"))
     assertEquals(
@@ -149,7 +149,7 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
   private def keychainBadgeSurvives(profile: Either[ProviderError, HttpResponse]): Unit = {
     val snapshot =
       withRoutes(profile, new Fakes.FakeKeychain(Fakes.claudeBlobWithTier.asRight))((p, _) => scheduled(p, Fakes.now))
-    assertEquals(snapshot.status, AgentStatus.Ok)
+    assertEquals(snapshot.status, AgentStatus.Warning)
     assertEquals(label(snapshot), Some("Max 5x"))
     assertEquals(snapshot.error, None)
   }
@@ -245,7 +245,7 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
           )
       }
     assertEquals(labels, List.fill(4)(Some("Max 20x")))
-    assertEquals(statuses, List.fill(4)(AgentStatus.Ok))
+    assertEquals(statuses, List.fill(4)(AgentStatus.Warning))
     assertEquals(calls, List(2, 2, 3))
   }
 
@@ -293,7 +293,7 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
             usage  <- http.callsTo(UsageUrl)
           } yield (first, second, usage)
       }
-    assertEquals(second.status, AgentStatus.Ok)
+    assertEquals(second.status, AgentStatus.Warning)
     assertEquals(second.windows, first.windows)
     assertEquals(second.spend, None)
     assertEquals(second.source, Some(Source.Api))
@@ -370,7 +370,7 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
         _        <- http.set(UsageUrl, ProviderError.rateLimited.asLeft)
         second   <- scheduled(p, at(5L))
       } yield (first, second)).unsafeRunSync()
-    assertEquals(first.status, AgentStatus.Ok)
+    assertEquals(first.status, AgentStatus.Warning)
     assertEquals(second.status, AgentStatus.Unavailable)
     assertEquals(second.windows, Nil)
     assertEquals(second.error.map(_.value.value), Some(RateLimitedText))

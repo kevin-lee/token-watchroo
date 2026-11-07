@@ -1,7 +1,10 @@
 package tokenwatchroo.core
 
-/** Alert thresholds from the design canvas: amber and a first notification at 80%, red and a second one at 95%. */
+/** The fixed colour bands and alert levels (#101) on the shown whole percent (`Format.wholePercent`): over `elevated`
+  * blue, over `warning` amber and the first alert, over `critical` red and the second alert.
+  */
 object Thresholds {
-  val warning: UsedPercent  = UsedPercent(80.0d)
-  val critical: UsedPercent = UsedPercent(95.0d)
+  val elevated: Long = 50L
+  val warning: Long  = 70L
+  val critical: Long = 85L
 }

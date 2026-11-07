@@ -24,9 +24,10 @@ object AgentStatusSpec extends Properties {
   private def rank(status: AgentStatus): Int = status match {
     case AgentStatus.Unavailable => -1
     case AgentStatus.Ok => 0
-    case AgentStatus.Warning => 1
-    case AgentStatus.Critical => 2
-    case AgentStatus.Exhausted => 3
+    case AgentStatus.Elevated => 1
+    case AgentStatus.Warning => 2
+    case AgentStatus.Critical => 3
+    case AgentStatus.Exhausted => 4
   }
 
   private def ofWindows(windows: List[UsageWindow]): AgentStatus = AgentStatus.of(windows, none[Spend])
@@ -46,10 +47,15 @@ object AgentStatusSpec extends Properties {
     def at(p: Double): AgentStatus = ofWindows(List(Fixtures.window(WindowId.Session, p, now.some)))
     Result.all(
       List(
-        at(79.9d) ==== AgentStatus.Ok,
-        at(80.0d) ==== AgentStatus.Warning,
-        at(94.9d) ==== AgentStatus.Warning,
-        at(95.0d) ==== AgentStatus.Critical,
+        at(50.0d) ==== AgentStatus.Ok,
+        at(50.4d) ==== AgentStatus.Ok,
+        at(50.5d) ==== AgentStatus.Elevated,
+        at(70.0d) ==== AgentStatus.Elevated,
+        at(70.4d) ==== AgentStatus.Elevated,
+        at(70.5d) ==== AgentStatus.Warning,
+        at(85.0d) ==== AgentStatus.Warning,
+        at(85.4d) ==== AgentStatus.Warning,
+        at(85.5d) ==== AgentStatus.Critical,
         at(99.9d) ==== AgentStatus.Critical,
         at(100.0d) ==== AgentStatus.Exhausted,
         ofWindows(
@@ -92,6 +98,7 @@ object AgentStatusSpec extends Properties {
     Result.all(
       List(
         spendOf("0.05", "200.00") ==== AgentStatus.Ok,
+        spendOf("120", "200") ==== AgentStatus.Elevated,
         spendOf("160", "200") ==== AgentStatus.Warning,
         spendOf("190", "200") ==== AgentStatus.Critical,
         spendOf("200", "200") ==== AgentStatus.Exhausted,

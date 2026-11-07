@@ -13,6 +13,7 @@ object AlertEngineSpec extends Properties {
     example("idle windows never alert", testIdle),
     example("an agent first seen above 95 gets exactly one alert", testCriticalFirstSeen),
     example("80 then 95 gives two alerts in order", testWarningThenCritical),
+    example("warning at 71 and critical at 86", testBandBoundaries),
     example("reset alerts only after a fired threshold", testResetOnlyAfterThreshold),
     example("60 seconds of reset drift is the same window, five hours is a new one", testDrift),
     example("an unavailable snapshot in between does not reset", testUnavailableInBetween),
@@ -34,12 +35,12 @@ object AlertEngineSpec extends Properties {
     val (state3, gone2) = AlertEngine.step(state2, hidden, EpochSeconds(later.value + 60L))
     val (_, shownAgain) = AlertEngine.step(
       state3,
-      claude(88.0d, resetsAt, EpochSeconds(later.value + 120L)),
+      claude(85.0d, resetsAt, EpochSeconds(later.value + 120L)),
       EpochSeconds(later.value + 120L)
     )
     Result.all(
       List(
-        first.map(_.kind) ==== List(AlertKind.Warning80),
+        first.map(_.kind) ==== List(AlertKind.Warning),
         gone ==== Nil,
         gone2 ==== Nil,
         state3 ==== state1,
@@ -102,11 +103,26 @@ object AlertEngineSpec extends Properties {
     val record          = state.records.get(WindowKey(AgentId.ClaudeCode, WindowId.Session))
     Result.all(
       List(
-        alerts.map(_.kind) ==== List(AlertKind.Critical95),
+        alerts.map(_.kind) ==== List(AlertKind.Critical),
         alerts.map(_.title) ==== List("Claude Code is almost out"),
         alerts.map(_.body) ==== List("96% of the 5 h window used. Resets in 1 hour 12 minutes."),
         alerts.map(_.usedPercent) ==== List(UsedPercent.clamp(96.0d)),
-        record.map(_.fired) ==== Some(Set[AlertKind](AlertKind.Critical95, AlertKind.Warning80)),
+        record.map(_.fired) ==== Some(Set[AlertKind](AlertKind.Critical, AlertKind.Warning)),
+      )
+    )
+  }
+
+  def testBandBoundaries: Result = {
+    val (state1, at70) = AlertEngine.step(AlertState.empty, claude(70.4d, resetsAt, now), now)
+    val (state2, at71) = AlertEngine.step(state1, claude(71.0d, resetsAt, now), now)
+    val (state3, at85) = AlertEngine.step(state2, claude(85.0d, resetsAt, now), now)
+    val (_, at86)      = AlertEngine.step(state3, claude(86.0d, resetsAt, now), now)
+    Result.all(
+      List(
+        at70 ==== Nil,
+        at71.map(_.kind) ==== List(AlertKind.Warning),
+        at85 ==== Nil,
+        at86.map(_.kind) ==== List(AlertKind.Critical),
       )
     )
   }
@@ -116,9 +132,9 @@ object AlertEngineSpec extends Properties {
     val (_, alerts2)      = AlertEngine.step(state1, claude(97.0d, resetsAt, now), now)
     Result.all(
       List(
-        alerts1.map(_.kind) ==== List(AlertKind.Warning80),
+        alerts1.map(_.kind) ==== List(AlertKind.Warning),
         alerts1.map(_.title) ==== List("Claude Code is near its session limit"),
-        alerts2.map(_.kind) ==== List(AlertKind.Critical95),
+        alerts2.map(_.kind) ==== List(AlertKind.Critical),
       )
     )
   }
@@ -147,7 +163,7 @@ object AlertEngineSpec extends Properties {
 
   def testDrift: Result = {
     val (warned, _) = AlertEngine.step(AlertState.empty, claude(85.0d, resetsAt, now), now)
-    val (_, small)  = AlertEngine.step(warned, claude(86.0d, resetsAt.plus(Seconds(60L)), now), now)
+    val (_, small)  = AlertEngine.step(warned, claude(85.0d, resetsAt.plus(Seconds(60L)), now), now)
     val (_, large)  = AlertEngine.step(warned, claude(1.0d, resetsAt.plus(Seconds(18000L)), now), now)
     Result.all(List(small ==== Nil, large.map(_.kind) ==== List(AlertKind.Reset)))
   }
@@ -156,7 +172,7 @@ object AlertEngineSpec extends Properties {
     val (warned, _)       = AlertEngine.step(AlertState.empty, claude(85.0d, resetsAt, now), now)
     val unavailable       = Fixtures.snapshot(now, Fixtures.unavailable(AgentId.ClaudeCode, now))
     val (afterDown, down) = AlertEngine.step(warned, unavailable, now)
-    val (_, back)         = AlertEngine.step(afterDown, claude(86.0d, resetsAt, now), now)
+    val (_, back)         = AlertEngine.step(afterDown, claude(85.0d, resetsAt, now), now)
     Result.all(List(down ==== Nil, back ==== Nil, afterDown ==== warned))
   }
 
@@ -173,11 +189,11 @@ object AlertEngineSpec extends Properties {
       AlertEngine.step(critical, claudeModel(3.0d, resetsAt.plus(week), now.plus(week)), now.plus(week))
     Result.all(
       List(
-        warnings.map(_.kind) ==== List(AlertKind.Warning80),
+        warnings.map(_.kind) ==== List(AlertKind.Warning),
         warnings.map(_.title) ==== List("Claude Code is near its weekly Fable limit"),
         warnings.map(_.body) ==== List("82% of the weekly Fable window used. Resets in 1 hour 12 minutes."),
         warnings.map(_.identifier) ==== List("claude-code.weekly-model:Fable.1789189920.threshold80"),
-        crits.map(_.kind) ==== List(AlertKind.Critical95),
+        crits.map(_.kind) ==== List(AlertKind.Critical),
         crits.map(_.title) ==== List("Claude Code is almost out"),
         crits.map(_.body) ==== List("96% of the weekly Fable window used. Resets in 1 hour 12 minutes."),
         resets.map(_.kind) ==== List(AlertKind.Reset),
