@@ -1,14 +1,16 @@
 import AppKit
 
-/// The settings window (#8): the agent list from `config.json` with Add, Edit and an "Enabled" checkbox per row.
-/// There is no artboard for the window. Every change goes through `SettingsStore`, which writes the file and pushes the
-/// config to the library. A detected agent without an entry is added to the list (#100).
+/// The settings window (#8): the agent list from `config.json` with Add, Edit, Move Up, Move Down (also drag and drop)
+/// and an "Enabled" checkbox per row, and the refresh interval above the list (#104). The cards follow the order of the
+/// list. There is no artboard for the window. Every change goes through `SettingsStore`, which writes the file and
+/// pushes the config to the library. A detected agent without an entry is added to the list (#100).
 @MainActor
 final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     static let title = "Token Watchroo Settings"
     static let footnote = "Detected agents are added to this list. Clear Enabled to hide an agent."
-    static let contentSize = NSSize(width: 420, height: 300)
+    static let contentSize = NSSize(width: 420, height: 344)
+    static let rowType = NSPasteboard.PasteboardType("io.kevinlee.tokenwatchroo.agent-row")
 
     private enum Column: String, CaseIterable {
         case agent = "Agent", billing = "Billing", plan = "Plan", enabled = "Enabled"
@@ -45,6 +47,10 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
     private let table = NSTableView()
     private let addButton = NSButton(title: "Add Agent...", target: nil, action: nil)
     private let editButton = NSButton(title: "Edit...", target: nil, action: nil)
+    private let moveUpButton = NSButton(title: "Move Up", target: nil, action: nil)
+    private let moveDownButton = NSButton(title: "Move Down", target: nil, action: nil)
+    private let intervalPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var intervalChoices: [Int] = []
     private var shownOnce = false
 
     private(set) lazy var window: NSWindow = makeWindow()
@@ -69,9 +75,26 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
     var agents: [AgentConfig] { store.config.agents }
     var isAddEnabled: Bool { _ = window; return addButton.isEnabled }
     var isEditEnabled: Bool { _ = window; return editButton.isEnabled }
+    var isMoveUpEnabled: Bool { _ = window; return moveUpButton.isEnabled }
+    var isMoveDownEnabled: Bool { _ = window; return moveDownButton.isEnabled }
+    /// The push buttons, without the interval pop-up.
     var buttonTitles: [String] {
         _ = window
-        return window.contentView?.subviews.compactMap { ($0 as? NSButton)?.title } ?? []
+        return window.contentView?.subviews.compactMap { $0 is NSPopUpButton ? nil : ($0 as? NSButton)?.title } ?? []
+    }
+    var intervalTitles: [String] { _ = window; return intervalPopUp.itemTitles }
+    var selectedIntervalTitle: String? { _ = window; return intervalPopUp.titleOfSelectedItem }
+
+    func chooseInterval(at index: Int) {
+        _ = window
+        intervalPopUp.selectItem(at: index)
+        intervalChanged(intervalPopUp)
+    }
+
+    func selectRow(_ row: Int) {
+        _ = window
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        updateButtons()
     }
 
     /// The column titles whose whole width is inside the visible part of the table.
@@ -95,6 +118,16 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         let content = NSView(frame: NSRect(origin: .zero, size: SettingsWindowController.contentSize))
         let inset: CGFloat = 20
         let width = SettingsWindowController.contentSize.width - 2 * inset
+
+        let intervalLabel = NSTextField(labelWithString: "Refresh every")
+        intervalLabel.font = .systemFont(ofSize: 13)
+        intervalLabel.textColor = Palette.primaryText
+        intervalLabel.frame = NSRect(x: inset, y: 308, width: 100, height: 17)
+        content.addSubview(intervalLabel)
+        intervalPopUp.frame = NSRect(x: 124, y: 302, width: 140, height: 26)
+        intervalPopUp.target = self
+        intervalPopUp.action = #selector(intervalChanged(_:))
+        content.addSubview(intervalPopUp)
 
         let heading = NSTextField(labelWithString: "Agents")
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -122,6 +155,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         table.rowHeight = 22
         table.target = self
         table.doubleAction = #selector(editSelected(_:))
+        table.registerForDraggedTypes([SettingsWindowController.rowType])
 
         let scroll = NSScrollView(frame: scrollFrame)
         scroll.documentView = table
@@ -131,7 +165,9 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         content.addSubview(scroll)
 
         var x = inset
-        for (button, action) in [(addButton, #selector(addAgent(_:))), (editButton, #selector(editSelected(_:)))] {
+        for (button, action) in [(addButton, #selector(addAgent(_:))), (editButton, #selector(editSelected(_:))),
+                                 (moveUpButton, #selector(moveSelectedUp(_:))),
+                                 (moveDownButton, #selector(moveSelectedDown(_:)))] {
             button.target = self
             button.action = action
             button.bezelStyle = .rounded
@@ -155,6 +191,12 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
     }
 
     private func reload() {
+        let current = RefreshInterval.clamped(store.config.refreshIntervalSeconds)
+        intervalChoices = RefreshInterval.choices(current: store.config.refreshIntervalSeconds)
+        intervalPopUp.removeAllItems()
+        intervalPopUp.addItems(withTitles: intervalChoices.map(RefreshInterval.title))
+        intervalPopUp.selectItem(at: intervalChoices.firstIndex(of: current) ?? 0)
+
         let selected = table.selectedRow
         table.reloadData()
         if selected >= 0 && selected < agents.count {
@@ -167,6 +209,8 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         let hasSelection = table.selectedRow >= 0 && table.selectedRow < agents.count
         addButton.isEnabled = !agents.addable.isEmpty
         editButton.isEnabled = hasSelection
+        moveUpButton.isEnabled = hasSelection && table.selectedRow > 0
+        moveDownButton.isEnabled = hasSelection && table.selectedRow < agents.count - 1
     }
 
     // MARK: table
@@ -192,6 +236,26 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         updateButtons()
+    }
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        let item = NSPasteboardItem()
+        item.setString(String(row), forType: SettingsWindowController.rowType)
+        return item
+    }
+
+    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
+                   proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        guard dropOperation == .above, (info.draggingSource as? NSTableView) === table else { return [] }
+        return .move
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
+                   dropOperation: NSTableView.DropOperation) -> Bool {
+        guard let text = info.draggingPasteboard.pasteboardItems?.first?.string(forType: SettingsWindowController.rowType),
+              let source = Int(text) else { return false }
+        move(from: source, to: row)
+        return true
     }
 
     static let tableFrame = NSRect(x: 20, y: 108, width: 380, height: 150)
@@ -236,6 +300,34 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         let row = table.selectedRow
         guard agents.indices.contains(row) else { return }
         presentSheet(.edit(agents[row]))
+    }
+
+    @objc func moveSelectedUp(_ sender: Any?) {
+        let row = table.selectedRow
+        guard row > 0, agents.indices.contains(row) else { return }
+        move(from: row, to: row - 1)
+    }
+
+    @objc func moveSelectedDown(_ sender: Any?) {
+        let row = table.selectedRow
+        guard agents.indices.contains(row), row < agents.count - 1 else { return }
+        move(from: row, to: row + 2)
+    }
+
+    private func move(from source: Int, to destination: Int) {
+        let target = agents.newIndex(movingFrom: source, to: destination)
+        let moved = agents.moving(from: source, to: destination)
+        guard moved != agents else { return }
+        store.setAgents(moved)
+        table.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
+        updateButtons()
+    }
+
+    @objc private func intervalChanged(_ sender: Any?) {
+        let index = intervalPopUp.indexOfSelectedItem
+        guard intervalChoices.indices.contains(index),
+              intervalChoices[index] != store.config.refreshIntervalSeconds else { return }
+        store.setRefreshInterval(intervalChoices[index])
     }
 
     @objc private func toggleEnabled(_ sender: NSButton) {

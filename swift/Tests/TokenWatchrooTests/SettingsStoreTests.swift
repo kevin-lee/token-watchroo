@@ -90,6 +90,34 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(pushed.map(\.agents), [[codexTeam, AgentConfig.defaults(.claudeCode)]])
     }
 
+    func testMovingFollowsTableDropIndexes() {
+        let claude = AgentConfig.defaults(.claudeCode)
+        let list = [claude, codexTeam, AgentConfig.defaults(.codex)]
+        let (a, b, c) = (list[0], list[1], list[2])
+        XCTAssertEqual(list.moving(from: 0, to: 2), [b, a, c])
+        XCTAssertEqual(list.moving(from: 2, to: 0), [c, a, b])
+        XCTAssertEqual(list.moving(from: 0, to: 3), [b, c, a])
+        XCTAssertEqual(list.moving(from: 1, to: 1), list)
+        XCTAssertEqual(list.moving(from: 1, to: 2), list)
+        XCTAssertEqual(list.moving(from: 3, to: 0), list)
+        XCTAssertEqual(list.moving(from: 0, to: 4), list)
+        XCTAssertEqual(list.newIndex(movingFrom: 0, to: 3), 2)
+        XCTAssertEqual(list.newIndex(movingFrom: 2, to: 0), 0)
+    }
+
+    @MainActor
+    func testSetRefreshIntervalWritesAndPushes() {
+        let url = ConfigFile.url(in: folder)
+        var pushed: [Config] = []
+        let done = expectation(description: "one push")
+        let store = SettingsStore(config: .defaults(stateDir: folder.path), fileURL: url,
+                                  push: { pushed.append($0); done.fulfill() }, pushDelay: 0.05)
+        store.setRefreshInterval(300)
+        XCTAssertEqual(ConfigFile.load(from: url, stateDir: folder.path).config.refreshIntervalSeconds, 300)
+        wait(for: [done], timeout: 2)
+        XCTAssertEqual(pushed.map(\.refreshIntervalSeconds), [300])
+    }
+
     func testAddableIsEveryAgentNotInTheList() {
         XCTAssertEqual([AgentConfig]().addable, [.claudeCode, .codex])
         XCTAssertEqual([codexTeam].addable, [.claudeCode])

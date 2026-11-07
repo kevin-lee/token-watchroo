@@ -14,9 +14,9 @@ final class AddAgentSheet: NSViewController {
     static let width: CGFloat = 360
     static let addTitle = "Add agent"
     static let editTitle = "Edit agent"
-    static let subscriptionSubtitle = "Subscription plan, individual or team"
+    static let subscriptionSubtitle = "Subscription plan, individual, team or enterprise"
     static let apiSubtitle = "API, enterprise plan"
-    static let subscriptionHint = "Individual or Team. Session and weekly windows come from the account."
+    static let subscriptionHint = "Individual, Team or Enterprise. Windows and spend limits come from the account."
     static let apiHint = "API budget agents are not supported yet."
     static let alertAtText = "Over 70% and over 85% of a window"
 

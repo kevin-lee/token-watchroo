@@ -15,6 +15,13 @@ object AgentConfigSpec extends Properties {
     property("an enabled API entry is not supported", testApi),
     property("an enabled subscription entry is fetched with its plan", testSubscription),
     example("with two entries for one agent, the first is used", testFirstEntryWins),
+    property("ordered puts listed agents first in list order, then the others in AgentId order", testOrdered),
+    example("an empty list keeps AgentId order", testOrderedEmpty),
+    property("a new order, plan or interval needs no fetch", testNoFetch),
+    example(
+      "enabling, disabling, billing, codexHome and claudeCodeVersionOverride changes need a fetch",
+      testFetch,
+    ),
     property("a provider label always wins", testProviderBadgeWins),
     example(
       "without a provider label, Team and Enterprise fill the badge and Individual leaves it empty",
@@ -26,6 +33,54 @@ object AgentConfigSpec extends Properties {
 
   private def configWith(agents: AgentConfig*): Config =
     Config.default(stateDir).copy(agents = agents.toList)
+
+  def testOrdered: Property =
+    for {
+      agents <- Fixtures.genAgentConfig.list(Range.linear(0, 3)).log("agents")
+      ids    <- Fixtures.genAgentId.list(Range.linear(0, 4)).log("ids")
+    } yield {
+      val listed   = agents.map(_.id).distinct.zipWithIndex.toMap
+      val expected = ids.sortBy(id => (listed.getOrElse(id, Int.MaxValue), AgentId.all.indexOf(id)))
+      val result   = AgentChoice.ordered(configWith(agents*), ids)(identity)
+      Result.all(
+        List(
+          result.sortBy(AgentId.all.indexOf(_)) ==== ids.sortBy(AgentId.all.indexOf(_)),
+          result ==== expected,
+        )
+      )
+    }
+
+  def testNoFetch: Property =
+    for {
+      all <- Fixtures.genAgentConfig.list(Range.linear(0, 3)).log("all")
+      agents = all.distinctBy(_.id)
+      plan     <- Fixtures.genPlanKind.log("plan")
+      interval <- Gen.int(Range.linear(15, 3600)).log("interval")
+    } yield {
+      val old  = configWith(agents*)
+      val next = old.copy(
+        agents = agents.reverse.map(_.copy(plan = plan)),
+        refreshInterval = RefreshIntervalSeconds.clamp(interval),
+      )
+      Result.assert(!AgentChoice.needsFetch(old, next, AgentId.all))
+    }
+
+  def testFetch: Result = {
+    val codex   = AgentConfig.defaults(AgentId.Codex)
+    val base    = configWith(codex)
+    val changes = List(
+      base.copy(agents = List(codex.copy(enabled = Enabled.Off))),
+      configWith(),
+      base.copy(agents = List(codex.copy(billing = Billing.Api))),
+      base.copy(codexHome = CodexHome(NonEmptyString("/tmp/codex")).some),
+      base.copy(claudeCodeVersionOverride = ClaudeCodeVersion.fallback.some),
+    )
+    Result.all(changes.map(next => Result.assert(AgentChoice.needsFetch(base, next, AgentId.all)).log(next.show)))
+  }
+
+  def testOrderedEmpty: Result =
+    AgentChoice.ordered(configWith(), List(AgentId.Codex, AgentId.ClaudeCode))(identity) ====
+      List(AgentId.ClaudeCode, AgentId.Codex)
 
   private def label(s: String): PlanLabel = PlanLabel(NonEmptyString.unsafeFrom(s))
 

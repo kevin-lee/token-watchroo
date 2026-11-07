@@ -19,7 +19,10 @@ import tokenwatchroo.providers.UsageProvider
   * The providers are a registry built once. Each tick selects from it with `AgentChoice.of` and `Config.agents` (#8):
   * an agent without an entry is detected first, an enabled subscription entry is fetched without detection and gets the
   * plan badge of its entry, an enabled API entry gives an unavailable card without a call to the provider, and a
-  * disabled entry gives no card. `SetConfig` replaces only the config, so the providers and their caches (the Claude
+  * disabled entry gives no card. The snapshot lists the agents in the order of `Config.agents`, then the others in
+  * `AgentId` order (#104). A `SetConfig` that changes what is fetched runs a tick at once. Any other change (order,
+  * plan, interval) waits for the next scheduled tick, which comes one new interval after the last tick (#104).
+  * `SetConfig` replaces only the config, so the providers and their caches (the Claude
   * plan badge, the last good snapshots), the alert state, and the schedule are kept.
   */
 object Poller {
@@ -60,7 +63,10 @@ object Poller {
               if (withinManualWindow(lastManualAt, at)) idle(config, deadline, lastManualAt)
               else loop(config, FetchTrigger.Manual, lastManualAt)
             }
-          case Left(Command.SetConfig(next)) => loop(next, FetchTrigger.Scheduled, lastManualAt)
+          case Left(Command.SetConfig(next)) =>
+            if (AgentChoice.needsFetch(config, next, registry.map(_.id)))
+              loop(next, FetchTrigger.Scheduled, lastManualAt)
+            else idle(next, rescheduled(deadline, config, next), lastManualAt)
           case Left(Command.Shutdown) => IO.unit
           case Right(()) => loop(config, FetchTrigger.Scheduled, lastManualAt)
         }
@@ -68,6 +74,10 @@ object Poller {
 
     loop(initial, FetchTrigger.Scheduled, none[EpochSeconds])
   }
+
+  /** The next tick after a config change that needs no fetch: one new interval after the last tick. */
+  def rescheduled(deadline: EpochSeconds, old: Config, next: Config): EpochSeconds =
+    deadline.plus(Seconds(next.refreshInterval.value.toLong - old.refreshInterval.value.toLong))
 
   private def withinManualWindow(lastManualAt: Option[EpochSeconds], at: EpochSeconds): Boolean =
     lastManualAt.exists(last => last.secondsUntil(at) < ManualRefreshWindow.value)
@@ -83,7 +93,7 @@ object Poller {
     val refresh =
       for {
         now     <- clock
-        planned <- registry.traverseFilter(provider => plan(provider, config, now))
+        planned <- AgentChoice.ordered(config, registry)(_.id).traverseFilter(provider => plan(provider, config, now))
         agents  <- planned.parTraverse {
                      case Planned.Fetch(provider, kind) => provider.fetch(now, config, trigger).map(_.withPlan(kind))
                      case Planned.Ready(snapshot) => IO.pure(snapshot)

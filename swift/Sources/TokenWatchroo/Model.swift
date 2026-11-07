@@ -48,10 +48,11 @@ enum Billing: String, Codable, CaseIterable {
         }
     }
 
-    /// The plans the Add-agent sheet offers for this billing, per `AddAgent.dc.html`.
+    /// The plans the Add-agent sheet offers for this billing. Enterprise is offered for a subscription too (#104),
+    /// because a Claude Enterprise subscription with a monthly spend limit works.
     var planChoices: [PlanKind] {
         switch self {
-        case .subscription: return [.individual, .team]
+        case .subscription: return [.individual, .team, .enterprise]
         case .api: return [.enterprise]
         }
     }
