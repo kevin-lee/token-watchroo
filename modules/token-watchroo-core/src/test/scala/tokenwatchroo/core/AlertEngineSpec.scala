@@ -20,7 +20,33 @@ object AlertEngineSpec extends Properties {
     example("per-model windows alert with their own copy and identifier", testPerModelCopy),
     example("a spend-only agent emits no alerts and keeps no records", testSpendOnly),
     example("an expired window fires nothing", testExpired),
+    example("an agent hidden and shown again in the same window does not fire again", testHiddenThenShown),
   )
+
+  /** A disabled agent (#8) is left out of the snapshots. Its record stays, because `prune` keeps records that are not
+    * observed until 8 days after their reset, so enabling it again in the same window fires nothing twice.
+    */
+  def testHiddenThenShown: Result = {
+    val later           = EpochSeconds(now.value + 600L)
+    val hidden          = Fixtures.snapshot(later)
+    val (state1, first) = AlertEngine.step(AlertState.empty, claude(85.0d, resetsAt, now), now)
+    val (state2, gone)  = AlertEngine.step(state1, hidden, later)
+    val (state3, gone2) = AlertEngine.step(state2, hidden, EpochSeconds(later.value + 60L))
+    val (_, shownAgain) = AlertEngine.step(
+      state3,
+      claude(88.0d, resetsAt, EpochSeconds(later.value + 120L)),
+      EpochSeconds(later.value + 120L)
+    )
+    Result.all(
+      List(
+        first.map(_.kind) ==== List(AlertKind.Warning80),
+        gone ==== Nil,
+        gone2 ==== Nil,
+        state3 ==== state1,
+        shownAgain ==== Nil,
+      )
+    )
+  }
 
   def testSpendOnly: Result = {
     val spend           = Spend(Currency.credits, Fixtures.amount("24000"), Fixtures.amount("25000"), resetsAt.some)
