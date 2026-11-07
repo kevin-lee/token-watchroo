@@ -149,7 +149,9 @@ lazy val app = module("app")
       val stamp     = crossTarget.value / "archive-link-inputs"
       val entries   = (Compile / fullClasspath).value.map(entry => converter.toPath(entry.data).toFile)
       val inputs    = (
-        entries.map(f => s"${f.getName} ${if (f.isFile) Hash.toHex(Hash(f)) else s"not-a-file-${System.nanoTime}"}").sorted :+
+        entries
+          .map(f => s"${f.getName} ${if (f.isFile) Hash.toHex(Hash(f)) else s"not-a-file-${System.nanoTime}"}")
+          .sorted :+
           (Compile / nativeLink / nativeConfig).value.toString
       ).mkString("\n")
       if (archive.exists() && stamp.exists() && IO.read(stamp) == inputs) ()
