@@ -1,5 +1,6 @@
 package tokenwatchroo.core
 
+import cats.Order
 import cats.syntax.all.*
 
 /** Decides which notifications to fire for a snapshot. Pure, deterministic, and idempotent: applying the same snapshot
@@ -12,10 +13,15 @@ import cats.syntax.all.*
   * crossed level fires, and all crossed levels are marked as fired, so each level fires at most once per window. A
   * level change never fires by itself.
   *
+  * A new window starts from 0, with a reset alert when a level fired in the old window, at every reset (#110). In the
+  * same window the record keeps the later reset time, so a reset time that moves back and forth by more than 120 s
+  * does not start new windows.
+  *
   * Spends (#105) follow the same rule with `SpendAlertLevels`, from the last spent amount of the same meter. A meter
-  * is new when its reset time moved by more than 120 s or its percent dropped by more than 20 points, with a reset
-  * alert when a level fired in the old meter. A limit or unit change starts a new record with no reset alert. A spend
-  * whose reset time has passed is not observed.
+  * is new when its reset time moved forward by more than 120 s or its percent dropped by more than 20 points, with a
+  * reset alert when a level fired in the old meter, at every new meter (#110). In the same meter the record keeps the
+  * later reset time. A limit or unit change starts a new record with no reset alert. A spend whose reset time has
+  * passed is not observed.
   */
 object AlertEngine {
 
@@ -73,11 +79,8 @@ object AlertEngine {
       case Some(existing) if isSameWindow(existing, window, resetsAt) =>
         (existing, List.empty[Alert], Format.wholePercent(existing.lastPercent))
       case Some(previous) =>
-        val crossedLevel = previous.fired.exists(_.isLevel)
-        val alreadyReset = previous.fired.contains(AlertKind.Reset)
-        val alerts       = Option.when(crossedLevel && !alreadyReset)(AlertText.reset(agentId, window, now)).toList
-        val fired        = if (alerts.nonEmpty) Set[AlertKind](AlertKind.Reset) else Set.empty[AlertKind]
-        (WindowRecord(resetsAt, window.usedPercent, fired), alerts, 0L)
+        val alerts = Option.when(previous.fired.exists(_.isLevel))(AlertText.reset(agentId, window, now)).toList
+        (WindowRecord(resetsAt, window.usedPercent, Set.empty[AlertKind]), alerts, 0L)
       case None =>
         (WindowRecord(resetsAt, window.usedPercent, Set.empty[AlertKind]), List.empty[Alert], 0L)
     }
@@ -90,7 +93,7 @@ object AlertEngine {
       .map(highest => AlertText.level(agentId, window, now, highest))
       .toList
 
-    val updated = WindowRecord(resetsAt, window.usedPercent, fired)
+    val updated = WindowRecord(Order.max(record.resetsAt, resetsAt), window.usedPercent, fired)
     (state.updated(key, updated), resetAlerts ++ levelAlerts)
   }
 
@@ -101,18 +104,16 @@ object AlertEngine {
     spend: Spend,
     now: EpochSeconds,
   ): (AlertState, List[Alert]) = {
-    val (previousFired, resetAlerts, from) = state.spends.get(agentId) match {
+    val (previousFired, resetAlerts, from, keptResetsAt) = state.spends.get(agentId) match {
       case Some(existing) if isSameLimit(existing, spend) && isSameMeter(existing, spend) =>
-        (existing.fired, List.empty[Alert], existing.lastSpent)
+        val later = (existing.resetsAt, spend.resetsAt).mapN(Order.max).orElse(spend.resetsAt)
+        (existing.fired, List.empty[Alert], existing.lastSpent, later)
       case Some(previous) if isSameLimit(previous, spend) =>
-        val crossedLevel = previous.fired.exists(_.isLevel)
-        val alreadyReset = previous.fired.contains(SpendAlertKind.Reset)
-        val alerts       =
-          Option.when(!levels.isEmpty && crossedLevel && !alreadyReset)(AlertText.spendReset(agentId, spend)).toList
-        val fired        = if (alerts.nonEmpty) Set[SpendAlertKind](SpendAlertKind.Reset) else Set.empty[SpendAlertKind]
-        (fired, alerts, Amount.zero)
+        val alerts =
+          Option.when(!levels.isEmpty && previous.fired.exists(_.isLevel))(AlertText.spendReset(agentId, spend)).toList
+        (Set.empty[SpendAlertKind], alerts, Amount.zero, spend.resetsAt)
       case Some(_) | None =>
-        (Set.empty[SpendAlertKind], List.empty[Alert], Amount.zero)
+        (Set.empty[SpendAlertKind], List.empty[Alert], Amount.zero, spend.resetsAt)
     }
 
     val crossed     = levels.crossed(spend, from)
@@ -122,7 +123,7 @@ object AlertEngine {
       .map(highest => AlertText.spendLevel(agentId, spend, now, highest))
       .toList
 
-    val updated = SpendRecord(spend.currency, spend.limit, spend.resetsAt, spend.spent, previousFired ++ crossed, now)
+    val updated = SpendRecord(spend.currency, spend.limit, keptResetsAt, spend.spent, previousFired ++ crossed, now)
     (state.updatedSpend(agentId, updated), resetAlerts ++ levelAlerts)
   }
 
