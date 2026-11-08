@@ -11,6 +11,10 @@ object AlertEngineSpec extends Properties {
   override def tests: List[Test] = List(
     property("applying the same snapshot twice emits nothing the second time", testIdempotent),
     property("at most one alert per kind while usage only grows, for any levels", testOnePerKind),
+    property(
+      "every new window after the first gives exactly one reset alert when each window crosses a level",
+      testResetAtEveryNewWindow,
+    ),
     property("a level change never fires by itself", testLevelChangeAlone),
     example("idle windows never alert", testIdle),
     example("an agent first seen at 96 gets exactly one alert", testCriticalFirstSeen),
@@ -27,6 +31,8 @@ object AlertEngineSpec extends Properties {
     example("a drop and a rise within 20 points in one window fires once", testDropAndRise),
     example("a level added below the usage does not fire, one added above fires when crossed", testLevelAdded),
     example("a new window after a reset starts from 0", testNewWindowFromZero),
+    example("three windows in a row, each over a level, give a reset alert at both resets", testResetEveryWindow),
+    example("a reset time that moves back and forth by 5 minutes gives no repeated alerts", testResetTimeFlap),
     example("one step over several levels fires only the highest and marks the rest", testSeveralLevels),
     example("no levels gives no alerts and no reset", testNoLevels),
     example("an old record with threshold80 does not fire level 70 again", testOldRecord),
@@ -41,6 +47,18 @@ object AlertEngineSpec extends Properties {
     example("spend: a meter without a reset fires once per level", testSpendNoReset),
     example("spend: a meter without a reset starts again after a drop", testSpendNoResetStartsAgain),
     example("spend: a monthly meter starts again on a new reset time", testSpendNewMonth),
+    example(
+      "spend: three months in a row, each over a level, give a reset alert at both resets",
+      testSpendResetEveryMonth
+    ),
+    example(
+      "spend: a meter without a reset time gives a reset alert at every drop after a level",
+      testSpendNoResetEveryDrop,
+    ),
+    example(
+      "spend: a reset time that moves back and forth by 5 minutes gives no repeated alerts",
+      testSpendResetTimeFlap
+    ),
     example("spend: an expired reset time is not observed and keeps the record", testSpendExpired),
     example("spend: custom amounts compare with the exact spent amount", testSpendExact),
     example("spend: amounts in another unit use the defaults", testSpendUnitMismatch),
@@ -141,6 +159,47 @@ object AlertEngineSpec extends Properties {
       }
       val counts      = alerts.groupBy(kindOf).view.mapValues(_.size).toMap
       Result.assert(counts.values.forall(_ <= 1)).log(s"alerts: $alerts")
+    }
+
+  /** One window of `testResetAtEveryNewWindow`: the gap from the reset time before it and its rising percents. */
+  final private case class WindowRun(gap: Long, percents: List[Double])
+
+  /** #110: for any sequence of windows where each window crosses a level, every new window after the first gives
+    * exactly one reset alert, in its first step.
+    */
+  def testResetAtEveryNewWindow: Property =
+    for {
+      values <- Fixtures.genAlertLevelValues.log("levels")
+      lowest = values.headOption.getOrElse(70)
+      windows <- (for {
+                   gap    <- Gen.long(Range.linear(121L, 8L * 86400L))
+                   last   <- Gen.int(Range.linear(lowest, 100))
+                   others <- Fixtures.genPercent.list(Range.linear(0, 3))
+                 } yield WindowRun(gap, (last.toDouble :: others.map(_.value.min(last.toDouble))).sorted))
+                   .list(Range.linear(2, 8))
+                   .log("windows")
+    } yield {
+      val levels               = AlertLevels.from(values).getOrElse(AlertLevels.defaults)
+      val resetTimes           = windows.scanLeft(resetsAt)((reset, run) => reset.plus(Seconds(run.gap))).drop(1)
+      val (_, alertsPerWindow) =
+        windows.zip(resetTimes).foldLeft((AlertState.empty, List.empty[List[List[Alert]]])) {
+          case ((state, acc), (run, reset)) =>
+            val (next, steps) = run.percents.foldLeft((state, List.empty[List[Alert]])) {
+              case ((s, stepAlerts), p) =>
+                val (s2, emitted) = step(s, claude(p, reset, now), now, levels)
+                (s2, stepAlerts :+ emitted)
+            }
+            (next, acc :+ steps)
+        }
+      def resets(alerts: List[Alert]): Int = alerts.count(kindOf(_) === AlertKind.Reset)
+      val firstWindow          = alertsPerWindow.headOption.toList.flatten.flatten
+      val laterWindows         = alertsPerWindow.drop(1)
+      Result
+        .all(
+          (resets(firstWindow) ==== 0) ::
+            laterWindows.map(steps => steps.map(resets) ==== (1 :: steps.drop(1).map(_ => 0)))
+        )
+        .log(s"alerts: $alertsPerWindow")
     }
 
   def testLevelChangeAlone: Property =
@@ -311,6 +370,45 @@ object AlertEngineSpec extends Properties {
     val (warned, _) = step(AlertState.empty, claude(85.0d, resetsAt, now), now)
     val (_, alerts) = step(warned, claude(75.0d, nextReset, later), later)
     alerts.map(kindOf) ==== List(AlertKind.Reset, level70)
+  }
+
+  /** #110: the reset alert comes at every reset after a fired level, not at every second one. */
+  def testResetEveryWindow: Result = {
+    val later1          = now.plus(Seconds(18000L))
+    val later2          = now.plus(Seconds(36000L))
+    val (state1, first) = step(AlertState.empty, claude(85.0d, resetsAt, now), now)
+    val (state2, reset) = step(state1, claude(75.0d, resetsAt.plus(Seconds(18000L)), later1), later1)
+    val (state3, again) = step(state2, claude(72.0d, resetsAt.plus(Seconds(36000L)), later2), later2)
+    val record          = state3.records.get(WindowKey(AgentId.ClaudeCode, WindowId.Session))
+    Result.all(
+      List(
+        first.map(kindOf) ==== List(level85),
+        reset.map(kindOf) ==== List(AlertKind.Reset, level70),
+        again.map(kindOf) ==== List(AlertKind.Reset, level70),
+        record.exists(_.fired.contains(AlertKind.Reset)) ==== false,
+      )
+    )
+  }
+
+  /** #110: a reset time that moves back and forth by more than 120 s is one window after the first jump. */
+  def testResetTimeFlap: Result = {
+    val moved           = resetsAt.plus(Seconds(300L))
+    val (state1, first) = step(AlertState.empty, claude(85.0d, resetsAt, now), now)
+    val (state2, jump1) = step(state1, claude(85.0d, moved, now), now)
+    val (state3, back1) = step(state2, claude(85.0d, resetsAt, now), now)
+    val (state4, jump2) = step(state3, claude(85.0d, moved, now), now)
+    val (_, back2)      = step(state4, claude(85.0d, resetsAt, now), now)
+    val stored          = state3.records.get(WindowKey(AgentId.ClaudeCode, WindowId.Session)).map(_.resetsAt)
+    Result.all(
+      List(
+        first.map(kindOf) ==== List(level85),
+        jump1.map(kindOf) ==== List(AlertKind.Reset, level85),
+        back1 ==== Nil,
+        jump2 ==== Nil,
+        back2 ==== Nil,
+        stored ==== moved.some,
+      )
+    )
   }
 
   def testSeveralLevels: Result = {
@@ -532,6 +630,47 @@ object AlertEngineSpec extends Properties {
         again.map(Fixtures.spendKind) ==== List(pct(85)),
       )
     )
+  }
+
+  /** #110: the reset alert comes at every new month after a fired level, not at every second one. */
+  def testSpendResetEveryMonth: Result = {
+    val month2      = EpochSeconds(monthEnd.value + 30L * 86400L)
+    val month3      = EpochSeconds(monthEnd.value + 60L * 86400L)
+    val (_, alerts) = runSpends(
+      AgentId.ClaudeCode,
+      SpendAlertLevels.defaults,
+      usdSpend("150", "200"),
+      usdSpend("150", "200", month2.some),
+      usdSpend("150", "200", month3.some),
+    )
+    alerts ==== List(List(pct(70)), List(spendReset, pct(70)), List(spendReset, pct(70)))
+  }
+
+  /** #110: a meter without a reset time gives the reset alert at every drop of more than 20 points after a level. */
+  def testSpendNoResetEveryDrop: Result = {
+    val (_, alerts) = runSpends(
+      AgentId.Codex,
+      SpendAlertLevels.defaults,
+      creditSpend("8600"),
+      creditSpend("100"),
+      creditSpend("7500"),
+      creditSpend("100"),
+    )
+    alerts ==== List(List(pct(85)), List(spendReset), List(pct(70)), List(spendReset))
+  }
+
+  /** #110: a reset time that moves back and forth by more than 120 s is one meter after the first jump. */
+  def testSpendResetTimeFlap: Result = {
+    val moved       = EpochSeconds(monthEnd.value + 300L)
+    val (_, alerts) = runSpends(
+      AgentId.ClaudeCode,
+      SpendAlertLevels.defaults,
+      usdSpend("180", "200"),
+      usdSpend("180", "200", moved.some),
+      usdSpend("180", "200"),
+      usdSpend("180", "200", moved.some),
+    )
+    alerts ==== List(List(pct(85)), List(spendReset, pct(85)), Nil, Nil)
   }
 
   def testSpendExpired: Result = {
