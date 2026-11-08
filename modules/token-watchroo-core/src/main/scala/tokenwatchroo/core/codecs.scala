@@ -206,7 +206,8 @@ object codecs {
    * with an unknown `id`, `billing` or `plan` is skipped, so a config written by a later version still decodes (#8).
    * A missing `alertLevels`, or levels that break the rules, give the default levels, and the default levels are left
    * out on write (#9). A missing `spendAlertLevels`, or one with an unknown unit or amounts that break the rules,
-   * gives the default spend levels, and the defaults are left out on write (#105). */
+   * gives the default spend levels, and the defaults are left out on write (#105). A missing or invalid
+   * `claudeConfigDir` is not set, and it is left out on write (#91). */
 
   final private case class SpendAlertLevelsWire(unit: String, amounts: List[Long])
 
@@ -221,6 +222,7 @@ object codecs {
     enabled: Option[Boolean],
     alertLevels: Option[List[Int]],
     spendAlertLevels: Option[SpendAlertLevelsWire],
+    claudeConfigDir: Option[String],
   )
 
   private given agentConfigWireCodec: JsonValueCodec[AgentConfigWire] =
@@ -240,6 +242,7 @@ object codecs {
       w.spendAlertLevels
         .flatMap(levels => Currency.parse(levels.unit).flatMap(SpendAlertLevels.from(_, levels.amounts)).toOption)
         .getOrElse(SpendAlertLevels.defaults),
+      w.claudeConfigDir.flatMap(dir => ClaudeConfigDir.from(dir).toOption),
     )).toOption
 
   private def agentConfigToWire(a: AgentConfig): AgentConfigWire =
@@ -253,6 +256,7 @@ object codecs {
         case SpendAlertLevels.Defaults => none[SpendAlertLevelsWire]
         case SpendAlertLevels.Amounts(unit, amounts) => SpendAlertLevelsWire(unit.wire, amounts.map(_.value)).some
       },
+      a.claudeConfigDir.map(_.value),
     )
 
   final private case class ConfigWire(

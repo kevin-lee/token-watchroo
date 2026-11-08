@@ -318,4 +318,79 @@ final class AddAgentSheetTests: XCTestCase {
         XCTAssertFalse(SpendAlertLevelRules.isValid(SpendAlertLevels(unit: "USD", amounts: [2, 1])))
         XCTAssertTrue(SpendAlertLevelRules.isValid(SpendAlertLevels(unit: "credits", amounts: [])))
     }
+
+    // MARK: config folder (#91)
+
+    @MainActor
+    private func sheet(_ mode: AddAgentSheet.Mode, chosen: URL?) -> AddAgentSheet {
+        let sheet = AddAgentSheet(mode: mode, chooseFolder: { _, _, done in done(chosen) }) { _ in }
+        _ = sheet.view
+        return sheet
+    }
+
+    @MainActor
+    func testTheConfigFolderRowIsOnlyForClaudeCodeOnASubscription() {
+        let sheet = sheet(.add(addable: [.claudeCode, .codex]))
+        XCTAssertTrue(sheet.isConfigDirVisible)
+        XCTAssertEqual(sheet.configDirHintText, AddAgentSheet.configDirHint)
+        sheet.selectBilling(.api)
+        XCTAssertFalse(sheet.isConfigDirVisible)
+        sheet.selectBilling(.subscription)
+        sheet.selectAgent(.codex)
+        XCTAssertFalse(sheet.isConfigDirVisible)
+    }
+
+    @MainActor
+    func testARelativeFolderMarksTheFieldAndDisablesAdd() {
+        let sheet = sheet(.add(addable: [.claudeCode]))
+        sheet.setConfigDirText("relative/x")
+        XCTAssertTrue(sheet.isConfigDirMarked)
+        XCTAssertEqual(sheet.configDirHintText, ClaudeConfigDirRules.problem)
+        XCTAssertFalse(sheet.isConfirmEnabled)
+        sheet.setConfigDirText(" /Users/alex/.claude-work ")
+        XCTAssertFalse(sheet.isConfigDirMarked)
+        XCTAssertTrue(sheet.isConfirmEnabled)
+        XCTAssertEqual(sheet.result?.claudeConfigDir, "/Users/alex/.claude-work")
+        sheet.setConfigDirText("")
+        XCTAssertNil(sheet.result?.claudeConfigDir)
+        XCTAssertTrue(sheet.isConfirmEnabled)
+    }
+
+    @MainActor
+    func testAnApiEntryIgnoresARelativeFolderAndKeepsTheStoredOne() {
+        let stored = AgentConfig(id: .claudeCode, billing: .subscription, plan: .team, enabled: .on,
+                                 claudeConfigDir: "/Users/alex/.claude-work")
+        let sheet = sheet(.edit(stored))
+        sheet.setConfigDirText("relative")
+        sheet.selectBilling(.api)
+        XCTAssertTrue(sheet.isConfirmEnabled)
+        XCTAssertEqual(sheet.result?.claudeConfigDir, "/Users/alex/.claude-work")
+    }
+
+    @MainActor
+    func testEditModeShowsAndKeepsTheStoredFolder() {
+        let stored = AgentConfig(id: .claudeCode, billing: .subscription, plan: .team, enabled: .on,
+                                 claudeConfigDir: "/Users/alex/.claude-work/")
+        let sheet = sheet(.edit(stored))
+        XCTAssertEqual(sheet.configDirText, "/Users/alex/.claude-work/")
+        XCTAssertEqual(sheet.result, stored)
+    }
+
+    @MainActor
+    func testTheChooserFillsTheFieldWithoutATrailingSlash() {
+        let chosen = URL(fileURLWithPath: "/Users/alex/.claude-work", isDirectory: true)
+        let sheet = sheet(.add(addable: [.claudeCode]), chosen: chosen)
+        sheet.chooseConfigDir()
+        XCTAssertEqual(sheet.configDirText, "/Users/alex/.claude-work")
+        XCTAssertEqual(sheet.result?.claudeConfigDir, "/Users/alex/.claude-work")
+        XCTAssertEqual(AddAgentSheet.pathText(for: chosen), "/Users/alex/.claude-work")
+    }
+
+    @MainActor
+    func testACancelledChooserKeepsTheField() {
+        let sheet = sheet(.add(addable: [.claudeCode]), chosen: nil)
+        sheet.setConfigDirText("/Users/alex/.claude-work")
+        sheet.chooseConfigDir()
+        XCTAssertEqual(sheet.configDirText, "/Users/alex/.claude-work")
+    }
 }

@@ -424,4 +424,51 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
     assertEquals(profileRequest.map(_.timeout), Some(5.seconds))
     assertEquals(usageRequest.map(_.timeout), Some(20.seconds))
   }
+
+  /* #91: the config folder of the claude-code entry selects the keychain item. */
+
+  private val workConfig: Config =
+    Fakes
+      .config
+      .copy(agents =
+        List(
+          AgentConfig
+            .defaults(AgentId.ClaudeCode)
+            .copy(claudeConfigDir = ClaudeConfigDir.unsafeFrom("/Users/alex/.claude-work").some)
+        )
+      )
+
+  test("a config folder reads the hashed keychain item") {
+    val (snapshot, services) =
+      (for {
+        keychain <-
+          Fakes
+            .ServiceKeychain
+            .make(
+              Map(("Claude Code-credentials-c381b4cb", Fakes.keychainAccount.some) -> Fakes.claudeBlob.asRight)
+            )
+        http     <- Fakes.RoutingHttp.make(Fakes.claudeRoutes(Fakes.ok(Fakes.claudeProfile20x)))
+        p        <- make(http, keychain)
+        snapshot <- p.fetch(Fakes.now, workConfig, FetchTrigger.Scheduled)
+        calls    <- keychain.calls
+      } yield (snapshot, calls.map(_.service))).unsafeRunSync()
+    assertNotEquals(snapshot.status, AgentStatus.Unavailable)
+    assertEquals(snapshot.error, none[ErrorMessage])
+    assertEquals(services, List("Claude Code-credentials-c381b4cb"))
+  }
+
+  test("a config folder without an item gives the config folder message") {
+    val snapshot =
+      (for {
+        keychain <- Fakes
+                      .ServiceKeychain
+                      .make(
+                        Map((ClaudeCredentials.Service, Fakes.keychainAccount.some) -> Fakes.claudeBlob.asRight)
+                      )
+        p        <- make(new Fakes.FakeHttp(Fakes.ok(Fakes.claudeUsage)), keychain)
+        snapshot <- p.fetch(Fakes.now, workConfig, FetchTrigger.Scheduled)
+      } yield snapshot).unsafeRunSync()
+    assertEquals(snapshot.status, AgentStatus.Unavailable)
+    assertEquals(snapshot.error.map(_.value.value), Some(ClaudeCredentials.ConfigDirMissingMessage))
+  }
 }

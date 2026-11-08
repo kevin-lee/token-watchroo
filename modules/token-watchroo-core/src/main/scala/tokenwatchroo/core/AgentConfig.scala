@@ -104,7 +104,8 @@ object Enabled {
 }
 
 /** One entry of `Config.agents`, written by the settings window of the Swift shell. `alertLevels` are the window alert
-  * levels of the agent (#9), `spendAlertLevels` its spend alert levels (#105).
+  * levels of the agent (#9), `spendAlertLevels` its spend alert levels (#105). `claudeConfigDir` is the Claude Code
+  * config folder (#91). It is used only for `AgentId.ClaudeCode` and kept for other ids.
   */
 final case class AgentConfig(
   id: AgentId,
@@ -113,6 +114,7 @@ final case class AgentConfig(
   enabled: Enabled,
   alertLevels: AlertLevels,
   spendAlertLevels: SpendAlertLevels,
+  claudeConfigDir: Option[ClaudeConfigDir],
 ) derives CanEqual,
       Eq,
       Show
@@ -121,5 +123,13 @@ object AgentConfig {
 
   /** The values that an entry with only an `id` decodes to. */
   def defaults(id: AgentId): AgentConfig =
-    AgentConfig(id, Billing.default, PlanKind.default, Enabled.default, AlertLevels.defaults, SpendAlertLevels.defaults)
+    AgentConfig(
+      id,
+      Billing.default,
+      PlanKind.default,
+      Enabled.default,
+      AlertLevels.defaults,
+      SpendAlertLevels.defaults,
+      none[ClaudeConfigDir],
+    )
 }

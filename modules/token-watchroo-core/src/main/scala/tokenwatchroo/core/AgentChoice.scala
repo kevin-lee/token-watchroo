@@ -36,11 +36,12 @@ object AgentChoice {
     items.sortBy(a => rank(config, id(a)))
 
   /** Whether a config change needs new data (#104). A new order, plan or refresh interval does not: the next scheduled
-    * tick shows them.
+    * tick shows them. A new Claude Code config folder does, because it reads another keychain item (#91).
     */
   def needsFetch(old: Config, next: Config, ids: List[AgentId]): Boolean =
     old.codexHome =!= next.codexHome ||
       old.claudeCodeVersionOverride =!= next.claudeCodeVersionOverride ||
+      old.claudeConfigDir =!= next.claudeConfigDir ||
       ids.exists(id => !sameFetch(of(old, id), of(next, id)))
 
   /** Two `Fetch` choices are the same whatever their plan, because the plan only fills the badge. */

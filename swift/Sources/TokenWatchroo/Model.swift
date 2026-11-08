@@ -103,6 +103,8 @@ struct AgentConfig: Codable, Equatable {
     var enabled: Enabled
     var alertLevels: [Int] = AlertLevelRules.defaults
     var spendAlertLevels: SpendAlertLevels? = nil
+    /// The Claude Code config folder (#91), as the user typed it. Only for Claude Code. Nil reads the plain item.
+    var claudeConfigDir: String? = nil
 
     static func defaults(_ id: AgentId) -> AgentConfig {
         AgentConfig(id: id, billing: .subscription, plan: .individual, enabled: .on)
@@ -112,11 +114,12 @@ struct AgentConfig: Codable, Equatable {
 extension AgentConfig {
 
     private enum CodingKeys: String, CodingKey {
-        case id, billing, plan, enabled, alertLevels, spendAlertLevels
+        case id, billing, plan, enabled, alertLevels, spendAlertLevels, claudeConfigDir
     }
 
     /// Strict for `id`, `billing`, `plan` and `enabled`, as the synthesised decoder was. Levels with a wrong type or
-    /// that break the rules give the defaults, as in the core. The same for the spend levels (#105).
+    /// that break the rules give the defaults, as in the core. The same for the spend levels (#105). A config folder
+    /// with a wrong type or that is not an absolute path is not set (#91).
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(AgentId.self, forKey: .id)
@@ -126,6 +129,8 @@ extension AgentConfig {
         alertLevels = AlertLevelRules.orDefaults((try? container.decodeIfPresent([Int].self, forKey: .alertLevels)) ?? nil)
         spendAlertLevels = SpendAlertLevelRules.orDefaults(
             (try? container.decodeIfPresent(SpendAlertLevels.self, forKey: .spendAlertLevels)) ?? nil)
+        claudeConfigDir = ClaudeConfigDirRules.value(
+            (try? container.decodeIfPresent(String.self, forKey: .claudeConfigDir)) ?? nil)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -138,6 +143,27 @@ extension AgentConfig {
             try container.encode(alertLevels, forKey: .alertLevels)
         }
         try container.encodeIfPresent(spendAlertLevels, forKey: .spendAlertLevels)
+        try container.encodeIfPresent(claudeConfigDir, forKey: .claudeConfigDir)
+    }
+}
+
+/// The Claude Code config folder rules (#91). Claude Code hashes the text of `CLAUDE_CONFIG_DIR` as written, so the
+/// folder must be the same text. Only an absolute path is kept. Whitespace and newlines around it are removed, because
+/// a pasted path often has them.
+enum ClaudeConfigDirRules {
+    static let problem = "Use a full path that starts with /."
+
+    /// The folder for a field's text, or nil when it is empty or not an absolute path.
+    static func value(_ text: String?) -> String? {
+        guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
+              trimmed.hasPrefix("/") else { return nil }
+        return trimmed
+    }
+
+    /// The problem of a field's text, or nil when it is empty or a valid folder.
+    static func problem(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || value(trimmed) != nil ? nil : problem
     }
 }
 
@@ -335,6 +361,7 @@ private struct LenientAgentConfig: Decodable {
     let enabled: Bool?
     let alertLevels: [Int]?
     let spendAlertLevels: SpendAlertLevels?
+    let claudeConfigDir: String?
 
     var agent: AgentConfig? {
         guard let id = id.flatMap(AgentId.init(rawValue:)) else { return nil }
@@ -343,11 +370,12 @@ private struct LenientAgentConfig: Decodable {
         guard let billing, let plan else { return nil }
         return AgentConfig(id: id, billing: billing, plan: plan, enabled: Enabled(isOn: enabled ?? true),
                            alertLevels: AlertLevelRules.orDefaults(alertLevels),
-                           spendAlertLevels: SpendAlertLevelRules.orDefaults(spendAlertLevels))
+                           spendAlertLevels: SpendAlertLevelRules.orDefaults(spendAlertLevels),
+                           claudeConfigDir: ClaudeConfigDirRules.value(claudeConfigDir))
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, billing, plan, enabled, alertLevels, spendAlertLevels
+        case id, billing, plan, enabled, alertLevels, spendAlertLevels, claudeConfigDir
     }
 
     /// A value of the wrong type is read as absent, so one odd entry cannot make the whole file unreadable.
@@ -359,6 +387,7 @@ private struct LenientAgentConfig: Decodable {
         enabled = try? container.decodeIfPresent(Bool.self, forKey: .enabled)
         alertLevels = (try? container.decodeIfPresent([Int].self, forKey: .alertLevels)) ?? nil
         spendAlertLevels = (try? container.decodeIfPresent(SpendAlertLevels.self, forKey: .spendAlertLevels)) ?? nil
+        claudeConfigDir = (try? container.decodeIfPresent(String.self, forKey: .claudeConfigDir)) ?? nil
     }
 }
 

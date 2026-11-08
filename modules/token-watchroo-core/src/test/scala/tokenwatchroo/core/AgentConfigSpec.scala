@@ -29,6 +29,11 @@ object AgentConfigSpec extends Properties {
       "without a provider label, Team and Enterprise fill the badge and Individual leaves it empty",
       testBadgeWithoutProviderLabel,
     ),
+    property("a change of the Claude Code config folder only needs a fetch", testFetchForConfigDir),
+    example(
+      "Config.claudeConfigDir uses the first claude-code entry and ignores other agents",
+      testClaudeConfigDirFirstEntry,
+    ),
   )
 
   private val stateDir = StateDir(NonEmptyString("/tmp/tw"))
@@ -104,6 +109,35 @@ object AgentConfigSpec extends Properties {
     Result.all(changes.map(next => Result.assert(AgentChoice.needsFetch(base, next, AgentId.all)).log(next.show)))
   }
 
+  /** Another folder reads another keychain item (#91), so the change fetches at once. */
+  def testFetchForConfigDir: Property =
+    for {
+      old  <- Fixtures.genClaudeConfigDir.option.log("old")
+      next <- Fixtures.genClaudeConfigDir.option.log("next")
+    } yield {
+      val claude = AgentConfig.defaults(AgentId.ClaudeCode)
+      AgentChoice.needsFetch(
+        configWith(claude.copy(claudeConfigDir = old)),
+        configWith(claude.copy(claudeConfigDir = next)),
+        AgentId.all,
+      ) ==== (old =!= next)
+    }
+
+  def testClaudeConfigDirFirstEntry: Result = {
+    val work  = ClaudeConfigDir.unsafeFrom("/Users/alex/.claude-work")
+    val other = ClaudeConfigDir.unsafeFrom("/Users/alex/.claude-other")
+    val codex = AgentConfig.defaults(AgentId.Codex).copy(claudeConfigDir = other.some)
+    val first = AgentConfig.defaults(AgentId.ClaudeCode).copy(claudeConfigDir = work.some)
+    val later = AgentConfig.defaults(AgentId.ClaudeCode).copy(claudeConfigDir = other.some)
+    Result.all(
+      List(
+        configWith(codex, first, later).claudeConfigDir ==== work.some,
+        configWith(codex).claudeConfigDir ==== none[ClaudeConfigDir],
+        configWith(AgentConfig.defaults(AgentId.ClaudeCode), later).claudeConfigDir ==== none[ClaudeConfigDir],
+      )
+    )
+  }
+
   def testOrderedEmpty: Result =
     AgentChoice.ordered(configWith(), List(AgentId.Codex, AgentId.ClaudeCode))(identity) ====
       List(AgentId.ClaudeCode, AgentId.Codex)
@@ -170,7 +204,8 @@ object AgentConfigSpec extends Properties {
       PlanKind.Team,
       Enabled.On,
       AlertLevels.defaults,
-      SpendAlertLevels.defaults
+      SpendAlertLevels.defaults,
+      none[ClaudeConfigDir],
     )
     val second = AgentConfig(
       AgentId.Codex,
@@ -178,7 +213,8 @@ object AgentConfigSpec extends Properties {
       PlanKind.Individual,
       Enabled.Off,
       AlertLevels.none,
-      SpendAlertLevels.defaults
+      SpendAlertLevels.defaults,
+      none[ClaudeConfigDir],
     )
     AgentChoice.of(configWith(first, second), AgentId.Codex) ==== AgentChoice.fetch(PlanKind.Team)
   }

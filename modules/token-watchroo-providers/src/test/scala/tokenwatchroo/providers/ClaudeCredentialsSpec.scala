@@ -5,7 +5,9 @@ import cats.syntax.all.*
 import tokenwatchroo.core.*
 import tokenwatchroo.core.providers.ClaudeOAuth
 
-/** The item with the Claude Code account wins, and the read with no account is only for no such item (#90). */
+/** The item with the Claude Code account wins, and the read with no account is only for no such item (#90). With a
+  * config folder, the hashed item and then the item of the folder with the trailing slash toggled (#91).
+  */
 class ClaudeCredentialsSpec extends munit.FunSuite {
 
   private val nowMillis = 1789185600000L
@@ -20,7 +22,7 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
   ): (Either[ProviderError, ClaudeOAuth], List[Fakes.KeychainRead]) =
     (for {
       keychain <- Fakes.KeyedKeychain.make(items)
-      result   <- new ClaudeCredentials(keychain, alex).read(attempt, nowMillis)
+      result   <- new ClaudeCredentials(keychain, alex).read(attempt, nowMillis, none[ClaudeConfigDir])
       calls    <- keychain.calls
     } yield (result, calls)).unsafeRunSync()
 
@@ -82,5 +84,84 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
     val u          = ClaudeCredentials.timeoutFor(ReadAttempt.Subsequent)
     val (_, calls) = read(Map(none -> Fakes.claudeBlob.asRight), ReadAttempt.Subsequent)
     assertEquals(calls, List(Fakes.KeychainRead(S, alex.some, u), Fakes.KeychainRead(S, none, u)))
+  }
+
+  /* #91: a config folder. The services come from the shasum values in ClaudeKeychainServiceSpec. */
+
+  private val work      = ClaudeConfigDir.unsafeFrom("/Users/alex/.claude-work")
+  private val Hashed    = "Claude Code-credentials-c381b4cb"
+  private val Toggled   = "Claude Code-credentials-6dad957d"
+  private val missingIn =
+    ProviderError.unsupported(ClaudeCredentials.ConfigDirMissingMessage).asLeft[ClaudeOAuth]
+
+  private def readDir(
+    items: Map[(String, Option[KeychainAccount]), Either[ProviderError, String]],
+    dir: ClaudeConfigDir,
+  ): (Either[ProviderError, ClaudeOAuth], List[Fakes.KeychainRead]) =
+    (for {
+      keychain <- Fakes.ServiceKeychain.make(items)
+      result   <- new ClaudeCredentials(keychain, alex).read(ReadAttempt.First, nowMillis, dir.some)
+      calls    <- keychain.calls
+    } yield (result, calls)).unsafeRunSync()
+
+  test("a config folder never reads the plain item") {
+    val (result, calls) = readDir(Map((S, alex.some) -> Fakes.claudeBlob.asRight), work)
+    assertEquals(result, missingIn)
+    assert(!calls.exists(_.service === S), calls)
+  }
+
+  test("a config folder reads the hashed item with the account") {
+    val (result, calls) =
+      readDir(
+        Map((Hashed, alex.some) -> Fakes.claudeBlob.asRight, (Hashed, none) -> Fakes.claudeMcpOnlyBlob.asRight),
+        work,
+      )
+    assert(result.isRight, result)
+    assertEquals(calls, List(Fakes.KeychainRead(Hashed, alex.some, t)))
+  }
+
+  test("a config folder falls back to the hashed item with no account (#90)") {
+    val (result, calls) = readDir(Map((Hashed, none) -> Fakes.claudeBlob.asRight), work)
+    assert(result.isRight, result)
+    assertEquals(calls, List(Fakes.KeychainRead(Hashed, alex.some, t), Fakes.KeychainRead(Hashed, none, t)))
+  }
+
+  test("a missing hashed item tries the folder with the trailing slash toggled") {
+    val (result, calls) = readDir(Map((Toggled, alex.some) -> Fakes.claudeBlob.asRight), work)
+    assert(result.isRight, result)
+    assertEquals(
+      calls,
+      List(
+        Fakes.KeychainRead(Hashed, alex.some, t),
+        Fakes.KeychainRead(Hashed, none, t),
+        Fakes.KeychainRead(Toggled, alex.some, t),
+      ),
+    )
+  }
+
+  test("no item for the folder gives the config folder message after four reads") {
+    val (result, calls) = readDir(Map.empty, work)
+    assertEquals(result, missingIn)
+    assertEquals(
+      calls,
+      List(
+        Fakes.KeychainRead(Hashed, alex.some, t),
+        Fakes.KeychainRead(Hashed, none, t),
+        Fakes.KeychainRead(Toggled, alex.some, t),
+        Fakes.KeychainRead(Toggled, none, t),
+      ),
+    )
+  }
+
+  test("access denied for the hashed item does not try the toggled folder") {
+    val (result, calls) = readDir(Map((Hashed, alex.some) -> ProviderError.credentialsAccessDenied.asLeft), work)
+    assertEquals(result, ProviderError.credentialsAccessDenied.asLeft[ClaudeOAuth])
+    assertEquals(calls, List(Fakes.KeychainRead(Hashed, alex.some, t)))
+  }
+
+  test("the folder / has one candidate") {
+    val (result, calls) = readDir(Map.empty, ClaudeConfigDir.unsafeFrom("/"))
+    assertEquals(result, missingIn)
+    assertEquals(calls.map(_.service).distinct.length, 1)
   }
 }

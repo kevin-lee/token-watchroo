@@ -147,4 +147,42 @@ final class ConfigFileTests: XCTestCase {
         XCTAssertTrue(try json(SpendAlertLevels(unit: "USD", amounts: [150, 180])).contains(#""amounts":[150,180]"#))
         XCTAssertTrue(try json(SpendAlertLevels(unit: "credits", amounts: [])).contains(#""amounts":[]"#))
     }
+
+    /// The config folder (#91) round-trips through the file and is left out when it is not set.
+    func testTheConfigFolderRoundTripsAndIsLeftOutWhenNotSet() throws {
+        var config = Config.defaults(stateDir: "/state")
+        config.agents = [AgentConfig(id: .claudeCode, billing: .subscription, plan: .individual, enabled: .on,
+                                     claudeConfigDir: "/Users/alex/.claude-work/"),
+                         AgentConfig.defaults(.codex)]
+        try ConfigFile.write(config, to: url)
+        XCTAssertEqual(ConfigFile.load(from: url, stateDir: "/state").config, config)
+        let text = String(decoding: try Data(contentsOf: url), as: UTF8.self)
+        XCTAssertTrue(text.contains(#""claudeConfigDir" : "/Users/alex/.claude-work/""#))
+        XCTAssertEqual(text.components(separatedBy: "claudeConfigDir").count, 2)
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(AgentConfig.defaults(.claudeCode)), as: UTF8.self)
+            .contains("claudeConfigDir"))
+    }
+
+    /// A folder that is not an absolute path, or has the wrong type, is not set and the entry is kept. A file from
+    /// before #91 has no folder.
+    func testTheConfigFolderIsReadLeniently() throws {
+        try write(#"""
+        {"agents":[{"id":"claude-code","plan":"team","claudeConfigDir":"relative"},{"id":"claude-code","claudeConfigDir":"  "},{"id":"claude-code","claudeConfigDir":7},{"id":"codex"}]}
+        """#)
+        let agents = ConfigFile.load(from: url, stateDir: "/state").config.agents
+        XCTAssertEqual(agents.map(\.claudeConfigDir), [nil, nil, nil, nil])
+        XCTAssertEqual(agents.first?.plan, .team)
+        let strict = #"{"id":"claude-code","billing":"subscription","plan":"team","enabled":true,"claudeConfigDir":"x"}"#
+        XCTAssertNil(try JSONDecoder().decode(AgentConfig.self, from: Data(strict.utf8)).claudeConfigDir)
+    }
+
+    func testConfigFolderRulesTrimAndNeedAnAbsolutePath() {
+        XCTAssertEqual(ClaudeConfigDirRules.value(" /a/b \n"), "/a/b")
+        XCTAssertNil(ClaudeConfigDirRules.value("~/x"))
+        XCTAssertNil(ClaudeConfigDirRules.value(""))
+        XCTAssertNil(ClaudeConfigDirRules.value(nil))
+        XCTAssertNil(ClaudeConfigDirRules.problem(""))
+        XCTAssertNil(ClaudeConfigDirRules.problem("/a"))
+        XCTAssertEqual(ClaudeConfigDirRules.problem("a/b"), ClaudeConfigDirRules.problem)
+    }
 }

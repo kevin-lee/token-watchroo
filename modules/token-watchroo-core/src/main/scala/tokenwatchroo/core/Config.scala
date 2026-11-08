@@ -16,7 +16,12 @@ final case class Config(
   agents: List[AgentConfig],
 ) derives CanEqual,
       Eq,
-      Show
+      Show {
+
+  /** The config folder of the first `ClaudeCode` entry, the same first-entry rule as `AgentChoice.of` (#91). */
+  def claudeConfigDir: Option[ClaudeConfigDir] =
+    agents.find(_.id === AgentId.ClaudeCode).flatMap(_.claudeConfigDir)
+}
 
 object Config {
   def default(stateDir: StateDir): Config =

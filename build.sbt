@@ -378,7 +378,9 @@ def commonNativeConfig(base: File)(c: NativeConfig): NativeConfig = {
     .withGC(GC.commix)
     .withCompileOptions(c.compileOptions :+ deploymentTarget)
     .withCOptions(c.cOptions :+ registersCaptureInclude(base))
-    .withLinkingOptions(c.linkingOptions :+ deploymentTarget)
+    /* CoreFoundation for CFStringNormalize in providers' mac_text.c (#91). CommonCrypto is in libSystem. The static
+     * library for the app does not use these options, so swift/Package.swift links CoreFoundation too. */
+    .withLinkingOptions(c.linkingOptions :+ deploymentTarget :+ "-framework" :+ "CoreFoundation")
 }
 
 /* The -I option that puts native-overrides/scala-native-<version>/ ahead of nativelib's own include directories, so the

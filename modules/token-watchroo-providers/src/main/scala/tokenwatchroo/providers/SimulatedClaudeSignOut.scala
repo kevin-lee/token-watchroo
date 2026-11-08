@@ -13,10 +13,17 @@ import tokenwatchroo.core.providers.ClaudeOAuth
 final class SimulatedClaudeSignOut(underlying: ClaudeCredentialReader, flagFile: os.Path)
     extends ClaudeCredentialReader {
 
-  override def read(attempt: ReadAttempt, nowMillis: Long): IO[Either[ProviderError, ClaudeOAuth]] =
+  override def read(
+    attempt: ReadAttempt,
+    nowMillis: Long,
+    configDir: Option[ClaudeConfigDir],
+  ): IO[Either[ProviderError, ClaudeOAuth]] =
     SimulatedClaudeSignOut
       .isSignedOut(flagFile)
-      .ifM(IO.pure(ProviderError.credentialsMissing.asLeft[ClaudeOAuth]), underlying.read(attempt, nowMillis))
+      .ifM(
+        IO.pure(ProviderError.credentialsMissing.asLeft[ClaudeOAuth]),
+        underlying.read(attempt, nowMillis, configDir),
+      )
 }
 
 object SimulatedClaudeSignOut {
