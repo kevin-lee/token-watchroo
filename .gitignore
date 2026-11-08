@@ -22,6 +22,7 @@ project/**/metals.sbt
 dist/
 swift/.build/
 swift/lib/
+swift/.index-build/
 
 # machine-local MCP config (regenerate with /setup-metals-mcp)
 .mcp.json
