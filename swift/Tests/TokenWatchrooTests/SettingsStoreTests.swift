@@ -123,4 +123,23 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual([codexTeam].addable, [.claudeCode])
         XCTAssertEqual([codexTeam, AgentConfig.defaults(.claudeCode)].addable, [])
     }
+
+    private static func agent(_ id: AgentId, status: AgentStatus, spend: Spend?) -> AgentSnapshot {
+        AgentSnapshot(id: id, planLabel: nil, status: status, windows: [], spend: spend, source: nil, fetchedAt: 1,
+                      error: nil, observedAt: nil)
+    }
+
+    /// The sheet needs the spend unit and limit (#105). An unavailable agent keeps its last value, nothing is written.
+    @MainActor
+    func testNoteMetersKeepsTheLastSpendOfEachAgent() {
+        let url = ConfigFile.url(in: folder)
+        let store = SettingsStore(config: .defaults(stateDir: folder.path), fileURL: url, push: { _ in }, pushDelay: 60)
+        let spend = Spend(currency: "USD", spent: 145, limit: 200, usedPercent: 72.5, resetsAt: nil)
+        store.noteMeters([Self.agent(.claudeCode, status: .warning, spend: spend),
+                          Self.agent(.codex, status: .ok, spend: nil)])
+        XCTAssertEqual(store.meters, [.claudeCode: .spend(currency: "USD", limit: 200), .codex: .noSpend])
+        store.noteMeters([Self.agent(.claudeCode, status: .unavailable, spend: nil)])
+        XCTAssertEqual(store.meters[.claudeCode], .spend(currency: "USD", limit: 200))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
 }

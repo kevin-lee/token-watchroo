@@ -28,7 +28,8 @@ class StateStoreSpec extends munit.FunSuite {
             UsedPercent.clamp(82.0d),
             Set(AlertKind.level(AlertLevel.unsafeFrom(70)))
           )
-      )
+      ),
+      Map.empty[AgentId, SpendRecord],
     )
     (s.write(state) *> s.write(state)).unsafeRunSync()
     assertEquals(s.read.unsafeRunSync(), state)
@@ -52,7 +53,8 @@ class StateStoreSpec extends munit.FunSuite {
               UsedPercent.clamp(82.0d),
               Set(AlertKind.level(AlertLevel.unsafeFrom(70))),
             )
-        )
+        ),
+        Map.empty[AgentId, SpendRecord],
       ),
     )
   }

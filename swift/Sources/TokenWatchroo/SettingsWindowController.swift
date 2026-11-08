@@ -337,7 +337,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
 
     /// "Add" and "Save" replace the entry with the same agent in place, or append a new one. "Cancel" changes nothing.
     private func presentSheet(_ mode: AddAgentSheet.Mode) {
-        let sheet = AddAgentSheet(mode: mode) { [weak self] agent in
+        let sheet = AddAgentSheet(mode: mode, meters: store.meters) { [weak self] agent in
             guard let self, let agent else { return }
             self.store.setAgents(self.agents.adding(agent))
         }

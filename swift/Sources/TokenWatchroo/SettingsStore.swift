@@ -8,6 +8,8 @@ import Foundation
 final class SettingsStore {
 
     private(set) var config: Config
+    /// The spend meter of each agent from its last available snapshot (#105), in memory only, for the sheet.
+    private(set) var meters: [AgentId: SpendMeterInfo] = [:]
     /// Called after each change, for the window to reload.
     var onChange: (() -> Void)?
 
@@ -50,6 +52,14 @@ final class SettingsStore {
         let added = next.dropFirst(config.agents.count).map(\.id.rawValue).joined(separator: ", ")
         Log.settings.notice("added detected agents: \(added)")
         setAgents(next)
+    }
+
+    /// Keeps the spend unit and limit of each available agent (#105). An unavailable agent keeps its last value. Nothing
+    /// is written or pushed, and the window is not told.
+    func noteMeters(_ agents: [AgentSnapshot]) {
+        for agent in agents where agent.status != .unavailable {
+            meters[agent.id] = agent.spend.map { .spend(currency: $0.currency, limit: $0.limit) } ?? .noSpend
+        }
     }
 
     private func schedulePush() {

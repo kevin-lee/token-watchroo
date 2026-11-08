@@ -112,4 +112,16 @@ final class EnvelopeDecoderTests: XCTestCase {
         XCTAssertEqual(other.agents.count, 1)
         XCTAssertNil(other.agents.first?.observedAt)
     }
+
+    /// A spend alert (#105) has the window `spend` and no `windowResetsAt` when the spend has no reset time.
+    func testASpendAlertWithoutAResetTimeDecodes() throws {
+        let json = #"{"version":1,"type":"alert","seq":13,"data":{"agent":"codex","window":"spend","kind":"spend-pct85","usedPercent":86.0,"title":"Codex is almost out of its credits","body":"8,600 of 10,000 credits spent, 86%.","identifier":"codex.spend.none.spend-pct85"}}"#
+        guard case .success(.alert(_, let payload)) = decode(json) else {
+            return XCTFail("expected an alert")
+        }
+        XCTAssertEqual(payload.window, .unknown("spend"))
+        XCTAssertEqual(payload.kind, "spend-pct85")
+        XCTAssertNil(payload.windowResetsAt)
+        XCTAssertEqual(payload.identifier, "codex.spend.none.spend-pct85")
+    }
 }

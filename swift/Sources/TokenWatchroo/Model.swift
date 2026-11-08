@@ -94,12 +94,15 @@ enum Enabled: Codable, Equatable {
 
 /// One entry of `Config.agents`. Mirrors `AgentConfig` in the core. `alertLevels` are the agent's window alert levels
 /// (#9), left out of the JSON when they are the defaults, so a later change of the defaults applies to the entry.
+/// `spendAlertLevels` are the spend alert amounts (#105), nil for the defaults (70% and 85% of the limit) and left
+/// out of the JSON then.
 struct AgentConfig: Codable, Equatable {
     let id: AgentId
     var billing: Billing
     var plan: PlanKind
     var enabled: Enabled
     var alertLevels: [Int] = AlertLevelRules.defaults
+    var spendAlertLevels: SpendAlertLevels? = nil
 
     static func defaults(_ id: AgentId) -> AgentConfig {
         AgentConfig(id: id, billing: .subscription, plan: .individual, enabled: .on)
@@ -109,11 +112,11 @@ struct AgentConfig: Codable, Equatable {
 extension AgentConfig {
 
     private enum CodingKeys: String, CodingKey {
-        case id, billing, plan, enabled, alertLevels
+        case id, billing, plan, enabled, alertLevels, spendAlertLevels
     }
 
     /// Strict for `id`, `billing`, `plan` and `enabled`, as the synthesised decoder was. Levels with a wrong type or
-    /// that break the rules give the defaults, as in the core.
+    /// that break the rules give the defaults, as in the core. The same for the spend levels (#105).
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(AgentId.self, forKey: .id)
@@ -121,6 +124,8 @@ extension AgentConfig {
         plan = try container.decode(PlanKind.self, forKey: .plan)
         enabled = try container.decode(Enabled.self, forKey: .enabled)
         alertLevels = AlertLevelRules.orDefaults((try? container.decodeIfPresent([Int].self, forKey: .alertLevels)) ?? nil)
+        spendAlertLevels = SpendAlertLevelRules.orDefaults(
+            (try? container.decodeIfPresent(SpendAlertLevels.self, forKey: .spendAlertLevels)) ?? nil)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -132,6 +137,7 @@ extension AgentConfig {
         if alertLevels != AlertLevelRules.defaults {
             try container.encode(alertLevels, forKey: .alertLevels)
         }
+        try container.encodeIfPresent(spendAlertLevels, forKey: .spendAlertLevels)
     }
 }
 
@@ -210,6 +216,116 @@ enum AlertLevelRules {
     }
 }
 
+/// The spend alert amounts of an agent (#105): whole amounts in `unit` (an ISO currency code or `credits`). An empty
+/// list means no spend alerts.
+struct SpendAlertLevels: Codable, Equatable {
+    let unit: String
+    let amounts: [Int]
+}
+
+/// The spend alert rules (#105). Mirrors `SpendAlertLevels` in the core: whole amounts of 1 or more, up to 5,
+/// strictly increasing. Without amounts the levels are 70% and 85% of the limit.
+enum SpendAlertLevelRules {
+    static let maxCount = 5
+    static let defaultPercents = [70, 85]
+
+    static let numberProblem = "Use a whole number of 1 or more."
+    static let duplicateProblem = "Amounts must be different."
+
+    /// The amount of a field's text, or nil when it is not a whole number of 1 or more (at most 12 digits).
+    static func amount(_ text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed.count <= 12, trimmed.allSatisfy(\.isASCII), trimmed.allSatisfy(\.isNumber),
+              let value = Int(trimmed), value >= 1 else { return nil }
+        return value
+    }
+
+    /// The rows that break a rule: a text that is not an amount, or an amount that is in another row too.
+    static func marked(_ texts: [String]) -> Set<Int> {
+        let amounts = texts.map(amount)
+        var marked = Set(amounts.indices.filter { amounts[$0] == nil })
+        for i in amounts.indices {
+            for j in amounts.indices where j > i {
+                if let a = amounts[i], let b = amounts[j], a == b {
+                    marked.insert(i)
+                    marked.insert(j)
+                }
+            }
+        }
+        return marked
+    }
+
+    /// The message for the first broken rule, or nil when the texts are valid amounts.
+    static func problem(_ texts: [String]) -> String? {
+        if texts.contains(where: { amount($0) == nil }) { return numberProblem }
+        if !marked(texts).isEmpty { return duplicateProblem }
+        return nil
+    }
+
+    static func isValid(_ levels: SpendAlertLevels) -> Bool {
+        let unitOK = levels.unit == "credits"
+            || (levels.unit.count == 3 && levels.unit.allSatisfy { $0.isASCII && $0.isUppercase })
+        return unitOK && levels.amounts.count <= maxCount && levels.amounts.allSatisfy { $0 >= 1 }
+            && zip(levels.amounts, levels.amounts.dropFirst()).allSatisfy { $1 > $0 }
+    }
+
+    /// The levels, or nil (the defaults) when they are absent or break the rules.
+    static func orDefaults(_ levels: SpendAlertLevels?) -> SpendAlertLevels? {
+        guard let levels, isValid(levels) else { return nil }
+        return levels
+    }
+
+    /// The default levels as amounts of the limit: 70% and 85%, for the text in the sheet.
+    static func defaultAmounts(limit: Decimal) -> [Decimal] {
+        defaultPercents.map { limit * Decimal($0) / 100 }
+    }
+
+    /// The default amounts rounded half-up to whole amounts, at least 1, without duplicates, for "Amounts".
+    static func defaultWholeAmounts(limit: Decimal) -> [Int] {
+        var seen = Set<Int>()
+        return defaultAmounts(limit: limit).map { max(1, rounded($0, .plain)) }.filter { seen.insert($0).inserted }
+    }
+
+    /// The amount that "+" adds: 70% of the limit rounded up (at least 1) when there is none, else the highest plus
+    /// 5% of the limit rounded (at least 1).
+    static func nextAmount(after amounts: [Int], limit: Decimal) -> Int {
+        guard let highest = amounts.max() else { return max(1, rounded(limit * 70 / 100, .up)) }
+        return highest + max(1, rounded(limit * 5 / 100, .plain))
+    }
+
+    /// The percent of the limit that an amount is, or nil for a zero limit.
+    static func percent(of amount: Int, limit: Decimal) -> Double? {
+        guard limit > 0 else { return nil }
+        return NSDecimalNumber(decimal: Decimal(amount) * 100 / limit).doubleValue
+    }
+
+    /// The colour and the percent of the limit that an amount gives, for the chip next to its row.
+    static func chip(amount: Int, limit: Decimal) -> String {
+        guard let percent = percent(of: amount, limit: limit), percent <= 100 else { return "Above the limit" }
+        let colour: String
+        switch UsageBand.of(percent: percent) {
+        case .critical: colour = "Red"
+        case .warning: colour = "Amber"
+        case .elevated: colour = "Blue"
+        case .normal: colour = "No colour"
+        }
+        return "\(colour) · \(Int(percent.rounded()))% of the limit"
+    }
+
+    private static func rounded(_ value: Decimal, _ mode: NSDecimalNumber.RoundingMode) -> Int {
+        var input = value
+        var output = Decimal()
+        NSDecimalRound(&output, &input, 0, mode)
+        return NSDecimalNumber(decimal: output).intValue
+    }
+}
+
+/// The spend meter of an agent from its last available snapshot (#105), so the sheet knows the unit and the limit.
+enum SpendMeterInfo: Equatable {
+    case spend(currency: String, limit: Decimal)
+    case noSpend
+}
+
 /// An agent entry read without failing: an unknown `id`, `billing` or `plan` gives no agent, so the entry is skipped
 /// as the core does.
 private struct LenientAgentConfig: Decodable {
@@ -218,6 +334,7 @@ private struct LenientAgentConfig: Decodable {
     let plan: String?
     let enabled: Bool?
     let alertLevels: [Int]?
+    let spendAlertLevels: SpendAlertLevels?
 
     var agent: AgentConfig? {
         guard let id = id.flatMap(AgentId.init(rawValue:)) else { return nil }
@@ -225,11 +342,12 @@ private struct LenientAgentConfig: Decodable {
         let plan = self.plan.map(PlanKind.init(rawValue:)) ?? .individual
         guard let billing, let plan else { return nil }
         return AgentConfig(id: id, billing: billing, plan: plan, enabled: Enabled(isOn: enabled ?? true),
-                           alertLevels: AlertLevelRules.orDefaults(alertLevels))
+                           alertLevels: AlertLevelRules.orDefaults(alertLevels),
+                           spendAlertLevels: SpendAlertLevelRules.orDefaults(spendAlertLevels))
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, billing, plan, enabled, alertLevels
+        case id, billing, plan, enabled, alertLevels, spendAlertLevels
     }
 
     /// A value of the wrong type is read as absent, so one odd entry cannot make the whole file unreadable.
@@ -240,6 +358,7 @@ private struct LenientAgentConfig: Decodable {
         plan = try? container.decodeIfPresent(String.self, forKey: .plan)
         enabled = try? container.decodeIfPresent(Bool.self, forKey: .enabled)
         alertLevels = (try? container.decodeIfPresent([Int].self, forKey: .alertLevels)) ?? nil
+        spendAlertLevels = (try? container.decodeIfPresent(SpendAlertLevels.self, forKey: .spendAlertLevels)) ?? nil
     }
 }
 
@@ -456,7 +575,8 @@ struct AlertPayload: Decodable {
     let agent: AgentId
     let window: WindowId
     let kind: String
-    let windowResetsAt: Int64
+    /// Absent for a spend alert with no reset time (#105).
+    let windowResetsAt: Int64?
     /// Optional so an older library still decodes.
     let usedPercent: Double?
     let title: String

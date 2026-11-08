@@ -26,5 +26,10 @@ object Spend {
       else UsedPercent.clamp((spend.spent.value / spend.limit.value * 100).toDouble)
 
     def isExhausted: Boolean = spend.spent.value >= spend.limit.value
+
+    /** The reset time is in the past, so the amounts are from a period that has ended. Such a spend does not alert
+      * (#105), as for an expired window (#81).
+      */
+    def isExpiredAt(now: EpochSeconds): Boolean = spend.resetsAt.exists(_ < now)
   }
 }

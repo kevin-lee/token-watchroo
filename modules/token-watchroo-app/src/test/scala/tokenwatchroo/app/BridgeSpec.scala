@@ -93,9 +93,7 @@ class BridgeSpec extends munit.FunSuite {
   private def alertAt(index: Int): Alert =
     Alert(
       AgentId.Codex,
-      WindowId.Session,
-      AlertKind.level(AlertLevel.unsafeFrom(70)),
-      resetsAt,
+      AlertSubject.window(WindowId.Session, AlertKind.level(AlertLevel.unsafeFrom(70)), resetsAt),
       UsedPercent.clamp(80.0d + (index % 20).toDouble),
       s"Codex is near its session limit ($index)",
       "82% of the 5 h window used. Resets in 24 minutes.",

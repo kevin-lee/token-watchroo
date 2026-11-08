@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         core.snapshotHandler = { [weak controller, weak store] snapshot in
             controller?.apply(snapshot: snapshot)
             store?.addDetected(snapshot.agents.map(\.id))
+            store?.noteMeters(snapshot.agents)
         }
         core.alertHandler = { alert in Notifier.shared.post(alert) }
 
