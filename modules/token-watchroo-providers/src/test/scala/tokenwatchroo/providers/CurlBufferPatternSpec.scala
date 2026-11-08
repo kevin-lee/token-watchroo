@@ -15,7 +15,9 @@ object CurlBufferPatternSpec extends Properties {
     property("of two changed bytes, the one with the lower index is the first mismatch", testTwoChanged),
   )
 
-  /** A byte at `index` changed by `delta`, which is never a multiple of 256, so the byte is always different. */
+  /** A byte at `index` changed by `delta`, which is never a multiple of 256, so one change always makes the byte
+    * different. Two changes at the same index can put the pattern byte back.
+    */
   final case class Change(index: Int, delta: Int)
 
   private val MaxLength = 512
@@ -67,11 +69,20 @@ object CurlBufferPatternSpec extends Properties {
       change <- genChange(length).log("change")
     } yield firstMismatch(changed(patternBytes(length), change).toArray) ==== Some(change.index)
 
+  /** A change at any index except `taken`, each of the other `length - 1` indexes with the same chance. Two changes at
+    * the same index can cancel each other (deltas that add up to 256), so the second change must not use it (#112).
+    */
+  private def genChangeElsewhere(length: Int, taken: Int): Gen[Change] =
+    for {
+      other <- Gen.int(Range.constant(0, length - 2))
+      delta <- Gen.int(Range.constant(1, 255))
+    } yield Change(if (other >= taken) other + 1 else other, delta)
+
   def testTwoChanged: Property =
     for {
-      length <- Gen.int(Range.linear(1, MaxLength)).log("length")
+      length <- Gen.int(Range.linear(2, MaxLength)).log("length")
       first  <- genChange(length).log("first change")
-      second <- genChange(length).log("second change")
+      second <- genChangeElsewhere(length, first.index).log("second change")
     } yield {
       val body = changed(changed(patternBytes(length), first), second)
       firstMismatch(body.toArray) ==== Some(math.min(first.index, second.index))
