@@ -121,4 +121,30 @@ final class ConfigFileTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
         XCTAssertEqual(String(decoding: try Data(contentsOf: aside), as: UTF8.self), "newer")
     }
+
+    /// Spend levels (#105) are read like the window levels: a wrong type or broken rules give nil, the defaults.
+    func testSpendAlertLevelsAreReadLeniently() throws {
+        try write(#"""
+        {"agents":[{"id":"codex","spendAlertLevels":{"unit":"USD","amounts":[150,180]}},{"id":"claude-code","spendAlertLevels":{"unit":"credits","amounts":[]}}]}
+        """#)
+        XCTAssertEqual(ConfigFile.load(from: url, stateDir: "/state").config.agents.map(\.spendAlertLevels),
+                       [SpendAlertLevels(unit: "USD", amounts: [150, 180]), SpendAlertLevels(unit: "credits", amounts: [])])
+        try write(#"""
+        {"agents":[{"id":"codex","plan":"team","spendAlertLevels":"x"},{"id":"claude-code","spendAlertLevels":{"unit":"usd","amounts":[150]}},{"id":"codex","spendAlertLevels":{"unit":"USD","amounts":[180,150]}}]}
+        """#)
+        let agents = ConfigFile.load(from: url, stateDir: "/state").config.agents
+        XCTAssertEqual(agents.map(\.spendAlertLevels), [nil, nil, nil])
+        XCTAssertEqual(agents.first?.plan, .team)
+    }
+
+    func testSpendAlertLevelsAreWrittenOnlyWhenSet() throws {
+        func json(_ levels: SpendAlertLevels?) throws -> String {
+            var entry = AgentConfig.defaults(.codex)
+            entry.spendAlertLevels = levels
+            return String(decoding: try JSONEncoder().encode(entry), as: UTF8.self)
+        }
+        XCTAssertFalse(try json(nil).contains("spendAlertLevels"))
+        XCTAssertTrue(try json(SpendAlertLevels(unit: "USD", amounts: [150, 180])).contains(#""amounts":[150,180]"#))
+        XCTAssertTrue(try json(SpendAlertLevels(unit: "credits", amounts: [])).contains(#""amounts":[]"#))
+    }
 }

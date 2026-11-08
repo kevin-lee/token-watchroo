@@ -48,14 +48,35 @@ object Fixtures {
       genAlertLevelValues.map(levels => AlertLevels.from(levels).getOrElse(AlertLevels.defaults)),
     )
 
+  val genCurrency: Gen[Currency] =
+    Gen.choice1(
+      Gen.constant(Currency.credits),
+      Gen.element1("USD", "EUR", "AUD").map(code => Currency.iso(CurrencyCode.unsafeFrom(code))),
+    )
+
+  /** Valid amounts: 1 to 5 increasing steps of 1 to 500 from 0. */
+  val genSpendAmountValues: Gen[List[Long]] =
+    Gen.long(Range.linear(1L, 500L)).list(Range.linear(1, 5)).map(_.scanLeft(0L)(_ + _).drop(1))
+
+  val genSpendAlertLevels: Gen[SpendAlertLevels] =
+    Gen.choice1(
+      Gen.constant(SpendAlertLevels.defaults),
+      genCurrency.map(unit => SpendAlertLevels.Amounts(unit, Nil)),
+      for {
+        unit    <- genCurrency
+        amounts <- genSpendAmountValues
+      } yield SpendAlertLevels.from(unit, amounts).getOrElse(SpendAlertLevels.defaults),
+    )
+
   val genAgentConfig: Gen[AgentConfig] =
     for {
-      id      <- genAgentId
-      billing <- genBilling
-      plan    <- genPlanKind
-      enabled <- genEnabled
-      levels  <- genAlertLevels
-    } yield AgentConfig(id, billing, plan, enabled, levels)
+      id          <- genAgentId
+      billing     <- genBilling
+      plan        <- genPlanKind
+      enabled     <- genEnabled
+      levels      <- genAlertLevels
+      spendLevels <- genSpendAlertLevels
+    } yield AgentConfig(id, billing, plan, enabled, levels, spendLevels)
 
   /** Paths without characters that JSON escapes, so the round trip compares plain strings. */
   private val genPath: Gen[NonEmptyString] =
@@ -96,17 +117,29 @@ object Fixtures {
   /** Test input only: the literal must be a non-negative decimal. */
   def amount(s: String): Amount = Amount.unsafeFrom(BigDecimal(s))
 
+  val usd: Currency = Currency.iso(CurrencyCode.unsafeFrom("USD"))
+
+  /** Test input only: the literals must be non-negative decimals. */
+  def spend(currency: Currency, spent: String, limit: String, resetsAt: Option[EpochSeconds]): Spend =
+    Spend(currency, amount(spent), amount(limit), resetsAt)
+
+  /** The window and kind wire values of an alert, for examples written before #105. */
+  def windowKind(alert: Alert): Option[(WindowId, AlertKind)] = alert.subject match {
+    case AlertSubject.Window(window, kind, _) => (window, kind).some
+    case AlertSubject.Spend(_, _) => none[(WindowId, AlertKind)]
+  }
+
+  /** The kind of a spend alert. */
+  def spendKind(alert: Alert): Option[SpendAlertKind] = alert.subject match {
+    case AlertSubject.Window(_, _, _) => none[SpendAlertKind]
+    case AlertSubject.Spend(kind, _) => kind.some
+  }
+
   val genAmount: Gen[Amount] =
     for {
       minor    <- Gen.long(Range.linear(0L, 10000000L))
       exponent <- Gen.int(Range.linear(0, 4))
     } yield Amount.unsafeFrom(BigDecimal(BigInt(minor), exponent))
-
-  val genCurrency: Gen[Currency] =
-    Gen.choice1(
-      Gen.constant(Currency.credits),
-      Gen.element1("USD", "EUR", "AUD").map(code => Currency.iso(CurrencyCode.unsafeFrom(code))),
-    )
 
   val genSpend: Gen[Spend] =
     for {

@@ -9,7 +9,37 @@ object FormatSpec extends Properties {
     example("percent rounds to the nearest integer", testPercent),
     example("long durations follow the design copy", testLongDuration),
     property("percent always ends with a percent sign and holds no decimals", testPercentShape),
+    example("money uses a symbol or the code for currencies and whole numbers for credits", testMoney),
+    example("spendSummary follows the card text", testSpendSummary),
   )
+
+  private def iso(code: String): Currency = Currency.iso(CurrencyCode.unsafeFrom(code))
+
+  def testMoney: Result =
+    Result.all(
+      List(
+        Format.money(Fixtures.amount("0.05"), iso("USD")) ==== "$0.05",
+        Format.money(Fixtures.amount("17000.5"), iso("USD")) ==== "$17,000.50",
+        Format.money(Fixtures.amount("246"), iso("EUR")) ==== "€246.00",
+        Format.money(Fixtures.amount("1500"), iso("JPY")) ==== "¥1,500.00",
+        Format.money(Fixtures.amount("250"), iso("CHF")) ==== "250.00 CHF",
+        Format.money(Fixtures.amount("1234567.891"), iso("GBP")) ==== "£1,234,567.89",
+        Format.money(Fixtures.amount("8000"), Currency.credits) ==== "8,000",
+        Format.money(Fixtures.amount("8000.50"), Currency.credits) ==== "8,000.5",
+        Format.money(Fixtures.amount("0"), Currency.credits) ==== "0",
+        Format.money(Fixtures.amount("999.999"), Currency.credits) ==== "1,000",
+      )
+    )
+
+  def testSpendSummary: Result =
+    Result.all(
+      List(
+        Format.spendSummary(Fixtures.spend(iso("USD"), "246", "300", None)) ==== "$246.00 of $300.00 spent",
+        Format.spendSummary(
+          Fixtures.spend(Currency.credits, "8000", "10000", None)
+        ) ==== "8,000 of 10,000 credits spent",
+      )
+    )
 
   def testPercent: Result =
     Result.all(

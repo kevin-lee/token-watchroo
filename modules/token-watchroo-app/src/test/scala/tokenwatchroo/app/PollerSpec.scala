@@ -146,9 +146,60 @@ class PollerSpec extends munit.FunSuite {
     assertEquals(first.map(_.wire), List("snapshot", "alert"))
     assertEquals(snapshots(first).flatMap(_.agents.map(_.id)), List(AgentId.ClaudeCode, AgentId.Codex))
     assertEquals(snapshots(first).map(_.menubar.kind), List(MenubarKind.Critical))
-    assertEquals(alerts(first).map(_.kind), List(AlertKind.level(AlertLevel.unsafeFrom(85))))
+    assertEquals(alerts(first).map(_.subject.kindWire), List(AlertKind.level(AlertLevel.unsafeFrom(85)).wire))
     assertEquals(first.map(_.seq.value), List(1L, 2L))
     assertEquals(second.drop(2).map(_.wire), List("snapshot"))
+  }
+
+  /** A Claude Enterprise spend of 144.00 of 200.00 USD (72%, #105). */
+  private val claudeSpend: UsageProvider =
+    new Stub(
+      AgentId.ClaudeCode,
+      Detection.Detected,
+      (at, _) =>
+        IO.pure(
+          AgentSnapshot.available(
+            AgentId.ClaudeCode,
+            none[PlanLabel],
+            UsageMeters(
+              Nil,
+              Spend(
+                Currency.iso(CurrencyCode.unsafeFrom("USD")),
+                Amount.unsafeFrom(BigDecimal("144.00")),
+                Amount.unsafeFrom(BigDecimal("200.00")),
+                resetsAt.some,
+              ).some,
+            ),
+            Source.Api,
+            at,
+            none[ErrorMessage],
+          )
+        ),
+    )
+
+  private def spendAlerts(agents: List[AgentConfig]): List[Alert] =
+    (for {
+      (ref, sink, store) <- setup
+      _                  <- Poller.tick(
+                              config.copy(agents = agents),
+                              List(claudeSpend),
+                              sink,
+                              store,
+                              IO.pure(now),
+                              FetchTrigger.Scheduled,
+                            )
+      all                <- ref.get
+    } yield alerts(all)).timeoutAndForget(TestTimeout).unsafeRunSync()
+
+  test("a spend at 72% of its limit with the default spend levels gives a spend-pct70 alert (#105)") {
+    val emitted = spendAlerts(Nil)
+    assertEquals(emitted.map(_.subject.kindWire), List("spend-pct70"))
+    assertEquals(emitted.map(_.subject.windowWire), List("spend"))
+  }
+
+  test("an entry with no spend amounts gives no spend alert (#105)") {
+    val noLevels = SpendAlertLevels.from(Currency.iso(CurrencyCode.unsafeFrom("USD")), Nil).toOption.get
+    assertEquals(spendAlerts(List(AgentConfig.defaults(AgentId.ClaudeCode).copy(spendAlertLevels = noLevels))), Nil)
   }
 
   private def awaitSnapshots(ref: Ref[IO, List[Envelope]], count: Int): IO[Unit] =

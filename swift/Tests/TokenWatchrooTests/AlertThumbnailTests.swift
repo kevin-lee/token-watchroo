@@ -33,4 +33,19 @@ final class AlertThumbnailTests: XCTestCase {
         XCTAssertNil(AlertThumbnail.style(for: "level0", percent: 60))
         XCTAssertNil(AlertThumbnail.style(for: "levelx", percent: 60))
     }
+
+    /// Spend alerts (#105): the band colour of the spend's percent, white under 50, and the reset without an arc.
+    func testASpendAlertHasTheColourOfItsBand() {
+        XCTAssertEqual(AlertThumbnail.style(for: "spend-pct70", percent: 72)?.color, RingIcon.warningColor)
+        XCTAssertEqual(AlertThumbnail.style(for: "spend-amt150", percent: 90)?.color, RingIcon.criticalColor)
+        XCTAssertEqual(AlertThumbnail.style(for: "spend-amt150", percent: 30)?.color, .white)
+        XCTAssertEqual(AlertThumbnail.style(for: "spend-amt150", percent: 30)?.drawsArc, true)
+        let reset = AlertThumbnail.style(for: "spend-reset", percent: 5)
+        XCTAssertEqual(reset?.color, .white)
+        XCTAssertEqual(reset?.drawsArc, false)
+        XCTAssertNil(AlertThumbnail.style(for: "spend-pct0", percent: 60))
+        XCTAssertNil(AlertThumbnail.style(for: "spend-pct101", percent: 60))
+        XCTAssertNil(AlertThumbnail.style(for: "spend-amt0", percent: 60))
+        XCTAssertNil(AlertThumbnail.style(for: "spend-x", percent: 60))
+    }
 }

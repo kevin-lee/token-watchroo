@@ -149,21 +149,55 @@ object codecs {
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
   given snapshotCodec: JsonValueCodec[Snapshot]           =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true).withTransientEmpty(false))
-  given alertPayloadCodec: JsonValueCodec[AlertPayload]   =
+
+  /* Alert: the identifier is added so the shell never has to compute it. `usedPercent` is additive for the shell, which
+   * treats it as optional. A spend alert (#105) has the `window` value `spend` and a `spend-*` kind, and no
+   * `windowResetsAt` when the spend has no reset time. A window alert always has `windowResetsAt`. */
+
+  final private case class AlertPayloadWire(
+    agent: AgentId,
+    window: String,
+    kind: String,
+    windowResetsAt: Option[EpochSeconds],
+    usedPercent: UsedPercent,
+    title: String,
+    body: String,
+    identifier: String,
+  )
+
+  private given alertPayloadWireCodec: JsonValueCodec[AlertPayloadWire] =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
 
+  private def alertSubjectFromWire(w: AlertPayloadWire): Either[String, AlertSubject] =
+    if (w.window === AlertSubject.SpendWire)
+      SpendAlertKind.parse(w.kind).map(kind => AlertSubject.spend(kind, w.windowResetsAt))
+    else
+      for {
+        window   <- WindowId.parse(w.window)
+        kind     <- AlertKind.parse(w.kind)
+        resetsAt <- w.windowResetsAt.toRight(s"A window alert needs windowResetsAt: ${w.window}")
+      } yield AlertSubject.window(window, kind, resetsAt)
+
   given alertCodec: JsonValueCodec[Alert] =
-    mapped[AlertPayload, Alert](
-      _.toAlert,
-      AlertPayload.fromAlert,
+    validating[AlertPayloadWire, Alert](
+      w => alertSubjectFromWire(w).map(subject => Alert(w.agent, subject, w.usedPercent, w.title, w.body)),
+      a =>
+        AlertPayloadWire(
+          a.agent,
+          a.subject.windowWire,
+          a.subject.kindWire,
+          a.subject.resetsAtWire,
+          a.usedPercent,
+          a.title,
+          a.body,
+          a.identifier,
+        ),
       Alert(
         AgentId.ClaudeCode,
-        WindowId.Session,
-        AlertKind.Reset,
-        EpochSeconds(0L),
+        AlertSubject.window(WindowId.Session, AlertKind.Reset, EpochSeconds(0L)),
         UsedPercent.clamp(0.0d),
         "",
-        ""
+        "",
       ),
     )
 
@@ -171,7 +205,14 @@ object codecs {
    * list. In an agent entry only `id` is required: a missing `billing`, `plan` or `enabled` gives its default. An entry
    * with an unknown `id`, `billing` or `plan` is skipped, so a config written by a later version still decodes (#8).
    * A missing `alertLevels`, or levels that break the rules, give the default levels, and the default levels are left
-   * out on write (#9). */
+   * out on write (#9). A missing `spendAlertLevels`, or one with an unknown unit or amounts that break the rules,
+   * gives the default spend levels, and the defaults are left out on write (#105). */
+
+  final private case class SpendAlertLevelsWire(unit: String, amounts: List[Long])
+
+  /* `amounts` is written also when empty, because an empty list means no spend alerts. */
+  private given spendAlertLevelsWireCodec: JsonValueCodec[SpendAlertLevelsWire] =
+    JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true).withTransientEmpty(false))
 
   final private case class AgentConfigWire(
     id: String,
@@ -179,6 +220,7 @@ object codecs {
     plan: Option[String],
     enabled: Option[Boolean],
     alertLevels: Option[List[Int]],
+    spendAlertLevels: Option[SpendAlertLevelsWire],
   )
 
   private given agentConfigWireCodec: JsonValueCodec[AgentConfigWire] =
@@ -195,6 +237,9 @@ object codecs {
       plan,
       w.enabled.fold(Enabled.default)(Enabled.fromBoolean),
       w.alertLevels.flatMap(levels => AlertLevels.from(levels).toOption).getOrElse(AlertLevels.defaults),
+      w.spendAlertLevels
+        .flatMap(levels => Currency.parse(levels.unit).flatMap(SpendAlertLevels.from(_, levels.amounts)).toOption)
+        .getOrElse(SpendAlertLevels.defaults),
     )).toOption
 
   private def agentConfigToWire(a: AgentConfig): AgentConfigWire =
@@ -204,6 +249,10 @@ object codecs {
       a.plan.wire.some,
       a.enabled.isOn.some,
       Option.when(a.alertLevels =!= AlertLevels.defaults)(a.alertLevels.levels.map(_.value)),
+      a.spendAlertLevels match {
+        case SpendAlertLevels.Defaults => none[SpendAlertLevelsWire]
+        case SpendAlertLevels.Amounts(unit, amounts) => SpendAlertLevelsWire(unit.wire, amounts.map(_.value)).some
+      },
     )
 
   final private case class ConfigWire(
@@ -239,7 +288,9 @@ object codecs {
     )
 
   /* Alert state: a map keyed by (agent, window) stored as a list of records with the key fields inlined. A `fired` kind
-   * that this version cannot parse is skipped, so the rest of the file is kept when a later version added kinds (#9). */
+   * that this version cannot parse is skipped, so the rest of the file is kept when a later version added kinds (#9).
+   * Spend records (#105) are a separate `spends` list keyed by agent, so a reader before #105 skips the list and keeps
+   * the window records. A missing `spends` is an empty list. */
 
   final private case class WindowRecordWire(
     agent: AgentId,
@@ -249,7 +300,17 @@ object codecs {
     fired: List[String],
   )
 
-  final private case class AlertStateWire(records: List[WindowRecordWire])
+  final private case class SpendRecordWire(
+    agent: AgentId,
+    currency: Currency,
+    limit: Amount,
+    resetsAt: Option[EpochSeconds],
+    lastSpent: Amount,
+    fired: List[String],
+    seenAt: EpochSeconds,
+  )
+
+  final private case class AlertStateWire(records: List[WindowRecordWire], spends: List[SpendRecordWire])
 
   private given alertStateWireCodec: JsonValueCodec[AlertStateWire] =
     JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(true))
@@ -266,19 +327,45 @@ object codecs {
                 r.fired.flatMap(kind => AlertKind.parse(kind).toOption).toSet,
               )
             }
-            .toMap
+            .toMap,
+          w.spends
+            .map { r =>
+              r.agent -> SpendRecord(
+                r.currency,
+                r.limit,
+                r.resetsAt,
+                r.lastSpent,
+                r.fired.flatMap(kind => SpendAlertKind.parse(kind).toOption).toSet,
+                r.seenAt,
+              )
+            }
+            .toMap,
         ),
       s =>
-        AlertStateWire(s.records.toList.sortBy { case (key, _) => (key.agent.wire, key.window.wire) }.map {
-          case (key, record) =>
-            WindowRecordWire(
-              key.agent,
-              key.window,
-              record.resetsAt,
-              record.lastPercent,
-              record.fired.toList.map(_.wire).sorted
-            )
-        }),
+        AlertStateWire(
+          s.records.toList.sortBy { case (key, _) => (key.agent.wire, key.window.wire) }.map {
+            case (key, record) =>
+              WindowRecordWire(
+                key.agent,
+                key.window,
+                record.resetsAt,
+                record.lastPercent,
+                record.fired.toList.map(_.wire).sorted
+              )
+          },
+          s.spends.toList.sortBy { case (agent, _) => agent.wire }.map {
+            case (agent, record) =>
+              SpendRecordWire(
+                agent,
+                record.currency,
+                record.limit,
+                record.resetsAt,
+                record.lastSpent,
+                record.fired.toList.map(_.wire).sorted,
+                record.seenAt,
+              )
+          },
+        ),
       AlertState.empty,
     )
 
@@ -286,7 +373,7 @@ object codecs {
 
   final private case class EnvelopeHead(version: Int, `type`: String, seq: SequenceNumber)
   final private case class SnapshotBody(data: Snapshot)
-  final private case class AlertBody(data: AlertPayload)
+  final private case class AlertBody(data: Alert)
   final private case class ErrorBody(message: String)
 
   private given envelopeHeadCodec: JsonValueCodec[EnvelopeHead] =
@@ -305,7 +392,7 @@ object codecs {
         val head = readFromArray[EnvelopeHead](raw)
         head.`type` match {
           case "snapshot" => Envelope.snapshot(head.seq, readFromArray[SnapshotBody](raw).data)
-          case "alert" => Envelope.alert(head.seq, readFromArray[AlertBody](raw).data.toAlert)
+          case "alert" => Envelope.alert(head.seq, readFromArray[AlertBody](raw).data)
           case "error" => Envelope.error(head.seq, readFromArray[ErrorBody](raw).message)
           case other => in.decodeError(s"Unknown envelope type: $other")
         }
@@ -325,7 +412,7 @@ object codecs {
             snapshotCodec.encodeValue(data, out)
           case Envelope.Alert(_, data) =>
             out.writeNonEscapedAsciiKey("data")
-            alertPayloadCodec.encodeValue(AlertPayload.fromAlert(data), out)
+            alertCodec.encodeValue(data, out)
           case Envelope.Error(_, message) =>
             out.writeNonEscapedAsciiKey("message")
             out.writeVal(message)

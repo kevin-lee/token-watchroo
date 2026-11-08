@@ -33,6 +33,15 @@ object CodecsSpec extends Properties {
     example("alert kinds use the kept names for 70 and 85 and level<n> for the others", testAlertKindWire),
     example("a fired kind that cannot be parsed is skipped and the rest of the state is kept", testUnknownFiredKind),
     example("alertLevels: absent or broken gives the defaults, the defaults are left out on write", testAlertLevels),
+    example(
+      "spendAlertLevels: absent or broken gives the defaults, the defaults are left out on write",
+      testSpendAlertLevels
+    ),
+    example("alert state with spends round-trips, and a state without spends reads", testSpendState),
+    example("a spend kind that cannot be parsed is skipped and the spend record is kept", testUnknownSpendKind),
+    example("a window record with a spend kind keeps the record without it", testSpendKindInWindowRecord),
+    example("spend alerts round-trip with and without windowResetsAt", testSpendAlertEnvelope),
+    example("alerts with a broken window, kind or reset time fail to decode", testBrokenAlert),
   )
 
   def testConfigRoundTrip: Property =
@@ -66,7 +75,16 @@ object CodecsSpec extends Properties {
         """{"id":"claude-code","billing":"api","plan":"enterprise","enabled":false}""" +
         """]}"""
     codecs.readEither[Config](json).map(_.agents) ==== Right(
-      List(AgentConfig(AgentId.ClaudeCode, Billing.Api, PlanKind.Enterprise, Enabled.Off, AlertLevels.defaults))
+      List(
+        AgentConfig(
+          AgentId.ClaudeCode,
+          Billing.Api,
+          PlanKind.Enterprise,
+          Enabled.Off,
+          AlertLevels.defaults,
+          SpendAlertLevels.defaults
+        )
+      )
     )
   }
 
@@ -75,7 +93,16 @@ object CodecsSpec extends Properties {
     val config = Config
       .default(StateDir(NonEmptyString("/tmp/tw")))
       .copy(agents =
-        List(AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Team, Enabled.On, AlertLevels.defaults))
+        List(
+          AgentConfig(
+            AgentId.Codex,
+            Billing.Subscription,
+            PlanKind.Team,
+            Enabled.On,
+            AlertLevels.defaults,
+            SpendAlertLevels.defaults
+          )
+        )
       )
     codecs
       .write(config)
@@ -249,7 +276,8 @@ object CodecsSpec extends Properties {
             UsedPercent.clamp(68.0d),
             Set(AlertKind.level(AlertLevel.unsafeFrom(70)))
           ),
-      )
+      ),
+      Map.empty[AgentId, SpendRecord],
     )
     Result.all(
       List(
@@ -358,7 +386,8 @@ object CodecsSpec extends Properties {
               UsedPercent.clamp(82.0d),
               Set(AlertKind.level(AlertLevel.unsafeFrom(70)), AlertKind.level(AlertLevel.unsafeFrom(60))),
             )
-        )
+        ),
+        Map.empty[AgentId, SpendRecord],
       )
     )
   }
@@ -386,6 +415,153 @@ object CodecsSpec extends Properties {
         written(AlertLevels.defaults).contains("alertLevels") ==== false,
         written(sixtyNinety).contains(""""alertLevels":[60,90]""") ==== true,
         written(AlertLevels.none).contains(""""alertLevels":[]""") ==== true,
+      )
+    )
+  }
+
+  def testSpendAlertLevels: Result = {
+    def entry(levels: String): String                                       =
+      s"""{"stateDir":"/tmp/tw","refreshIntervalSeconds":60,"agents":[{"id":"codex","plan":"team"$levels}]}"""
+    def levelsOf(json: String): Either[DecodeError, List[SpendAlertLevels]] =
+      codecs.readEither[Config](json).map(_.agents.map(_.spendAlertLevels))
+    def from(unit: Currency, values: Long*): SpendAlertLevels               =
+      SpendAlertLevels.from(unit, values.toList).fold(reason => sys.error(reason), identity)
+    def written(levels: SpendAlertLevels): String                           =
+      codecs.write(
+        Config
+          .default(StateDir(NonEmptyString("/tmp/tw")))
+          .copy(agents = List(AgentConfig.defaults(AgentId.Codex).copy(spendAlertLevels = levels)))
+      )
+    Result.all(
+      List(
+        levelsOf(entry("")) ==== Right(List(SpendAlertLevels.defaults)),
+        levelsOf(entry(""","spendAlertLevels":{"unit":"USD","amounts":[150,180]}""")) ====
+          Right(List(from(Fixtures.usd, 150L, 180L))),
+        levelsOf(entry(""","spendAlertLevels":{"unit":"credits","amounts":[]}""")) ====
+          Right(List(from(Currency.credits))),
+        levelsOf(entry(""","spendAlertLevels":{"unit":"usd","amounts":[150]}""")) ====
+          Right(List(SpendAlertLevels.defaults)),
+        levelsOf(entry(""","spendAlertLevels":{"unit":"USD","amounts":[180,150]}""")) ====
+          Right(List(SpendAlertLevels.defaults)),
+        codecs
+          .readEither[Config](entry(""","spendAlertLevels":{"unit":"USD","amounts":[180,150]}"""))
+          .map(
+            _.agents.map(_.plan)
+          ) ==== Right(List(PlanKind.Team)),
+        written(SpendAlertLevels.defaults).contains("spendAlertLevels") ==== false,
+        written(from(Fixtures.usd, 150L, 180L)).contains(
+          """"spendAlertLevels":{"unit":"USD","amounts":[150,180]}"""
+        ) ==== true,
+        written(from(Currency.credits)).contains(""""spendAlertLevels":{"unit":"credits","amounts":[]}""") ==== true,
+      )
+    )
+  }
+
+  private val spendRecord: SpendRecord =
+    SpendRecord(
+      Currency.credits,
+      Fixtures.amount("10000"),
+      none[EpochSeconds],
+      Fixtures.amount("8600"),
+      Set(
+        SpendAlertKind.percent(AlertLevel.unsafeFrom(70)),
+        SpendAlertKind.percent(AlertLevel.unsafeFrom(85)),
+      ),
+      EpochSeconds(1789185600L),
+    )
+
+  def testSpendState: Result = {
+    val state = AlertState(
+      Map.empty[WindowKey, WindowRecord],
+      Map(
+        AgentId.Codex      -> spendRecord,
+        AgentId.ClaudeCode ->
+          SpendRecord(
+            Fixtures.usd,
+            Fixtures.amount("200.00"),
+            EpochSeconds(1790812800L).some,
+            Fixtures.amount("0.05"),
+            Set.empty[SpendAlertKind],
+            EpochSeconds(1789185600L),
+          ),
+      ),
+    )
+    Result.all(
+      List(
+        codecs.readEither[AlertState](codecs.write(state)) ==== Right(state),
+        codecs.write(state).contains(""""spends":[{"agent":"claude-code",""") ==== true,
+        codecs.readEither[AlertState]("""{"records":[]}""") ==== Right(AlertState.empty),
+      )
+    )
+  }
+
+  def testUnknownSpendKind: Result = {
+    val json =
+      """{"records":[],"spends":[{"agent":"codex","currency":"credits","limit":"10000","lastSpent":"8600",""" +
+        """"fired":["spend-pct70","spend-later","spend-pct85"],"seenAt":1789185600}]}"""
+    codecs.readEither[AlertState](json) ==== Right(
+      AlertState(Map.empty[WindowKey, WindowRecord], Map(AgentId.Codex -> spendRecord))
+    )
+  }
+
+  /** A reader that knows only window kinds (#9) skips the spend kinds, as this version skips any unknown kind. */
+  def testSpendKindInWindowRecord: Result = {
+    val json =
+      """{"records":[{"agent":"codex","window":"session","resetsAt":1789187040,"lastPercent":82.0,""" +
+        """"fired":["threshold80","spend-pct70"]}]}"""
+    codecs.readEither[AlertState](json) ==== Right(
+      AlertState(
+        Map(
+          WindowKey(AgentId.Codex, WindowId.Session) ->
+            WindowRecord(
+              EpochSeconds(1789187040L),
+              UsedPercent.clamp(82.0d),
+              Set(AlertKind.level(AlertLevel.unsafeFrom(70))),
+            )
+        ),
+        Map.empty[AgentId, SpendRecord],
+      )
+    )
+  }
+
+  def testSpendAlertEnvelope: Result = {
+    val now      = EpochSeconds(1789185600L)
+    val monthly  = AlertText.spendLevel(
+      AgentId.ClaudeCode,
+      Fixtures.spend(Fixtures.usd, "145", "200", EpochSeconds(1790812800L).some),
+      now,
+      SpendAlertKind.percent(AlertLevel.unsafeFrom(70)),
+    )
+    val noReset  = AlertText.spendLevel(
+      AgentId.Codex,
+      Fixtures.spend(Currency.credits, "8600", "10000", none[EpochSeconds]),
+      now,
+      SpendAlertKind.amount(SpendLevel.unsafeFrom(8500L)),
+    )
+    val envelope = (alert: Alert) => Envelope.alert(SequenceNumber(7L), alert)
+    val json     = codecs.write(envelope(noReset))
+    Result.all(
+      List(
+        codecs.readEither[Envelope](codecs.write(envelope(monthly))) ==== Right(envelope(monthly)),
+        codecs.readEither[Envelope](json) ==== Right(envelope(noReset)),
+        json.contains(""""window":"spend","kind":"spend-amt8500"""") ==== true,
+        json.contains("windowResetsAt") ==== false,
+        json.contains(""""identifier":"codex.spend.none.spend-amt8500"""") ==== true,
+      )
+    )
+  }
+
+  def testBrokenAlert: Result = {
+    def alert(window: String, kind: String, resetsAt: String): String =
+      s"""{"version":1,"type":"alert","seq":1,"data":{"agent":"codex","window":"$window","kind":"$kind",""" +
+        s"""$resetsAt"usedPercent":82.0,"title":"t","body":"b","identifier":"i"}}"""
+    Result.all(
+      List(
+        codecs.readEither[Envelope](alert("session", "threshold80", "")).isLeft ==== true,
+        codecs.readEither[Envelope](alert("spend", "threshold80", "")).isLeft ==== true,
+        codecs.readEither[Envelope](alert("session", "spend-pct70", """"windowResetsAt":1,""")).isLeft ==== true,
+        codecs.readEither[Envelope](alert("budget", "spend-pct70", "")).isLeft ==== true,
+        codecs.readEither[Envelope](alert("session", "threshold80", """"windowResetsAt":1,""")).isRight ==== true,
       )
     )
   }

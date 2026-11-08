@@ -5,6 +5,12 @@ import AppKit
 /// button, and a "+" button under the rows. Levels that break the rules mark their fields, show the rule in red and
 /// disable Add or Save. The API variant has no budget row (m5) and no Alert-at row, because an API entry gives an
 /// unavailable card that never alerts.
+///
+/// The "Spend alerts" row (#105) is shown for a subscription whose last snapshot had a spend: a pop-up for the default
+/// levels (70% and 85% of the limit) or amounts, and for amounts one row per amount with the unit, a chip with the
+/// amount's colour and percent of the limit, and a "−" button, and a "+" button under the rows. Before the first
+/// snapshot the row is read-only, because the unit and the limit are known only after a fetch. The row is hidden when
+/// the last snapshot had no spend.
 @MainActor
 final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
 
@@ -23,6 +29,22 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     static let alertAtHint = "A window alerts when its usage reaches a level. Up to 5 levels, at least 5 apart."
     static let noLevelsHint = "No window alerts for this agent."
     static let maxLevelsHint = "5 levels is the maximum."
+    static let spendAlertsTitle = "Spend alerts"
+    static let spendDefaultTitle = "70% and 85% of the limit"
+    static let spendAmountsTitle = "Amounts"
+    static let spendHint = "A spend alert comes when the spent amount reaches a level. Up to 5 levels."
+    static let noSpendLevelsHint = "No spend alerts for this agent."
+    static let spendUnknownHint = "Amounts can be set after the first refresh reads the limit."
+    static func unitMismatchHint(stored: String, meter: String) -> String {
+        "Set for \(stored). The limit is now in \(meter)."
+    }
+
+    /// How the spend levels are chosen in the pop-up.
+    enum SpendMode {
+        case defaults
+        case amounts
+    }
+
     static let errorColor = NSColor(srgbRed: 0xC4 / 255, green: 0x29 / 255, blue: 0x1C / 255, alpha: 1)
 
     private static let padding: CGFloat = 16
@@ -47,9 +69,25 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     private let alertAtHintLabel = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.secondaryText)
     private var confirmButton = NSButton()
 
-    /// `completion` gets the entry for "Add" or "Save", and nil for "Cancel".
-    init(mode: Mode, completion: @escaping (AgentConfig?) -> Void) {
+    private let meters: [AgentId: SpendMeterInfo]
+    private var spendAlertsRow = NSStackView()
+    private let spendModePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let spendDetail = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.primaryText)
+    private let spendRows = NSStackView()
+    private var spendFields: [NSTextField] = []
+    private var spendUnitLabels: [NSTextField] = []
+    private var spendChipLabels: [NSTextField] = []
+    private var spendChipDots: [NSView] = []
+    private let noSpendLevels = AddAgentSheet.label("No levels", size: 12, weight: .regular,
+                                                    color: Palette.secondaryText)
+    private let addSpendButton = NSButton(title: "+", target: nil, action: nil)
+    private let spendHintLabel = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.secondaryText)
+
+    /// `completion` gets the entry for "Add" or "Save", and nil for "Cancel". `meters` are the spend meters of the
+    /// agents from their last snapshots (#105).
+    init(mode: Mode, meters: [AgentId: SpendMeterInfo] = [:], completion: @escaping (AgentConfig?) -> Void) {
         self.mode = mode
+        self.meters = meters
         self.completion = completion
         super.init(nibName: nil, bundle: nil)
     }
@@ -119,6 +157,51 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         billingChanged(nil)
     }
 
+    /// Chooses an agent in add mode, as a user does.
+    func selectAgent(_ id: AgentId) {
+        guard case .add(let addable) = mode, let index = addable.firstIndex(of: id) else { return }
+        agentPopUp.selectItem(at: index)
+        agentChanged(nil)
+    }
+
+    var isSpendAlertsVisible: Bool { !spendAlertsRow.isHidden }
+    var isSpendModeEnabled: Bool { spendModePopUp.isEnabled }
+    var spendModeTitle: String { spendModePopUp.titleOfSelectedItem ?? "" }
+    var spendDetailText: String { spendDetail.isHidden ? "" : spendDetail.stringValue }
+    var spendTexts: [String] { spendRows.isHidden ? [] : spendFields.map(\.stringValue) }
+    var spendChips: [String] { spendChipLabels.map(\.stringValue) }
+    var spendUnitText: String { spendUnitLabels.first?.stringValue ?? "" }
+    var spendHintText: String { spendHintLabel.isHidden ? "" : spendHintLabel.stringValue }
+    var isAddSpendLevelEnabled: Bool { addSpendButton.isEnabled }
+
+    func isSpendMarked(at index: Int) -> Bool {
+        spendFields.indices.contains(index) && spendFields[index].layer?.borderWidth ?? 0 > 0
+    }
+
+    func selectSpendMode(_ spendMode: SpendMode) {
+        spendModePopUp.selectItem(at: spendMode == .defaults ? 0 : 1)
+        spendModeChanged(nil)
+    }
+
+    /// Types `text` into the amount row and ends the editing, as a user does.
+    func setSpendText(_ text: String, at index: Int) {
+        guard spendFields.indices.contains(index) else { return }
+        spendFields[index].stringValue = text
+        updateSpend()
+        commitSpend()
+    }
+
+    func addSpendLevel() {
+        addSpendLevel(nil)
+    }
+
+    func removeSpendLevel(at index: Int) {
+        guard spendFields.indices.contains(index) else { return }
+        var texts = spendFields.map(\.stringValue)
+        texts.remove(at: index)
+        setSpendRows(texts)
+    }
+
     // MARK: view
 
     override func loadView() {
@@ -129,6 +212,8 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
             title = AddAgentSheet.addTitle
             confirmTitle = "Add"
             agentPopUp.addItems(withTitles: addable.map(\.displayName))
+            agentPopUp.target = self
+            agentPopUp.action = #selector(agentChanged(_:))
         case .edit(let agent):
             title = AddAgentSheet.editTitle
             confirmTitle = "Save"
@@ -160,11 +245,30 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         levels.spacing = 6
         alertAtRow = AddAgentSheet.field("Alert at", levels, alertAtHintLabel)
 
+        spendModePopUp.addItems(withTitles: [AddAgentSheet.spendDefaultTitle, AddAgentSheet.spendAmountsTitle])
+        spendModePopUp.target = self
+        spendModePopUp.action = #selector(spendModeChanged(_:))
+        spendRows.orientation = .vertical
+        spendRows.alignment = .leading
+        spendRows.spacing = 6
+        addSpendButton.target = self
+        addSpendButton.action = #selector(addSpendLevel(_:))
+        addSpendButton.bezelStyle = .smallSquare
+        addSpendButton.setAccessibilityLabel("Add a spend level")
+        addSpendButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        addSpendButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        let spend = NSStackView(views: [spendModePopUp, spendDetail, spendRows, noSpendLevels, addSpendButton])
+        spend.orientation = .vertical
+        spend.alignment = .leading
+        spend.spacing = 6
+        spendAlertsRow = AddAgentSheet.field(AddAgentSheet.spendAlertsTitle, spend, spendHintLabel)
+
         let fields = NSStackView(views: [
             AddAgentSheet.field("Agent", agentPopUp),
             AddAgentSheet.field("Billing", billingControl),
             AddAgentSheet.field("Plan", planPopUp, hint),
             alertAtRow,
+            spendAlertsRow,
         ])
         fields.orientation = .vertical
         fields.alignment = .leading
@@ -199,7 +303,7 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
             container.widthAnchor.constraint(equalToConstant: AddAgentSheet.width),
             buttons.widthAnchor.constraint(equalToConstant: AddAgentSheet.fieldWidth),
         ])
-        [agentPopUp, billingControl, planPopUp].forEach {
+        [agentPopUp, billingControl, planPopUp, spendModePopUp].forEach {
             $0.widthAnchor.constraint(equalToConstant: AddAgentSheet.fieldWidth).isActive = true
         }
         view = container
@@ -233,6 +337,13 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
             alertAtRow.isHidden = true
         }
         updateLevels()
+        configureSpend()
+        fitWindow()
+    }
+
+    /// In add mode the Spend alerts row follows the chosen agent (#105).
+    @objc private func agentChanged(_ sender: Any?) {
+        configureSpend()
         fitWindow()
     }
 
@@ -328,7 +439,14 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
                 : texts.count >= AlertLevelRules.maxCount ? AddAgentSheet.maxLevelsHint : AddAgentSheet.alertAtHint
             alertAtHintLabel.textColor = Palette.secondaryText
         }
-        confirmButton.isEnabled = selectedBilling == .api || problem == nil
+        updateConfirm()
+    }
+
+    /// Add or Save is disabled while a level row or an amount row breaks a rule. An API entry has neither row.
+    private func updateConfirm() {
+        let levelProblem = AlertLevelRules.problem(levelTexts)
+        let spendProblem = isAmountsActive ? SpendAlertLevelRules.problem(spendFields.map(\.stringValue)) : nil
+        confirmButton.isEnabled = selectedBilling == .api || (levelProblem == nil && spendProblem == nil)
     }
 
     /// Sorts the rows when every field is a whole number from 1 to 100.
@@ -345,11 +463,16 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
-        updateLevels()
+        if isSpendField(obj.object) { updateSpend() } else { updateLevels() }
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
-        commitLevels()
+        if isSpendField(obj.object) { commitSpend() } else { commitLevels() }
+    }
+
+    private func isSpendField(_ object: Any?) -> Bool {
+        guard let field = object as? NSTextField else { return false }
+        return spendFields.contains { $0 === field }
     }
 
     @objc private func addLevel(_ sender: Any?) {
@@ -362,6 +485,226 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
 
     @objc private func removeLevelRow(_ sender: NSButton) {
         removeLevel(at: sender.tag)
+    }
+
+    // MARK: spend alerts (#105)
+
+    private var currentMeter: SpendMeterInfo? {
+        selectedAgent.flatMap { meters[$0] }
+    }
+
+    /// The spend levels of the edited entry, nil for a new one or the defaults.
+    private var storedSpend: SpendAlertLevels? {
+        switch mode {
+        case .add: return nil
+        case .edit(let agent): return agent.spendAlertLevels
+        }
+    }
+
+    /// The amount rows are in use: a subscription with a known spend meter and "Amounts" chosen.
+    private var isAmountsActive: Bool {
+        guard selectedBilling == .subscription, case .spend? = currentMeter else { return false }
+        return spendModePopUp.indexOfSelectedItem == 1
+    }
+
+    /// Shows the row for the chosen agent and billing, with the stored levels.
+    private func configureSpend() {
+        switch (selectedBilling, currentMeter) {
+        case (.api, _), (_, .noSpend?):
+            spendAlertsRow.isHidden = true
+        case (.subscription, nil):
+            spendAlertsRow.isHidden = false
+            spendModePopUp.isEnabled = false
+            spendModePopUp.selectItem(at: storedSpend == nil ? 0 : 1)
+            setSpendRows([])
+        case (.subscription, .spend(let currency, _)?):
+            spendAlertsRow.isHidden = false
+            spendModePopUp.isEnabled = true
+            if let stored = storedSpend, stored.amounts.isEmpty || stored.unit == currency {
+                spendModePopUp.selectItem(at: 1)
+                setSpendRows(stored.amounts.map(String.init))
+            } else {
+                spendModePopUp.selectItem(at: 0)
+                setSpendRows([])
+            }
+        }
+        updateSpend()
+    }
+
+    /// "Amounts" starts from the stored amounts in the meter's unit, else from the default amounts.
+    @objc private func spendModeChanged(_ sender: Any?) {
+        if spendModePopUp.indexOfSelectedItem == 1, case .spend(let currency, let limit)? = currentMeter {
+            if let stored = storedSpend, stored.unit == currency || stored.amounts.isEmpty {
+                setSpendRows(stored.amounts.map(String.init))
+            } else {
+                setSpendRows(SpendAlertLevelRules.defaultWholeAmounts(limit: limit).map(String.init))
+            }
+        } else {
+            setSpendRows([])
+        }
+        fitWindow()
+    }
+
+    private func setSpendRows(_ texts: [String]) {
+        spendRows.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        spendFields = []
+        spendUnitLabels = []
+        spendChipLabels = []
+        spendChipDots = []
+        for (index, text) in texts.enumerated() {
+            spendRows.addArrangedSubview(spendRow(text, index: index))
+        }
+        updateSpend()
+        fitWindow()
+    }
+
+    private func spendRow(_ text: String, index: Int) -> NSStackView {
+        let field = NSTextField(string: text)
+        field.font = .systemFont(ofSize: 13)
+        field.alignment = .right
+        field.delegate = self
+        field.wantsLayer = true
+        field.layer?.cornerRadius = 4
+        field.setAccessibilityLabel("Spend alert level \(index + 1), amount")
+        field.widthAnchor.constraint(equalToConstant: 96).isActive = true
+        let unit = AddAgentSheet.label(unitText, size: 12, weight: .regular, color: Palette.secondaryText)
+
+        let dot = NSView()
+        dot.wantsLayer = true
+        dot.layer?.cornerRadius = 4
+        dot.widthAnchor.constraint(equalToConstant: 8).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        let chip = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.secondaryText)
+        chip.lineBreakMode = .byTruncatingTail
+        chip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let remove = NSButton(title: "−", target: self, action: #selector(removeSpendRow(_:)))
+        remove.tag = index
+        remove.bezelStyle = .smallSquare
+        remove.setAccessibilityLabel("Remove this spend level")
+        remove.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        remove.heightAnchor.constraint(equalToConstant: 28).isActive = true
+
+        let row = NSStackView(views: [field, unit, dot, chip, spacer, remove])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 6
+        row.setCustomSpacing(10, after: unit)
+        row.widthAnchor.constraint(equalToConstant: AddAgentSheet.fieldWidth).isActive = true
+        spendFields.append(field)
+        spendUnitLabels.append(unit)
+        spendChipLabels.append(chip)
+        spendChipDots.append(dot)
+        return row
+    }
+
+    /// "USD" for an ISO currency, "credits" for credits.
+    private var unitText: String {
+        if case .spend(let currency, _)? = currentMeter { return currency }
+        return ""
+    }
+
+    /// The pop-up, the detail, the rows, "+" and the hint for the current state, then Add or Save.
+    private func updateSpend() {
+        let amounts = isAmountsActive
+        spendDetail.isHidden = amounts
+        spendRows.isHidden = !amounts
+        addSpendButton.isHidden = !amounts
+        noSpendLevels.isHidden = !(amounts && spendFields.isEmpty)
+        spendDetail.stringValue = spendDetailFor()
+
+        if amounts, case .spend(_, let limit)? = currentMeter {
+            let texts = spendFields.map(\.stringValue)
+            let marked = SpendAlertLevelRules.marked(texts)
+            let problem = SpendAlertLevelRules.problem(texts)
+            for (index, field) in spendFields.enumerated() {
+                field.layer?.borderWidth = marked.contains(index) ? 1.5 : 0
+                field.layer?.borderColor = AddAgentSheet.errorColor.cgColor
+                let amount = SpendAlertLevelRules.amount(texts[index])
+                spendChipLabels[index].stringValue = amount.map { SpendAlertLevelRules.chip(amount: $0, limit: limit) }
+                    ?? ""
+                let percent = amount.flatMap { SpendAlertLevelRules.percent(of: $0, limit: limit) }
+                let color = percent.flatMap { $0 <= 100 ? RingIcon.color(for: UsageBand.of(percent: $0)) : nil }
+                let dot = spendChipDots[index].layer
+                dot?.backgroundColor = amount == nil ? nil : (color ?? .white).cgColor
+                dot?.borderWidth = amount != nil && color == nil ? 1 : 0
+                dot?.borderColor = Palette.secondaryText.cgColor
+            }
+            addSpendButton.isEnabled = texts.count < SpendAlertLevelRules.maxCount && problem == nil
+            if let problem {
+                setSpendHint(problem, color: AddAgentSheet.errorColor)
+            } else {
+                setSpendHint(texts.isEmpty ? AddAgentSheet.noSpendLevelsHint
+                             : texts.count >= SpendAlertLevelRules.maxCount ? AddAgentSheet.maxLevelsHint
+                             : AddAgentSheet.spendHint, color: Palette.secondaryText)
+            }
+        } else if currentMeter == nil {
+            setSpendHint(AddAgentSheet.spendUnknownHint, color: Palette.secondaryText)
+        } else if case .spend(let currency, _)? = currentMeter, let stored = storedSpend, !stored.amounts.isEmpty,
+                  stored.unit != currency {
+            setSpendHint(AddAgentSheet.unitMismatchHint(stored: stored.unit, meter: currency),
+                         color: Palette.secondaryText)
+        } else {
+            setSpendHint("", color: Palette.secondaryText)
+        }
+        updateConfirm()
+    }
+
+    private func setSpendHint(_ text: String, color: NSColor) {
+        spendHintLabel.stringValue = text
+        spendHintLabel.textColor = color
+        spendHintLabel.isHidden = text.isEmpty
+    }
+
+    /// "Now $140.00 and $170.00 of $200.00." for a known meter. Before the first snapshot: the stored amounts
+    /// ("At 150 and 180 USD."), "No spend alerts for this agent." or the default title.
+    private func spendDetailFor() -> String {
+        switch currentMeter {
+        case .spend(let currency, let limit)?:
+            let amounts = SpendAlertLevelRules.defaultAmounts(limit: limit)
+                .map { Formatting.money($0, currency: currency) }
+            let limitText = Formatting.money(limit, currency: currency)
+            let unit = currency == "credits" ? " credits" : ""
+            return "Now \(AddAgentSheet.joined(amounts)) of \(limitText)\(unit)."
+        case .noSpend?, nil:
+            guard let stored = storedSpend else { return "\(AddAgentSheet.spendDefaultTitle)." }
+            if stored.amounts.isEmpty { return AddAgentSheet.noSpendLevelsHint }
+            return "At \(AddAgentSheet.joined(stored.amounts.map(String.init))) \(stored.unit)."
+        }
+    }
+
+    /// "a", "a and b", "a, b and c".
+    private static func joined(_ items: [String]) -> String {
+        guard let last = items.last else { return "" }
+        let rest = items.dropLast()
+        return rest.isEmpty ? last : "\(rest.joined(separator: ", ")) and \(last)"
+    }
+
+    /// Sorts the amount rows when every field is a whole amount.
+    private func commitSpend() {
+        let texts = spendFields.map(\.stringValue)
+        let amounts = texts.compactMap(SpendAlertLevelRules.amount)
+        guard amounts.count == texts.count else { return }
+        let sorted = amounts.sorted().map(String.init)
+        if sorted != texts {
+            setSpendRows(sorted)
+        } else {
+            updateSpend()
+        }
+    }
+
+    @objc private func addSpendLevel(_ sender: Any?) {
+        updateSpend()
+        guard addSpendButton.isEnabled, case .spend(_, let limit)? = currentMeter else { return }
+        let amounts = spendFields.map(\.stringValue).compactMap(SpendAlertLevelRules.amount)
+        let next = SpendAlertLevelRules.nextAmount(after: amounts, limit: limit)
+        setSpendRows((amounts + [next]).sorted().map(String.init))
+    }
+
+    @objc private func removeSpendRow(_ sender: NSButton) {
+        removeSpendLevel(at: sender.tag)
     }
 
     /// The height the sheet needs for its content, for tests.
@@ -378,7 +721,19 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         case .add: enabled = .on
         case .edit(let agent): enabled = agent.enabled
         }
-        return AgentConfig(id: id, billing: selectedBilling, plan: selectedPlan, enabled: enabled, alertLevels: alertLevels)
+        return AgentConfig(id: id, billing: selectedBilling, plan: selectedPlan, enabled: enabled,
+                           alertLevels: alertLevels, spendAlertLevels: spendAlertLevels)
+    }
+
+    /// A subscription with a known spend meter gets nil for the defaults and the sorted amount rows in the meter's
+    /// unit for "Amounts" (#105). Any other case keeps the edited entry's value, or nil when added.
+    private var spendAlertLevels: SpendAlertLevels? {
+        if selectedBilling == .subscription, case .spend(let currency, _)? = currentMeter {
+            guard isAmountsActive else { return nil }
+            let amounts = spendFields.map(\.stringValue).compactMap(SpendAlertLevelRules.amount).sorted()
+            return SpendAlertLevels(unit: currency, amounts: amounts)
+        }
+        return storedSpend
     }
 
     /// A subscription gets the levels of the rows, sorted. An API entry has no Alert-at row, so it keeps the edited

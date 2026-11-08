@@ -19,6 +19,7 @@ object AgentConfigSpec extends Properties {
     example("an empty list keeps AgentId order", testOrderedEmpty),
     property("a new order, plan or interval needs no fetch", testNoFetch),
     property("a change of alert levels only needs no fetch", testNoFetchForLevels),
+    property("a change of spend alert levels only needs no fetch", testNoFetchForSpendLevels),
     example(
       "enabling, disabling, billing, codexHome and claudeCodeVersionOverride changes need a fetch",
       testFetch,
@@ -75,6 +76,18 @@ object AgentConfigSpec extends Properties {
     } yield {
       val old  = configWith(agents*)
       val next = old.copy(agents = agents.map(_.copy(alertLevels = levels)))
+      Result.assert(!AgentChoice.needsFetch(old, next, AgentId.all))
+    }
+
+  /** The spend levels are used by the alert engine at the next tick (#105), so a change does not fetch again. */
+  def testNoFetchForSpendLevels: Property =
+    for {
+      all <- Fixtures.genAgentConfig.list(Range.linear(1, 3)).log("all")
+      agents = all.distinctBy(_.id)
+      levels <- Fixtures.genSpendAlertLevels.log("levels")
+    } yield {
+      val old  = configWith(agents*)
+      val next = old.copy(agents = agents.map(_.copy(spendAlertLevels = levels)))
       Result.assert(!AgentChoice.needsFetch(old, next, AgentId.all))
     }
 
@@ -151,8 +164,22 @@ object AgentConfigSpec extends Properties {
     }
 
   def testFirstEntryWins: Result = {
-    val first  = AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Team, Enabled.On, AlertLevels.defaults)
-    val second = AgentConfig(AgentId.Codex, Billing.Subscription, PlanKind.Individual, Enabled.Off, AlertLevels.none)
+    val first  = AgentConfig(
+      AgentId.Codex,
+      Billing.Subscription,
+      PlanKind.Team,
+      Enabled.On,
+      AlertLevels.defaults,
+      SpendAlertLevels.defaults
+    )
+    val second = AgentConfig(
+      AgentId.Codex,
+      Billing.Subscription,
+      PlanKind.Individual,
+      Enabled.Off,
+      AlertLevels.none,
+      SpendAlertLevels.defaults
+    )
     AgentChoice.of(configWith(first, second), AgentId.Codex) ==== AgentChoice.fetch(PlanKind.Team)
   }
 
