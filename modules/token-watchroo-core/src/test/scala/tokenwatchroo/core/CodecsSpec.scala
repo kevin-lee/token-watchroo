@@ -42,6 +42,11 @@ object CodecsSpec extends Properties {
     example("a window record with a spend kind keeps the record without it", testSpendKindInWindowRecord),
     example("spend alerts round-trip with and without windowResetsAt", testSpendAlertEnvelope),
     example("alerts with a broken window, kind or reset time fail to decode", testBrokenAlert),
+    example(
+      "claudeConfigDir: absent or not absolute is not set and the other fields are kept, not set is left out",
+      testClaudeConfigDir,
+    ),
+    example("claudeConfigDir keeps the exact text, a trailing slash and NFD included", testClaudeConfigDirExact),
   )
 
   def testConfigRoundTrip: Property =
@@ -66,6 +71,38 @@ object CodecsSpec extends Properties {
       .readEither[Config]("""{"stateDir":"/tmp/tw","refreshIntervalSeconds":60,"agents":[{"id":"codex"}]}""")
       .map(_.agents) ==== Right(List(AgentConfig.defaults(AgentId.Codex)))
 
+  private def claudeEntry(field: String): String =
+    s"""{"stateDir":"/tmp/tw","refreshIntervalSeconds":60,"agents":[{"id":"claude-code","plan":"team"$field}]}"""
+
+  /** A file from #105 has no field. A value that is not absolute is read as not set (#91). */
+  def testClaudeConfigDir: Result = {
+    val team = AgentConfig.defaults(AgentId.ClaudeCode).copy(plan = PlanKind.Team)
+    Result.all(
+      List(
+        codecs.readEither[Config](claudeEntry("")).map(_.agents) ==== Right(List(team)),
+        codecs.readEither[Config](claudeEntry(""","claudeConfigDir":"relative/x"""")).map(_.agents) ====
+          Right(List(team)),
+        codecs.readEither[Config](claudeEntry(""","claudeConfigDir":"~/x"""")).map(_.agents) ==== Right(List(team)),
+        codecs.readEither[Config](claudeEntry(""","claudeConfigDir":""""")).map(_.agents) ==== Right(List(team)),
+        Result.assert(!codecs.write(configWithAgent(team)).contains("claudeConfigDir")),
+      )
+    )
+  }
+
+  def testClaudeConfigDirExact: Result = {
+    val texts = List("/Users/alex/.claude-work", "/Users/alex/.claude-work/", "/Users/alex/Cafe\u0301")
+    Result.all(
+      texts.map { text =>
+        val expected = ClaudeConfigDir.unsafeFrom(text)
+        codecs.readEither[Config](claudeEntry(s""","claudeConfigDir":"$text"""")).map(_.claudeConfigDir) ====
+          Right(expected.some)
+      }
+    )
+  }
+
+  private def configWithAgent(agent: AgentConfig): Config =
+    Config.default(StateDir(NonEmptyString("/tmp/tw"))).copy(agents = List(agent))
+
   def testAgentEntrySkipped: Result = {
     val json =
       """{"stateDir":"/tmp/tw","refreshIntervalSeconds":60,"agents":[""" +
@@ -82,7 +119,8 @@ object CodecsSpec extends Properties {
           PlanKind.Enterprise,
           Enabled.Off,
           AlertLevels.defaults,
-          SpendAlertLevels.defaults
+          SpendAlertLevels.defaults,
+          none[ClaudeConfigDir],
         )
       )
     )
@@ -100,7 +138,8 @@ object CodecsSpec extends Properties {
             PlanKind.Team,
             Enabled.On,
             AlertLevels.defaults,
-            SpendAlertLevels.defaults
+            SpendAlertLevels.defaults,
+            none[ClaudeConfigDir],
           )
         )
       )

@@ -180,6 +180,29 @@ object Fakes {
       Ref.of[IO, List[KeychainRead]](Nil).map(new KeyedKeychain(items, _))
   }
 
+  /** One item for each service and account (`None` is the read with no account). A missing pair is
+    * `CredentialsMissing` (#91).
+    */
+  final class ServiceKeychain(
+    items: Map[(String, Option[KeychainAccount]), Either[ProviderError, String]],
+    recorded: Ref[IO, List[KeychainRead]],
+  ) extends KeychainReader {
+    override def readGenericPassword(
+      service: String,
+      account: Option[KeychainAccount],
+      timeout: FiniteDuration,
+    ): IO[Either[ProviderError, String]] =
+      recorded.update(_ :+ KeychainRead(service, account, timeout)) >>
+        IO.pure(items.getOrElse((service, account), ProviderError.credentialsMissing.asLeft[String]))
+
+    def calls: IO[List[KeychainRead]] = recorded.get
+  }
+
+  object ServiceKeychain {
+    def make(items: Map[(String, Option[KeychainAccount]), Either[ProviderError, String]]): IO[ServiceKeychain] =
+      Ref.of[IO, List[KeychainRead]](Nil).map(new ServiceKeychain(items, _))
+  }
+
   final class FakeCodexAuth(result: Either[ProviderError, CodexOAuth]) extends CodexAuthReader {
     override def read(codexHome: CodexHome): IO[Either[ProviderError, CodexOAuth]] = IO.pure(result)
   }

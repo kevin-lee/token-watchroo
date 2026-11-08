@@ -27,6 +27,8 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("UserNotifications"),
                 .linkedFramework("ServiceManagement"),
+                // CFStringNormalize in the static library's mac_text.c (#91).
+                .linkedFramework("CoreFoundation"),
             ]
         ),
         .testTarget(name: "TokenWatchrooTests", dependencies: ["TokenWatchroo"], path: "Tests/TokenWatchrooTests"),

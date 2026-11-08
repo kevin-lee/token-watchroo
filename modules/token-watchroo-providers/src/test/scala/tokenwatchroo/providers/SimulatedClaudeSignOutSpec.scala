@@ -21,18 +21,27 @@ class SimulatedClaudeSignOutSpec extends munit.FunSuite {
     file
   }
 
-  /** Counts the reads that reach the keychain reader. */
-  final private class CountingReader(count: Ref[IO, Int]) extends ClaudeCredentialReader {
-    override def read(attempt: ReadAttempt, nowMillis: Long): IO[Either[ProviderError, ClaudeOAuth]] =
-      count.update(_ + 1) >> keychainReader.read(attempt, nowMillis)
+  /** Counts the reads that reach the keychain reader and keeps the config folders they got. */
+  final private class CountingReader(count: Ref[IO, Int], dirs: Ref[IO, List[Option[ClaudeConfigDir]]])
+      extends ClaudeCredentialReader {
+    override def read(
+      attempt: ReadAttempt,
+      nowMillis: Long,
+      configDir: Option[ClaudeConfigDir],
+    ): IO[Either[ProviderError, ClaudeOAuth]] =
+      count.update(_ + 1) >> dirs.update(_ :+ configDir) >> keychainReader.read(attempt, nowMillis, configDir)
   }
+
+  private def counting(count: Ref[IO, Int]): IO[CountingReader] =
+    Ref.of[IO, List[Option[ClaudeConfigDir]]](Nil).map(new CountingReader(count, _))
 
   test("a flag file holding signed-out reads as CredentialsMissing without touching the keychain") {
     val (result, reads) =
       (for {
         count  <- Ref.of[IO, Int](0)
-        result <- new SimulatedClaudeSignOut(new CountingReader(count), flag("signed-out\n".some))
-                    .read(ReadAttempt.First, nowMillis)
+        reader <- counting(count)
+        result <- new SimulatedClaudeSignOut(reader, flag("signed-out\n".some))
+                    .read(ReadAttempt.First, nowMillis, none[ClaudeConfigDir])
         reads  <- count.get
       } yield (result, reads)).unsafeRunSync()
     assertEquals(result, Left(ProviderError.CredentialsMissing))
@@ -42,10 +51,12 @@ class SimulatedClaudeSignOutSpec extends munit.FunSuite {
   test("any other content or a missing flag file passes the read through") {
     val (signedIn, missing, reads) =
       (for {
-        count <- Ref.of[IO, Int](0)
-        reader = new CountingReader(count)
-        signedIn <- new SimulatedClaudeSignOut(reader, flag("signed-in".some)).read(ReadAttempt.First, nowMillis)
-        missing  <- new SimulatedClaudeSignOut(reader, flag(none[String])).read(ReadAttempt.Subsequent, nowMillis)
+        count    <- Ref.of[IO, Int](0)
+        reader   <- counting(count)
+        signedIn <- new SimulatedClaudeSignOut(reader, flag("signed-in".some))
+                      .read(ReadAttempt.First, nowMillis, none[ClaudeConfigDir])
+        missing  <- new SimulatedClaudeSignOut(reader, flag(none[String]))
+                      .read(ReadAttempt.Subsequent, nowMillis, none[ClaudeConfigDir])
         reads    <- count.get
       } yield (signedIn, missing, reads)).unsafeRunSync()
     assert(signedIn.isRight)
@@ -82,5 +93,18 @@ class SimulatedClaudeSignOutSpec extends munit.FunSuite {
       case _: SimulatedClaudeSignOut => true
       case _ => false
     })
+  }
+
+  test("the config folder reaches the underlying reader (#91)") {
+    val folder = ClaudeConfigDir.unsafeFrom("/Users/alex/.claude-work")
+    val seen   =
+      (for {
+        count <- Ref.of[IO, Int](0)
+        dirs  <- Ref.of[IO, List[Option[ClaudeConfigDir]]](Nil)
+        reader = new CountingReader(count, dirs)
+        _      <- new SimulatedClaudeSignOut(reader, flag(none[String])).read(ReadAttempt.First, nowMillis, folder.some)
+        result <- dirs.get
+      } yield result).unsafeRunSync()
+    assertEquals(seen, List(folder.some))
   }
 }

@@ -153,6 +153,17 @@ object CodexHome extends Newtype[NonEmptyString], CatsEqShow[NonEmptyString] {
   given render: Render[CodexHome] = Render.render(_.value.value)
 }
 
+/** The Claude Code config folder from the settings (#91), the text of `CLAUDE_CONFIG_DIR`. Hashed as written: Claude
+  * Code does not resolve, trim or expand it, so it is not trimmed here either.
+  */
+type ClaudeConfigDir = ClaudeConfigDir.Type
+object ClaudeConfigDir extends Refined[String], CatsEqShow[String] {
+  override inline def invalidReason(a: String): String = expectedMessage("an absolute path that starts with /")
+  override inline def predicate(a: String): Boolean    = a.startsWith("/")
+
+  given render: Render[ClaudeConfigDir] = Render.render(_.value)
+}
+
 /** The account (`acct`) of a generic password item in the keychain. */
 type KeychainAccount = KeychainAccount.Type
 object KeychainAccount extends Newtype[NonEmptyString], CatsEqShow[NonEmptyString] {

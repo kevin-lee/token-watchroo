@@ -11,6 +11,10 @@ import AppKit
 /// amount's colour and percent of the limit, and a "−" button, and a "+" button under the rows. Before the first
 /// snapshot the row is read-only, because the unit and the limit are known only after a fetch. The row is hidden when
 /// the last snapshot had no spend.
+///
+/// The "Config folder" row (#91) is shown for Claude Code on a subscription: a text field for the text of
+/// `CLAUDE_CONFIG_DIR` and a "Choose…" button. Claude Code hashes that text as written, so the chooser only fills the
+/// field and the user can still change it. A text that is not an absolute path marks the field and disables Add or Save.
 @MainActor
 final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
 
@@ -38,6 +42,15 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     static func unitMismatchHint(stored: String, meter: String) -> String {
         "Set for \(stored). The limit is now in \(meter)."
     }
+    static let configDirTitle = "Config folder"
+    static let configDirPlaceholder = "Default (~/.claude)"
+    static let configDirHint = "Optional. Use the same text as CLAUDE_CONFIG_DIR, or CLAUDE_SECURESTORAGE_CONFIG_DIR "
+        + "when you set it. Leave empty for the default sign-in."
+    static let chooseTitle = "Choose…"
+    static let choosePanelMessage = "Choose the Claude Code config folder."
+
+    /// Shows a folder chooser over `window`, starting at `start`, and calls `done` with the chosen folder or nil.
+    typealias FolderChooser = @MainActor (_ window: NSWindow?, _ start: URL?, _ done: @escaping (URL?) -> Void) -> Void
 
     /// How the spend levels are chosen in the pop-up.
     enum SpendMode {
@@ -83,11 +96,20 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     private let addSpendButton = NSButton(title: "+", target: nil, action: nil)
     private let spendHintLabel = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.secondaryText)
 
+    private let chooseFolder: FolderChooser
+    private var configDirRow = NSStackView()
+    private let configDirField = NSTextField(string: "")
+    private let chooseButton = NSButton(title: AddAgentSheet.chooseTitle, target: nil, action: nil)
+    private let configDirHintLabel = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.secondaryText)
+
     /// `completion` gets the entry for "Add" or "Save", and nil for "Cancel". `meters` are the spend meters of the
-    /// agents from their last snapshots (#105).
-    init(mode: Mode, meters: [AgentId: SpendMeterInfo] = [:], completion: @escaping (AgentConfig?) -> Void) {
+    /// agents from their last snapshots (#105). `chooseFolder` shows the folder chooser (#91), a fake in tests.
+    init(mode: Mode, meters: [AgentId: SpendMeterInfo] = [:],
+         chooseFolder: @escaping FolderChooser = AddAgentSheet.openPanel,
+         completion: @escaping (AgentConfig?) -> Void) {
         self.mode = mode
         self.meters = meters
+        self.chooseFolder = chooseFolder
         self.completion = completion
         super.init(nibName: nil, bundle: nil)
     }
@@ -202,6 +224,22 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         setSpendRows(texts)
     }
 
+    var isConfigDirVisible: Bool { !configDirRow.isHidden }
+    var configDirText: String { configDirField.stringValue }
+    var isConfigDirMarked: Bool { configDirField.layer?.borderWidth ?? 0 > 0 }
+    var configDirHintText: String { configDirHintLabel.stringValue }
+
+    /// Types `text` into the Config folder field, as a user does.
+    func setConfigDirText(_ text: String) {
+        configDirField.stringValue = text
+        updateConfigDir()
+    }
+
+    /// Clicks "Choose…".
+    func chooseConfigDir() {
+        chooseConfigDir(nil)
+    }
+
     // MARK: view
 
     override func loadView() {
@@ -263,10 +301,29 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         spend.spacing = 6
         spendAlertsRow = AddAgentSheet.field(AddAgentSheet.spendAlertsTitle, spend, spendHintLabel)
 
+        configDirField.font = .systemFont(ofSize: 13)
+        configDirField.placeholderString = AddAgentSheet.configDirPlaceholder
+        configDirField.lineBreakMode = .byTruncatingMiddle
+        configDirField.usesSingleLineMode = true
+        configDirField.delegate = self
+        configDirField.wantsLayer = true
+        configDirField.layer?.cornerRadius = 4
+        configDirField.setAccessibilityLabel(AddAgentSheet.configDirTitle)
+        configDirField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        chooseButton.target = self
+        chooseButton.action = #selector(chooseConfigDir(_:))
+        chooseButton.setContentHuggingPriority(.required, for: .horizontal)
+        let configDir = NSStackView(views: [configDirField, chooseButton])
+        configDir.orientation = .horizontal
+        configDir.spacing = 8
+        configDir.widthAnchor.constraint(equalToConstant: AddAgentSheet.fieldWidth).isActive = true
+        configDirRow = AddAgentSheet.field(AddAgentSheet.configDirTitle, configDir, configDirHintLabel)
+
         let fields = NSStackView(views: [
             AddAgentSheet.field("Agent", agentPopUp),
             AddAgentSheet.field("Billing", billingControl),
             AddAgentSheet.field("Plan", planPopUp, hint),
+            configDirRow,
             alertAtRow,
             spendAlertsRow,
         ])
@@ -313,6 +370,7 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
             setLevelRows(AlertLevelRules.defaults.map(String.init))
             selectBilling(.subscription)
         case .edit(let agent):
+            configDirField.stringValue = agent.claudeConfigDir ?? ""
             setLevelRows(agent.alertLevels.map(String.init))
             selectBilling(agent.billing)
             planPopUp.selectItem(at: agent.billing.planChoices.firstIndex(of: agent.plan) ?? 0)
@@ -336,15 +394,75 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
             hint.stringValue = AddAgentSheet.apiHint
             alertAtRow.isHidden = true
         }
+        updateConfigDir()
         updateLevels()
         configureSpend()
         fitWindow()
     }
 
-    /// In add mode the Spend alerts row follows the chosen agent (#105).
+    /// In add mode the Spend alerts row (#105) and the Config folder row (#91) follow the chosen agent.
     @objc private func agentChanged(_ sender: Any?) {
+        updateConfigDir()
         configureSpend()
         fitWindow()
+    }
+
+    // MARK: config folder (#91)
+
+    /// The row is only for Claude Code on a subscription.
+    private var isConfigDirActive: Bool {
+        selectedAgent == .claudeCode && selectedBilling == .subscription
+    }
+
+    /// Shows or hides the row, and marks the field and shows the problem when its text is not an absolute path.
+    private func updateConfigDir() {
+        configDirRow.isHidden = !isConfigDirActive
+        if let problem = ClaudeConfigDirRules.problem(configDirField.stringValue) {
+            configDirField.layer?.borderWidth = 1.5
+            configDirHintLabel.stringValue = problem
+            configDirHintLabel.textColor = AddAgentSheet.errorColor
+        } else {
+            configDirField.layer?.borderWidth = 0
+            configDirHintLabel.stringValue = AddAgentSheet.configDirHint
+            configDirHintLabel.textColor = Palette.secondaryText
+        }
+        configDirField.layer?.borderColor = AddAgentSheet.errorColor.cgColor
+        updateConfirm()
+    }
+
+    @objc private func chooseConfigDir(_ sender: Any?) {
+        let start = ClaudeConfigDirRules.value(configDirField.stringValue).map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        chooseFolder(view.window, start) { [weak self] url in
+            guard let self, let url else { return }
+            self.configDirField.stringValue = AddAgentSheet.pathText(for: url)
+            self.updateConfigDir()
+        }
+    }
+
+    /// The text for a chosen folder: its path without a trailing slash.
+    static func pathText(for url: URL) -> String {
+        url.path
+    }
+
+    /// The standard folder chooser, shown as a sheet over the Add-agent sheet. Hidden folders are shown, because the
+    /// Claude Code folders start with a dot.
+    static func openPanel(_ window: NSWindow?, _ start: URL?, _ done: @escaping (URL?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        panel.canCreateDirectories = false
+        panel.message = choosePanelMessage
+        panel.directoryURL = start
+        if let window {
+            panel.beginSheetModal(for: window) { response in
+                done(response == .OK ? panel.url : nil)
+            }
+        } else {
+            done(panel.runModal() == .OK ? panel.url : nil)
+        }
     }
 
     /// The sheet keeps its height unless it is told, which left a gap above the buttons (#8 manual check).
@@ -442,11 +560,14 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         updateConfirm()
     }
 
-    /// Add or Save is disabled while a level row or an amount row breaks a rule. An API entry has neither row.
+    /// Add or Save is disabled while a level row, an amount row or the Config folder breaks a rule. An API entry has
+    /// none of these rows.
     private func updateConfirm() {
         let levelProblem = AlertLevelRules.problem(levelTexts)
         let spendProblem = isAmountsActive ? SpendAlertLevelRules.problem(spendFields.map(\.stringValue)) : nil
-        confirmButton.isEnabled = selectedBilling == .api || (levelProblem == nil && spendProblem == nil)
+        let configDirProblem = isConfigDirActive ? ClaudeConfigDirRules.problem(configDirField.stringValue) : nil
+        confirmButton.isEnabled = selectedBilling == .api
+            || (levelProblem == nil && spendProblem == nil && configDirProblem == nil)
     }
 
     /// Sorts the rows when every field is a whole number from 1 to 100.
@@ -463,11 +584,27 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
-        if isSpendField(obj.object) { updateSpend() } else { updateLevels() }
+        if isConfigDirField(obj.object) {
+            updateConfigDir()
+        } else if isSpendField(obj.object) {
+            updateSpend()
+        } else {
+            updateLevels()
+        }
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
-        if isSpendField(obj.object) { commitSpend() } else { commitLevels() }
+        if isConfigDirField(obj.object) {
+            updateConfigDir()
+        } else if isSpendField(obj.object) {
+            commitSpend()
+        } else {
+            commitLevels()
+        }
+    }
+
+    private func isConfigDirField(_ object: Any?) -> Bool {
+        (object as? NSTextField) === configDirField
     }
 
     private func isSpendField(_ object: Any?) -> Bool {
@@ -722,7 +859,18 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         case .edit(let agent): enabled = agent.enabled
         }
         return AgentConfig(id: id, billing: selectedBilling, plan: selectedPlan, enabled: enabled,
-                           alertLevels: alertLevels, spendAlertLevels: spendAlertLevels)
+                           alertLevels: alertLevels, spendAlertLevels: spendAlertLevels,
+                           claudeConfigDir: claudeConfigDir)
+    }
+
+    /// The field's folder while the row is shown (#91). Any other case keeps the edited entry's folder, or nil when
+    /// added, the same as the alert levels.
+    private var claudeConfigDir: String? {
+        if isConfigDirActive { return ClaudeConfigDirRules.value(configDirField.stringValue) }
+        switch mode {
+        case .add: return nil
+        case .edit(let agent): return agent.claudeConfigDir
+        }
     }
 
     /// A subscription with a known spend meter gets nil for the defaults and the sorted amount rows in the meter's

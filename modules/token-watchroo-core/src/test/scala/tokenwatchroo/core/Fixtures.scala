@@ -68,6 +68,12 @@ object Fixtures {
       } yield SpendAlertLevels.from(unit, amounts).getOrElse(SpendAlertLevels.defaults),
     )
 
+  /** `/` and up to 20 characters, Unicode included, so the codec round trip covers any folder text (#91). */
+  val genClaudeConfigDir: Gen[ClaudeConfigDir] =
+    Gen
+      .string(Gen.choice1(Gen.alphaNum, Gen.unicode, Gen.element1('/', '.', ' ', '-')), Range.linear(0, 20))
+      .map(rest => ClaudeConfigDir.unsafeFrom(s"/$rest"))
+
   val genAgentConfig: Gen[AgentConfig] =
     for {
       id          <- genAgentId
@@ -76,7 +82,8 @@ object Fixtures {
       enabled     <- genEnabled
       levels      <- genAlertLevels
       spendLevels <- genSpendAlertLevels
-    } yield AgentConfig(id, billing, plan, enabled, levels, spendLevels)
+      configDir   <- genClaudeConfigDir.option
+    } yield AgentConfig(id, billing, plan, enabled, levels, spendLevels, configDir)
 
   /** Paths without characters that JSON escapes, so the round trip compares plain strings. */
   private val genPath: Gen[NonEmptyString] =

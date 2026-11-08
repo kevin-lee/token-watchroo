@@ -15,7 +15,8 @@ import tokenwatchroo.core.providers.{ClaudeOAuth, ClaudeProfileResponse, ClaudeU
   * profile, keychain tier, keychain subscription type. Never refreshes the token. A 429 on the usage call after a good
   * fetch returns the last good snapshot for the same token with the rate-limit text in `error`, so the card keeps its
   * meters (issue #51); every other error is unavailable. A usage-based Enterprise response gives a spend meter instead
-  * of windows, and a response with neither is unavailable.
+  * of windows, and a response with neither is unavailable. The keychain item follows the Claude Code config folder of
+  * the config (#91).
   */
 final class ClaudeCodeProvider private (
   http: HttpClient,
@@ -30,7 +31,7 @@ final class ClaudeCodeProvider private (
   override def id: AgentId = AgentId.ClaudeCode
 
   override def detect(config: Config): IO[Detection] =
-    readCredentials.map {
+    readCredentials(config).map {
       case Left(ProviderError.CredentialsMissing) => Detection.NotDetected
       case Left(
              ProviderError.CredentialsAccessDenied | ProviderError.CredentialsMalformed(_) |
@@ -42,7 +43,7 @@ final class ClaudeCodeProvider private (
     }
 
   override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
-    readCredentials.flatMap {
+    readCredentials(config).flatMap {
       case Left(error) => IO.pure(unavailable(now, error))
       case Right(oauth) =>
         fetchUsage(oauth, now, config, trigger).flatMap {
@@ -99,11 +100,11 @@ final class ClaudeCodeProvider private (
   private def unavailable(now: EpochSeconds, error: ProviderError): AgentSnapshot =
     AgentSnapshot.unavailable(id, now, error.toErrorMessage(ClaudeCodeProvider.Cli))
 
-  private def readCredentials: IO[Either[ProviderError, ClaudeOAuth]] =
+  private def readCredentials(config: Config): IO[Either[ProviderError, ClaudeOAuth]] =
     for {
       current <- attempt.getAndSet(ReadAttempt.Subsequent)
       millis  <- nowMillis
-      result  <- credentials.read(current, millis)
+      result  <- credentials.read(current, millis, config.claudeConfigDir)
     } yield result
 
   private def resolveVersion(config: Config): IO[ClaudeCodeVersion] =
