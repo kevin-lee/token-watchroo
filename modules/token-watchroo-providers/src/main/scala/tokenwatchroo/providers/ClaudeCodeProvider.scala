@@ -42,9 +42,14 @@ final class ClaudeCodeProvider private (
       case Right(_) => Detection.Detected
     }
 
-  override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
+  override def fetch(
+    now: EpochSeconds,
+    config: Config,
+    trigger: FetchTrigger,
+    messages: Messages,
+  ): IO[AgentSnapshot] =
     readCredentials(config).flatMap {
-      case Left(error) => IO.pure(unavailable(now, error))
+      case Left(error) => IO.pure(unavailable(now, error, messages))
       case Right(oauth) =>
         fetchUsage(oauth, now, config, trigger).flatMap {
           case Right(snapshot) => lastGood.set(LastGoodSnapshot(oauth.accessToken, snapshot).some).as(snapshot)
@@ -52,8 +57,8 @@ final class ClaudeCodeProvider private (
             lastGood
               .get
               .map(
-                _.flatMap(_.carriedFor(oauth.accessToken, ClaudeCodeProvider.RateLimitedNote, now))
-                  .getOrElse(unavailable(now, ProviderError.RateLimited))
+                _.flatMap(_.carriedFor(oauth.accessToken, ClaudeCodeProvider.rateLimitedNote(messages), now))
+                  .getOrElse(unavailable(now, ProviderError.RateLimited, messages))
               )
           case Left(
                  error @ (ProviderError.CredentialsMissing | ProviderError.CredentialsAccessDenied |
@@ -61,7 +66,7 @@ final class ClaudeCodeProvider private (
                  ProviderError.Network(_) | ProviderError.Decode(_) | ProviderError.Timeout |
                  ProviderError.Unsupported(_))
                ) =>
-            IO.pure(unavailable(now, error))
+            IO.pure(unavailable(now, error, messages))
         }
     }
 
@@ -97,8 +102,8 @@ final class ClaudeCodeProvider private (
     result.value
   }
 
-  private def unavailable(now: EpochSeconds, error: ProviderError): AgentSnapshot =
-    AgentSnapshot.unavailable(id, now, error.toErrorMessage(ClaudeCodeProvider.Cli))
+  private def unavailable(now: EpochSeconds, error: ProviderError, messages: Messages): AgentSnapshot =
+    AgentSnapshot.unavailable(id, now, error.toErrorMessage(ClaudeCodeProvider.Cli, messages))
 
   private def readCredentials(config: Config): IO[Either[ProviderError, ClaudeOAuth]] =
     for {
@@ -171,7 +176,8 @@ object ClaudeCodeProvider {
 
   val Cli: String = "claude"
 
-  private val RateLimitedNote: ErrorMessage = ProviderError.rateLimited.toErrorMessage(Cli)
+  private def rateLimitedNote(messages: Messages): ErrorMessage =
+    ProviderError.rateLimited.toErrorMessage(Cli, messages)
 
   val UsageUrl: String   = "https://api.anthropic.com/api/oauth/usage"
   val ProfileUrl: String = "https://api.anthropic.com/api/oauth/profile"

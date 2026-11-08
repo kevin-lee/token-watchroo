@@ -7,11 +7,11 @@ final class MenuBuilder {
 
     static let panelWidth: CGFloat = 348
     private static let sidePadding: CGFloat = 10
-    static let waitingTitle = "Waiting for the first refresh…"
-    static let noAgentTitle = "No agent detected. Run claude or codex once."
-    static let settingsTitle = "Settings..."
-    static let aboutTitle = "About Token Watchroo"
-    static let checkForUpdatesTitle = "Check for Updates..."
+    static func waitingTitle(_ strings: AppStrings) -> String { strings.text(.menuWaiting) }
+    static func noAgentTitle(_ strings: AppStrings) -> String { strings.text(.menuNoAgent) }
+    static func settingsTitle(_ strings: AppStrings) -> String { strings.text(.menuSettings) }
+    static func aboutTitle(_ strings: AppStrings) -> String { strings.text(.menuAbout) }
+    static func checkForUpdatesTitle(_ strings: AppStrings) -> String { strings.text(.menuCheckForUpdates) }
     /// The header is item 0.
     private static let bodyIndex = 1
 
@@ -20,39 +20,46 @@ final class MenuBuilder {
         case waiting, noAgents, cards([AgentCardView])
     }
 
+    /// The shell's text (#10), chosen at launch.
+    let strings: AppStrings
+
     private(set) var menu = NSMenu()
     private var header: HeaderView?
     private var body: Body = .waiting
     private var bodyItems: [NSMenuItem] = []
     private var checkForUpdatesItem: NSMenuItem?
 
+    init(strings: AppStrings) {
+        self.strings = strings
+    }
+
     /// Rebuilds the whole menu for a snapshot. `target` receives the action selectors.
     func rebuild(snapshot: Snapshot?, receivedAt: Date?, target: AnyObject, canCheckForUpdates: Bool) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let header = HeaderView(receivedAt: receivedAt, target: target)
+        let header = HeaderView(receivedAt: receivedAt, target: target, strings: strings)
         let headerItem = NSMenuItem()
         headerItem.view = header
         menu.addItem(headerItem)
         self.header = header
 
-        let next = MenuBuilder.makeBody(snapshot: snapshot, now: Date())
+        let next = MenuBuilder.makeBody(snapshot: snapshot, now: Date(), strings: strings)
         next.items.forEach(menu.addItem(_:))
         bodyItems = next.items
         body = next.body
 
         menu.addItem(.separator())
 
-        let refresh = NSMenuItem(title: "Refresh now", action: #selector(StatusItemController.refreshNow(_:)), keyEquivalent: "r")
+        let refresh = NSMenuItem(title: strings.text(.menuRefreshNow), action: #selector(StatusItemController.refreshNow(_:)), keyEquivalent: "r")
         refresh.target = target
         menu.addItem(refresh)
 
-        let settings = NSMenuItem(title: MenuBuilder.settingsTitle, action: #selector(StatusItemController.showSettings(_:)), keyEquivalent: ",")
+        let settings = NSMenuItem(title: MenuBuilder.settingsTitle(strings), action: #selector(StatusItemController.showSettings(_:)), keyEquivalent: ",")
         settings.target = target
         menu.addItem(settings)
 
-        let launch = NSMenuItem(title: "Launch at Login", action: #selector(StatusItemController.toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        let launch = NSMenuItem(title: strings.text(.menuLaunchAtLogin), action: #selector(StatusItemController.toggleLaunchAtLogin(_:)), keyEquivalent: "")
         launch.target = target
         launch.isEnabled = LaunchAtLogin.isAvailable
         launch.state = LaunchAtLogin.isEnabled ? .on : .off
@@ -60,11 +67,11 @@ final class MenuBuilder {
 
         menu.addItem(.separator())
 
-        let about = NSMenuItem(title: MenuBuilder.aboutTitle, action: #selector(StatusItemController.showAbout(_:)), keyEquivalent: "")
+        let about = NSMenuItem(title: MenuBuilder.aboutTitle(strings), action: #selector(StatusItemController.showAbout(_:)), keyEquivalent: "")
         about.target = target
         menu.addItem(about)
 
-        let checkForUpdates = NSMenuItem(title: MenuBuilder.checkForUpdatesTitle, action: #selector(StatusItemController.checkForUpdates(_:)), keyEquivalent: "")
+        let checkForUpdates = NSMenuItem(title: MenuBuilder.checkForUpdatesTitle(strings), action: #selector(StatusItemController.checkForUpdates(_:)), keyEquivalent: "")
         checkForUpdates.target = target
         checkForUpdates.isEnabled = canCheckForUpdates
         menu.addItem(checkForUpdates)
@@ -72,7 +79,7 @@ final class MenuBuilder {
 
         menu.addItem(.separator())
 
-        let quit = NSMenuItem(title: "Quit Token Watchroo", action: #selector(StatusItemController.quit(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: strings.text(.menuQuit), action: #selector(StatusItemController.quit(_:)), keyEquivalent: "q")
         quit.target = target
         menu.addItem(quit)
 
@@ -106,15 +113,15 @@ final class MenuBuilder {
     }
 
     /// One card item per agent, or one disabled item saying why there is none.
-    private static func makeBody(snapshot: Snapshot?, now: Date) -> (items: [NSMenuItem], body: Body) {
+    private static func makeBody(snapshot: Snapshot?, now: Date, strings: AppStrings) -> (items: [NSMenuItem], body: Body) {
         guard let snapshot, !snapshot.agents.isEmpty else {
-            let empty = NSMenuItem(title: snapshot == nil ? MenuBuilder.waitingTitle : MenuBuilder.noAgentTitle,
+            let empty = NSMenuItem(title: snapshot == nil ? MenuBuilder.waitingTitle(strings) : MenuBuilder.noAgentTitle(strings),
                                    action: nil, keyEquivalent: "")
             empty.isEnabled = false
             return ([empty], snapshot == nil ? .waiting : .noAgents)
         }
         let pairs = snapshot.agents.map { agent -> (NSMenuItem, AgentCardView) in
-            let card = AgentCardView(agent: agent, now: now)
+            let card = AgentCardView(agent: agent, now: now, strings: strings)
             let container = NSView(frame: NSRect(x: 0, y: 0, width: MenuBuilder.panelWidth, height: card.frame.height + 8))
             card.frame.origin = NSPoint(x: MenuBuilder.sidePadding, y: 4)
             container.addSubview(card)
@@ -133,7 +140,7 @@ final class MenuBuilder {
 
     private func replaceBody(snapshot: Snapshot, now: Date) {
         bodyItems.forEach(menu.removeItem(_:))
-        let next = MenuBuilder.makeBody(snapshot: snapshot, now: now)
+        let next = MenuBuilder.makeBody(snapshot: snapshot, now: now, strings: strings)
         for (offset, item) in next.items.enumerated() {
             menu.insertItem(item, at: MenuBuilder.bodyIndex + offset)
         }
@@ -147,8 +154,10 @@ final class MenuBuilder {
 final class HeaderView: NSView {
 
     private let updated = NSTextField(labelWithString: "")
+    private let strings: AppStrings
 
-    init(receivedAt: Date?, target: AnyObject) {
+    init(receivedAt: Date?, target: AnyObject, strings: AppStrings) {
+        self.strings = strings
         super.init(frame: NSRect(x: 0, y: 0, width: MenuBuilder.panelWidth, height: 30))
 
         let title = NSTextField(labelWithString: "Token Watchroo")
@@ -163,7 +172,7 @@ final class HeaderView: NSView {
         updated.frame = NSRect(x: 150, y: 9, width: 160, height: 14)
         addSubview(updated)
 
-        let button = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh") ?? NSImage(),
+        let button = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: strings.text(.headerRefresh)) ?? NSImage(),
                               target: target, action: #selector(StatusItemController.refreshNow(_:)))
         button.isBordered = false
         button.frame = NSRect(x: MenuBuilder.panelWidth - 14 - 18, y: 6, width: 18, height: 18)
@@ -176,6 +185,6 @@ final class HeaderView: NSView {
     required init?(coder: NSCoder) { nil }
 
     func update(receivedAt: Date?) {
-        updated.stringValue = Formatting.updatedAgo(since: receivedAt)
+        updated.stringValue = Formatting.updatedAgo(since: receivedAt, strings: strings)
     }
 }

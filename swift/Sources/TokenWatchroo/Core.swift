@@ -16,16 +16,21 @@ final class Core {
     private(set) var latestSnapshotAt: Date?
 
     private var started = false
+    private var language: AppLanguage = .en
+    private var numberFormat = NumberFormatPayload(locale: Locale(identifier: "en_US_POSIX"))
     private var lastSeq: Int64 = -1
     private let simulatedEnvelopesFile = SimulatedEnvelopes.file(environment: ProcessInfo.processInfo.environment)
 
     private init() {}
 
     /// Returns the library's code: 0 ok, 1 bad config, 2 internal error, 3 wrong thread, or -1 when encoding failed.
-    func start(config: Config) -> Int32 {
+    /// The language and the number format (#10) are kept and sent with every later config.
+    func start(config: Config, language: AppLanguage, numberFormat: NumberFormatPayload) -> Int32 {
         precondition(Thread.isMainThread, "tw_start must be called from the main thread")
         guard !started else { return 0 }
-        guard let data = try? JSONEncoder().encode(config), let json = String(data: data, encoding: .utf8) else {
+        self.language = language
+        self.numberFormat = numberFormat
+        guard let json = Core.payload(config: config, language: language, numberFormat: numberFormat) else {
             return -1
         }
         GarbageCollectorSettings.apply()
@@ -42,7 +47,7 @@ final class Core {
     func setConfig(_ config: Config) {
         precondition(Thread.isMainThread, "tw_set_config must be called from the main thread")
         guard started else { return }
-        guard let data = try? JSONEncoder().encode(config), let json = String(data: data, encoding: .utf8) else {
+        guard let json = Core.payload(config: config, language: language, numberFormat: numberFormat) else {
             Log.core.error("tw_set_config: the config could not be encoded")
             return
         }
@@ -50,6 +55,13 @@ final class Core {
         if code != 0 {
             Log.core.error("tw_set_config returned \(code)")
         }
+    }
+
+    /// The config JSON for the library: the config plus `locale` and `numberFormat`, which `config.json` never has.
+    static func payload(config: Config, language: AppLanguage, numberFormat: NumberFormatPayload) -> String? {
+        let ffi = FfiConfig(config: config, locale: language, numberFormat: numberFormat)
+        guard let data = try? JSONEncoder().encode(ffi) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     func refresh() {

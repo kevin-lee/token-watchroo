@@ -10,7 +10,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let updater: Updater?
     private let settings: SettingsWindowController?
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let builder = MenuBuilder()
+    private let builder: MenuBuilder
+    /// The shell's text (#10), chosen at launch.
+    private let strings: AppStrings
 
     private var snapshot: Snapshot?
     private var receivedAt: Date?
@@ -21,7 +23,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private static let staleAfter: TimeInterval = 30
 
-    init(core: Core, updater: Updater? = nil, settings: SettingsWindowController? = nil) {
+    init(core: Core, updater: Updater? = nil, settings: SettingsWindowController? = nil, strings: AppStrings) {
+        self.strings = strings
+        self.builder = MenuBuilder(strings: strings)
         self.core = core
         self.updater = updater
         self.settings = settings
@@ -55,7 +59,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let label: String
         switch state.kind {
         case .exhausted:
-            label = state.resetsAt.map { Formatting.shortCountdown(toEpoch: $0) } ?? "--"
+            label = state.resetsAt.map { Formatting.shortCountdown(toEpoch: $0, strings: strings) } ?? "--"
         case .normal, .elevated, .warning, .critical:
             label = state.usedPercent.map(Formatting.percent) ?? "--"
         case .unavailable:
@@ -133,7 +137,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc func showAbout(_ sender: Any?) {
-        About.show()
+        About.show(strings: strings)
     }
 
     @objc func checkForUpdates(_ sender: Any?) {

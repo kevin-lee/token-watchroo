@@ -41,10 +41,10 @@ enum Billing: String, Codable, CaseIterable {
     case subscription
     case api
 
-    var displayName: String {
+    func displayName(_ strings: AppStrings) -> String {
         switch self {
-        case .subscription: return "Subscription plan"
-        case .api: return "API"
+        case .subscription: return strings.text(.billingSubscription)
+        case .api: return strings.text(.billingApi)
         }
     }
 
@@ -151,7 +151,7 @@ extension AgentConfig {
 /// folder must be the same text. Only an absolute path is kept. Whitespace and newlines around it are removed, because
 /// a pasted path often has them.
 enum ClaudeConfigDirRules {
-    static let problem = "Use a full path that starts with /."
+    static func problemText(_ strings: AppStrings) -> String { strings.text(.ruleConfigDir) }
 
     /// The folder for a field's text, or nil when it is empty or not an absolute path.
     static func value(_ text: String?) -> String? {
@@ -161,9 +161,9 @@ enum ClaudeConfigDirRules {
     }
 
     /// The problem of a field's text, or nil when it is empty or a valid folder.
-    static func problem(_ text: String) -> String? {
+    static func problem(_ text: String, strings: AppStrings) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty || value(trimmed) != nil ? nil : problem
+        return trimmed.isEmpty || value(trimmed) != nil ? nil : problemText(strings)
     }
 }
 
@@ -174,8 +174,8 @@ enum AlertLevelRules {
     static let maxCount = 5
     static let minGap = 5
 
-    static let numberProblem = "Use a whole number from 1 to 100."
-    static let gapProblem = "Levels must be at least 5 apart."
+    static func numberProblem(_ strings: AppStrings) -> String { strings.text(.ruleLevelNumber) }
+    static func gapProblem(_ strings: AppStrings) -> String { strings.text(.ruleLevelGap) }
 
     /// The level of a field's text, or nil when it is not a whole number from 1 to 100.
     static func level(_ text: String) -> Int? {
@@ -201,9 +201,9 @@ enum AlertLevelRules {
     }
 
     /// The message for the first broken rule, or nil when the texts are valid levels.
-    static func problem(_ texts: [String]) -> String? {
-        if texts.contains(where: { level($0) == nil }) { return numberProblem }
-        if !marked(texts).isEmpty { return gapProblem }
+    static func problem(_ texts: [String], strings: AppStrings) -> String? {
+        if texts.contains(where: { level($0) == nil }) { return numberProblem(strings) }
+        if !marked(texts).isEmpty { return gapProblem(strings) }
         return nil
     }
 
@@ -232,12 +232,12 @@ enum AlertLevelRules {
     }
 
     /// The colour and the title that a level gives, for the chip next to its row.
-    static func chip(for level: Int) -> String {
+    static func chip(for level: Int, strings: AppStrings) -> String {
         switch UsageBand.of(percent: Double(level)) {
-        case .critical: return "Red · is almost out"
-        case .warning: return "Amber · is near its limit"
-        case .elevated: return "Blue · is near its limit"
-        case .normal: return "No colour · is near its limit"
+        case .critical: return strings.text(.chipCritical)
+        case .warning: return strings.text(.chipWarning)
+        case .elevated: return strings.text(.chipElevated)
+        case .normal: return strings.text(.chipNormal)
         }
     }
 }
@@ -255,8 +255,8 @@ enum SpendAlertLevelRules {
     static let maxCount = 5
     static let defaultPercents = [70, 85]
 
-    static let numberProblem = "Use a whole number of 1 or more."
-    static let duplicateProblem = "Amounts must be different."
+    static func numberProblem(_ strings: AppStrings) -> String { strings.text(.ruleSpendNumber) }
+    static func duplicateProblem(_ strings: AppStrings) -> String { strings.text(.ruleSpendDuplicate) }
 
     /// The amount of a field's text, or nil when it is not a whole number of 1 or more (at most 12 digits).
     static func amount(_ text: String) -> Int? {
@@ -282,9 +282,9 @@ enum SpendAlertLevelRules {
     }
 
     /// The message for the first broken rule, or nil when the texts are valid amounts.
-    static func problem(_ texts: [String]) -> String? {
-        if texts.contains(where: { amount($0) == nil }) { return numberProblem }
-        if !marked(texts).isEmpty { return duplicateProblem }
+    static func problem(_ texts: [String], strings: AppStrings) -> String? {
+        if texts.contains(where: { amount($0) == nil }) { return numberProblem(strings) }
+        if !marked(texts).isEmpty { return duplicateProblem(strings) }
         return nil
     }
 
@@ -326,16 +326,18 @@ enum SpendAlertLevelRules {
     }
 
     /// The colour and the percent of the limit that an amount gives, for the chip next to its row.
-    static func chip(amount: Int, limit: Decimal) -> String {
-        guard let percent = percent(of: amount, limit: limit), percent <= 100 else { return "Above the limit" }
+    static func chip(amount: Int, limit: Decimal, strings: AppStrings) -> String {
+        guard let percent = percent(of: amount, limit: limit), percent <= 100 else {
+            return strings.text(.chipAboveLimit)
+        }
         let colour: String
         switch UsageBand.of(percent: percent) {
-        case .critical: colour = "Red"
-        case .warning: colour = "Amber"
-        case .elevated: colour = "Blue"
-        case .normal: colour = "No colour"
+        case .critical: colour = strings.text(.colourRed)
+        case .warning: colour = strings.text(.colourAmber)
+        case .elevated: colour = strings.text(.colourBlue)
+        case .normal: colour = strings.text(.colourNone)
         }
-        return "\(colour) · \(Int(percent.rounded()))% of the limit"
+        return strings.text(.chipOfLimit, ["colour": colour, "percent": "\(Int(percent.rounded()))"])
     }
 
     private static func rounded(_ value: Decimal, _ mode: NSDecimalNumber.RoundingMode) -> Int {
@@ -446,11 +448,11 @@ enum WindowId: Decodable, Equatable {
         return .unknown(raw)
     }
 
-    var label: String {
+    func label(_ strings: AppStrings) -> String {
         switch self {
-        case .session: return "Session"
-        case .weekly: return "Weekly"
-        case .model(let name): return "Weekly (\(name))"
+        case .session: return strings.text(.windowSession)
+        case .weekly: return strings.text(.windowWeekly)
+        case .model(let name): return strings.text(.windowModel, ["model": name])
         case .unknown(let raw): return raw
         }
     }

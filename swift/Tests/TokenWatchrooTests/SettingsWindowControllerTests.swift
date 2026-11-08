@@ -11,7 +11,8 @@ final class SettingsWindowControllerTests: XCTestCase {
         config.agents = agents
         config.refreshIntervalSeconds = interval
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsWindowControllerTests.json")
-        return SettingsWindowController(store: SettingsStore(config: config, fileURL: url, push: { _ in }, pushDelay: 60))
+        return SettingsWindowController(store: SettingsStore(config: config, fileURL: url, push: { _ in }, pushDelay: 60),
+                                        strings: TestStrings.en)
     }
 
     /// The default 17 pt column spacing pushed the Enabled column out of view (found in the #8 manual check).
@@ -24,11 +25,14 @@ final class SettingsWindowControllerTests: XCTestCase {
     /// With an always-visible scroll bar, Plan showed "Enterpri…" (found in the #8 manual check).
     @MainActor
     func testEveryColumnIsWideEnoughForItsLongestTextWithBothScrollBarStyles() {
-        let needed = SettingsWindowController.neededColumnWidths
-        for style in [NSScroller.Style.legacy, .overlay] {
-            let widths = SettingsWindowController.columnWidths(scrollerStyle: style)
-            for (title, width) in needed {
-                XCTAssertGreaterThanOrEqual(widths[title] ?? 0, width, "\(title) with scroller style \(style.rawValue)")
+        for strings in [TestStrings.en, TestStrings.ko] {
+            let needed = SettingsWindowController.neededColumnWidths(strings: strings)
+            for style in [NSScroller.Style.legacy, .overlay] {
+                let widths = SettingsWindowController.columnWidths(scrollerStyle: style)
+                for (title, width) in needed {
+                    XCTAssertGreaterThanOrEqual(widths[title] ?? 0, width,
+                                                "\(strings.language) \(title) with scroller style \(style.rawValue)")
+                }
             }
         }
     }
@@ -69,7 +73,7 @@ final class SettingsWindowControllerTests: XCTestCase {
     @MainActor
     func testTheIntervalPopUp() {
         let controller = controller([])
-        XCTAssertEqual(controller.intervalTitles, RefreshInterval.presets.map(RefreshInterval.title))
+        XCTAssertEqual(controller.intervalTitles, RefreshInterval.presets.map { RefreshInterval.title($0, strings: TestStrings.en) })
         XCTAssertEqual(controller.selectedIntervalTitle, "1 minute")
         controller.chooseInterval(at: 2)
         XCTAssertEqual(controller.selectedIntervalTitle, "5 minutes")

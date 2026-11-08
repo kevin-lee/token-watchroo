@@ -28,17 +28,17 @@ final case class CodexOAuth(accessToken: AccessToken, accountId: Option[AccountI
 
 object CodexAuthFile {
 
-  def parse(raw: String): Either[String, CodexOAuth] =
+  def parse(raw: String): Either[CredentialProblem, CodexOAuth] =
     for {
-      file  <- codecs.readEither[CodexAuthFile](raw).leftMap(_.message)
+      file  <- codecs.readEither[CodexAuthFile](raw).leftMap(e => CredentialProblem.unreadable(e.message))
       token <- file
                  .tokens
                  .flatMap(_.accessToken)
                  .flatMap(t => NonEmptyString.from(t).toOption)
                  .map(AccessToken(_))
                  .toRight(
-                   if (file.openAiApiKey.exists(_.nonEmpty)) "Codex is in API-key mode, not supported in v1."
-                   else "Codex auth file has no access token. Run codex to sign in."
+                   if (file.openAiApiKey.exists(_.nonEmpty)) CredentialProblem.codexApiKeyMode
+                   else CredentialProblem.codexNoAccessToken
                  )
     } yield CodexOAuth(
       token,

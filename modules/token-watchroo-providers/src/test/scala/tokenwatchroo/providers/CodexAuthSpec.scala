@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import refined4s.types.all.*
 import tokenwatchroo.core.*
+import tokenwatchroo.core.providers.CredentialProblem
 
 class CodexAuthSpec extends munit.FunSuite {
 
@@ -29,7 +30,7 @@ class CodexAuthSpec extends munit.FunSuite {
     val apiKeyOnly = """{"auth_mode":"apikey","OPENAI_API_KEY":"sk-proj-x","tokens":null}"""
     assertEquals(
       CodexAuth.read(home(apiKeyOnly.some)).unsafeRunSync(),
-      Left(ProviderError.CredentialsMalformed("Codex is in API-key mode, not supported in v1.")),
+      Left(ProviderError.CredentialsMalformed(CredentialProblem.CodexApiKeyMode)),
     )
   }
 

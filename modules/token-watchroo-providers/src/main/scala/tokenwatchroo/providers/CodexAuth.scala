@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}
 import tokenwatchroo.core.*
-import tokenwatchroo.core.providers.{CodexAuthFile, CodexOAuth}
+import tokenwatchroo.core.providers.{CodexAuthFile, CodexOAuth, CredentialProblem}
 
 trait CodexAuthReader {
   def read(codexHome: CodexHome): IO[Either[ProviderError, CodexOAuth]]
@@ -24,5 +24,11 @@ object CodexAuth extends CodexAuthReader {
           .parse(Files.readString(path, StandardCharsets.UTF_8))
           .leftMap(ProviderError.credentialsMalformed)
       } else ProviderError.credentialsMissing.asLeft[CodexOAuth]
-    }.handleError(e => ProviderError.credentialsMalformed(s"Cannot read $FileName: ${e.getMessage}").asLeft[CodexOAuth])
+    }.handleError { e =>
+      ProviderError
+        .credentialsMalformed(
+          CredentialProblem.fileUnreadable(FileName, Option(e.getMessage).getOrElse(e.getClass.getName))
+        )
+        .asLeft[CodexOAuth]
+    }
 }

@@ -12,7 +12,7 @@ final class AddAgentSheetTests: XCTestCase {
 
     @MainActor
     private func sheet(_ mode: AddAgentSheet.Mode) -> AddAgentSheet {
-        let sheet = AddAgentSheet(mode: mode) { _ in }
+        let sheet = AddAgentSheet(mode: mode, strings: TestStrings.en) { _ in }
         _ = sheet.view
         return sheet
     }
@@ -22,8 +22,8 @@ final class AddAgentSheetTests: XCTestCase {
         let sheet = sheet(.add(addable: [.codex]))
         XCTAssertEqual(sheet.selectedBilling, .subscription)
         XCTAssertEqual(sheet.planTitles, ["Individual", "Team", "Enterprise"])
-        XCTAssertEqual(sheet.subtitleText, AddAgentSheet.subscriptionSubtitle)
-        XCTAssertEqual(sheet.hintText, AddAgentSheet.subscriptionHint)
+        XCTAssertEqual(sheet.subtitleText, AddAgentSheet.subscriptionSubtitle(TestStrings.en))
+        XCTAssertEqual(sheet.hintText, AddAgentSheet.subscriptionHint(TestStrings.en))
         XCTAssertTrue(sheet.isAlertAtVisible)
         XCTAssertEqual(sheet.result, AgentConfig.defaults(.codex))
     }
@@ -33,8 +33,8 @@ final class AddAgentSheetTests: XCTestCase {
         let sheet = sheet(.add(addable: [.codex]))
         sheet.selectBilling(.api)
         XCTAssertEqual(sheet.planTitles, ["Enterprise"])
-        XCTAssertEqual(sheet.subtitleText, AddAgentSheet.apiSubtitle)
-        XCTAssertEqual(sheet.hintText, AddAgentSheet.apiHint)
+        XCTAssertEqual(sheet.subtitleText, AddAgentSheet.apiSubtitle(TestStrings.en))
+        XCTAssertEqual(sheet.hintText, AddAgentSheet.apiHint(TestStrings.en))
         XCTAssertFalse(sheet.isAlertAtVisible)
         XCTAssertEqual(sheet.result, AgentConfig(id: .codex, billing: .api, plan: .enterprise, enabled: .on))
     }
@@ -67,7 +67,7 @@ final class AddAgentSheetTests: XCTestCase {
         let sheet = sheet(.add(addable: [.codex]))
         XCTAssertEqual(sheet.levelTexts, ["70", "85"])
         XCTAssertEqual(sheet.levelChips, ["Amber · is near its limit", "Red · is almost out"])
-        XCTAssertEqual(sheet.alertAtHintText, AddAgentSheet.alertAtHint)
+        XCTAssertEqual(sheet.alertAtHintText, AddAgentSheet.alertAtHint(TestStrings.en))
         XCTAssertTrue(sheet.isAddLevelEnabled)
         XCTAssertTrue(sheet.isConfirmEnabled)
         XCTAssertFalse(sheet.isNoLevelsVisible)
@@ -100,7 +100,7 @@ final class AddAgentSheetTests: XCTestCase {
         sheet.removeLevel(at: 0)
         XCTAssertEqual(sheet.levelTexts, [])
         XCTAssertTrue(sheet.isNoLevelsVisible)
-        XCTAssertEqual(sheet.alertAtHintText, AddAgentSheet.noLevelsHint)
+        XCTAssertEqual(sheet.alertAtHintText, AddAgentSheet.noLevelsHint(TestStrings.en))
         XCTAssertTrue(sheet.isConfirmEnabled)
         XCTAssertEqual(sheet.result?.alertLevels, [])
     }
@@ -112,7 +112,7 @@ final class AddAgentSheetTests: XCTestCase {
         XCTAssertEqual(sheet.levelTexts, ["70", "72"])
         XCTAssertTrue(sheet.isLevelMarked(at: 0))
         XCTAssertTrue(sheet.isLevelMarked(at: 1))
-        XCTAssertEqual(sheet.alertAtHintText, AlertLevelRules.gapProblem)
+        XCTAssertEqual(sheet.alertAtHintText, AlertLevelRules.gapProblem(TestStrings.en))
         XCTAssertFalse(sheet.isConfirmEnabled)
         XCTAssertFalse(sheet.isAddLevelEnabled)
         sheet.setLevelText("75", at: 1)
@@ -125,7 +125,7 @@ final class AddAgentSheetTests: XCTestCase {
         let sheet = sheet(.add(addable: [.codex]))
         for text in ["abc", "0", "101", "7.5", ""] {
             sheet.setLevelText(text, at: 0)
-            XCTAssertEqual(sheet.alertAtHintText, AlertLevelRules.numberProblem, text)
+            XCTAssertEqual(sheet.alertAtHintText, AlertLevelRules.numberProblem(TestStrings.en), text)
             XCTAssertTrue(sheet.isLevelMarked(at: 0), text)
             XCTAssertFalse(sheet.isConfirmEnabled, text)
         }
@@ -148,7 +148,7 @@ final class AddAgentSheetTests: XCTestCase {
         sheet.addLevel()
         XCTAssertEqual(sheet.levelTexts, ["70", "85", "90", "95", "100"])
         XCTAssertFalse(sheet.isAddLevelEnabled)
-        XCTAssertEqual(sheet.alertAtHintText, AddAgentSheet.maxLevelsHint)
+        XCTAssertEqual(sheet.alertAtHintText, AddAgentSheet.maxLevelsHint(TestStrings.en))
         XCTAssertTrue(sheet.isConfirmEnabled)
     }
 
@@ -177,7 +177,7 @@ final class AddAgentSheetTests: XCTestCase {
 
     @MainActor
     private func sheet(_ mode: AddAgentSheet.Mode, meters: [AgentId: SpendMeterInfo]) -> AddAgentSheet {
-        let sheet = AddAgentSheet(mode: mode, meters: meters) { _ in }
+        let sheet = AddAgentSheet(mode: mode, meters: meters, strings: TestStrings.en) { _ in }
         _ = sheet.view
         return sheet
     }
@@ -187,7 +187,7 @@ final class AddAgentSheetTests: XCTestCase {
         let sheet = sheet(.edit(.defaults(.claudeCode)), meters: usdMeter)
         XCTAssertTrue(sheet.isSpendAlertsVisible)
         XCTAssertTrue(sheet.isSpendModeEnabled)
-        XCTAssertEqual(sheet.spendModeTitle, AddAgentSheet.spendDefaultTitle)
+        XCTAssertEqual(sheet.spendModeTitle, AddAgentSheet.spendDefaultTitle(TestStrings.en))
         XCTAssertEqual(sheet.spendDetailText, "Now $140.00 and $170.00 of $200.00.")
         XCTAssertEqual(sheet.spendTexts, [])
         XCTAssertEqual(sheet.spendHintText, "")
@@ -201,7 +201,7 @@ final class AddAgentSheetTests: XCTestCase {
         XCTAssertEqual(sheet.spendTexts, ["140", "170"])
         XCTAssertEqual(sheet.spendChips, ["Amber · 70% of the limit", "Red · 85% of the limit"])
         XCTAssertEqual(sheet.spendUnitText, "USD")
-        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.spendHint)
+        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.spendHint(TestStrings.en))
         XCTAssertEqual(sheet.result?.spendAlertLevels, SpendAlertLevels(unit: "USD", amounts: [140, 170]))
         sheet.addSpendLevel()
         XCTAssertEqual(sheet.spendTexts, ["140", "170", "180"])
@@ -215,7 +215,7 @@ final class AddAgentSheetTests: XCTestCase {
         sheet.selectSpendMode(.amounts)
         sheet.removeSpendLevel(at: 0)
         sheet.removeSpendLevel(at: 0)
-        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.noSpendLevelsHint)
+        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.noSpendLevelsHint(TestStrings.en))
         XCTAssertEqual(sheet.result?.spendAlertLevels, SpendAlertLevels(unit: "USD", amounts: []))
     }
 
@@ -225,12 +225,12 @@ final class AddAgentSheetTests: XCTestCase {
         sheet.selectSpendMode(.amounts)
         sheet.setSpendText("abc", at: 0)
         XCTAssertTrue(sheet.isSpendMarked(at: 0))
-        XCTAssertEqual(sheet.spendHintText, SpendAlertLevelRules.numberProblem)
+        XCTAssertEqual(sheet.spendHintText, SpendAlertLevelRules.numberProblem(TestStrings.en))
         XCTAssertFalse(sheet.isConfirmEnabled)
         sheet.setSpendText("170", at: 0)
         XCTAssertTrue(sheet.isSpendMarked(at: 0))
         XCTAssertTrue(sheet.isSpendMarked(at: 1))
-        XCTAssertEqual(sheet.spendHintText, SpendAlertLevelRules.duplicateProblem)
+        XCTAssertEqual(sheet.spendHintText, SpendAlertLevelRules.duplicateProblem(TestStrings.en))
         XCTAssertFalse(sheet.isConfirmEnabled)
         sheet.setSpendText("190", at: 0)
         XCTAssertEqual(sheet.spendTexts, ["170", "190"])
@@ -246,7 +246,7 @@ final class AddAgentSheetTests: XCTestCase {
         sheet.addSpendLevel()
         XCTAssertEqual(sheet.spendTexts, ["140", "170", "180", "190", "200"])
         XCTAssertFalse(sheet.isAddSpendLevelEnabled)
-        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.maxLevelsHint)
+        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.maxLevelsHint(TestStrings.en))
         sheet.setSpendText("250", at: 4)
         XCTAssertEqual(sheet.spendChips.last, "Above the limit")
     }
@@ -256,7 +256,7 @@ final class AddAgentSheetTests: XCTestCase {
         var entry = AgentConfig.defaults(.codex)
         entry.spendAlertLevels = SpendAlertLevels(unit: "credits", amounts: [7000])
         let sheet = sheet(.edit(entry), meters: [.codex: .spend(currency: "credits", limit: 10000)])
-        XCTAssertEqual(sheet.spendModeTitle, AddAgentSheet.spendAmountsTitle)
+        XCTAssertEqual(sheet.spendModeTitle, AddAgentSheet.spendAmountsTitle(TestStrings.en))
         XCTAssertEqual(sheet.spendTexts, ["7000"])
         XCTAssertEqual(sheet.spendUnitText, "credits")
         XCTAssertEqual(sheet.result?.spendAlertLevels, entry.spendAlertLevels)
@@ -267,8 +267,8 @@ final class AddAgentSheetTests: XCTestCase {
         var entry = AgentConfig.defaults(.claudeCode)
         entry.spendAlertLevels = SpendAlertLevels(unit: "EUR", amounts: [150])
         let sheet = sheet(.edit(entry), meters: usdMeter)
-        XCTAssertEqual(sheet.spendModeTitle, AddAgentSheet.spendDefaultTitle)
-        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.unitMismatchHint(stored: "EUR", meter: "USD"))
+        XCTAssertEqual(sheet.spendModeTitle, AddAgentSheet.spendDefaultTitle(TestStrings.en))
+        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.unitMismatchHint(stored: "EUR", meter: "USD", strings: TestStrings.en))
         XCTAssertNil(sheet.result?.spendAlertLevels)
     }
 
@@ -280,7 +280,7 @@ final class AddAgentSheetTests: XCTestCase {
         XCTAssertTrue(sheet.isSpendAlertsVisible)
         XCTAssertFalse(sheet.isSpendModeEnabled)
         XCTAssertEqual(sheet.spendDetailText, "At 150 and 180 USD.")
-        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.spendUnknownHint)
+        XCTAssertEqual(sheet.spendHintText, AddAgentSheet.spendUnknownHint(TestStrings.en))
         XCTAssertEqual(sheet.result?.spendAlertLevels, entry.spendAlertLevels)
     }
 
@@ -313,7 +313,7 @@ final class AddAgentSheetTests: XCTestCase {
         XCTAssertEqual(SpendAlertLevelRules.defaultWholeAmounts(limit: 25), [18, 21])
         XCTAssertEqual(SpendAlertLevelRules.nextAmount(after: [], limit: 25), 18)
         XCTAssertEqual(SpendAlertLevelRules.nextAmount(after: [140, 170], limit: 200), 180)
-        XCTAssertEqual(SpendAlertLevelRules.chip(amount: 60, limit: 200), "No colour · 30% of the limit")
+        XCTAssertEqual(SpendAlertLevelRules.chip(amount: 60, limit: 200, strings: TestStrings.en), "No colour · 30% of the limit")
         XCTAssertFalse(SpendAlertLevelRules.isValid(SpendAlertLevels(unit: "usd", amounts: [1])))
         XCTAssertFalse(SpendAlertLevelRules.isValid(SpendAlertLevels(unit: "USD", amounts: [2, 1])))
         XCTAssertTrue(SpendAlertLevelRules.isValid(SpendAlertLevels(unit: "credits", amounts: [])))
@@ -323,7 +323,7 @@ final class AddAgentSheetTests: XCTestCase {
 
     @MainActor
     private func sheet(_ mode: AddAgentSheet.Mode, chosen: URL?) -> AddAgentSheet {
-        let sheet = AddAgentSheet(mode: mode, chooseFolder: { _, _, done in done(chosen) }) { _ in }
+        let sheet = AddAgentSheet(mode: mode, strings: TestStrings.en, chooseFolder: { _, _, done in done(chosen) }) { _ in }
         _ = sheet.view
         return sheet
     }
@@ -332,7 +332,7 @@ final class AddAgentSheetTests: XCTestCase {
     func testTheConfigFolderRowIsOnlyForClaudeCodeOnASubscription() {
         let sheet = sheet(.add(addable: [.claudeCode, .codex]))
         XCTAssertTrue(sheet.isConfigDirVisible)
-        XCTAssertEqual(sheet.configDirHintText, AddAgentSheet.configDirHint)
+        XCTAssertEqual(sheet.configDirHintText, AddAgentSheet.configDirHint(TestStrings.en))
         sheet.selectBilling(.api)
         XCTAssertFalse(sheet.isConfigDirVisible)
         sheet.selectBilling(.subscription)
@@ -345,7 +345,7 @@ final class AddAgentSheetTests: XCTestCase {
         let sheet = sheet(.add(addable: [.claudeCode]))
         sheet.setConfigDirText("relative/x")
         XCTAssertTrue(sheet.isConfigDirMarked)
-        XCTAssertEqual(sheet.configDirHintText, ClaudeConfigDirRules.problem)
+        XCTAssertEqual(sheet.configDirHintText, ClaudeConfigDirRules.problemText(TestStrings.en))
         XCTAssertFalse(sheet.isConfirmEnabled)
         sheet.setConfigDirText(" /Users/alex/.claude-work ")
         XCTAssertFalse(sheet.isConfigDirMarked)

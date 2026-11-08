@@ -3,7 +3,7 @@ package tokenwatchroo.providers
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import tokenwatchroo.core.*
-import tokenwatchroo.core.providers.ClaudeOAuth
+import tokenwatchroo.core.providers.{ClaudeOAuth, CredentialProblem}
 
 /** The item with the Claude Code account wins, and the read with no account is only for no such item (#90). With a
   * config folder, the hashed item and then the item of the folder with the trailing slash toggled (#91).
@@ -47,11 +47,7 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
     val (result, calls) = readFirst(Map(alex.some -> Fakes.claudeMcpOnlyBlob.asRight, none -> Fakes.claudeBlob.asRight))
     assertEquals(
       result,
-      ProviderError
-        .credentialsMalformed(
-          "Keychain item has no Claude sign-in (only MCP state). Run claude and use /login to sign in."
-        )
-        .asLeft[ClaudeOAuth],
+      ProviderError.credentialsMalformed(CredentialProblem.ClaudeNoSignIn).asLeft[ClaudeOAuth],
     )
     assertEquals(calls, List(Fakes.KeychainRead(S, alex.some, t)))
   }
@@ -61,7 +57,7 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
     assertEquals(
       result,
       ProviderError
-        .credentialsMalformed("Claude Code sign-in expired. Run claude and use /login to sign in again.")
+        .credentialsMalformed(CredentialProblem.ClaudeSignInExpired)
         .asLeft[ClaudeOAuth],
     )
     assertEquals(calls, List(Fakes.KeychainRead(S, alex.some, t)))
@@ -92,7 +88,7 @@ class ClaudeCredentialsSpec extends munit.FunSuite {
   private val Hashed    = "Claude Code-credentials-c381b4cb"
   private val Toggled   = "Claude Code-credentials-6dad957d"
   private val missingIn =
-    ProviderError.unsupported(ClaudeCredentials.ConfigDirMissingMessage).asLeft[ClaudeOAuth]
+    ProviderError.unsupported(UnsupportedReason.ConfigDirNoSignIn).asLeft[ClaudeOAuth]
 
   private def readDir(
     items: Map[(String, Option[KeychainAccount]), Either[ProviderError, String]],

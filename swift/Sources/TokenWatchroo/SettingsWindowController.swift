@@ -7,13 +7,23 @@ import AppKit
 @MainActor
 final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
-    static let title = "Token Watchroo Settings"
-    static let footnote = "Detected agents are added to this list. Clear Enabled to hide an agent."
+    static func title(_ strings: AppStrings) -> String { strings.text(.settingsTitle) }
+    static func footnote(_ strings: AppStrings) -> String { strings.text(.settingsFootnote) }
     static let contentSize = NSSize(width: 420, height: 344)
     static let rowType = NSPasteboard.PasteboardType("io.kevinlee.tokenwatchroo.agent-row")
 
+    /// The raw value is the column identifier. The title comes from `strings` (#10).
     private enum Column: String, CaseIterable {
         case agent = "Agent", billing = "Billing", plan = "Plan", enabled = "Enabled"
+
+        func title(_ strings: AppStrings) -> String {
+            switch self {
+            case .agent: return strings.text(.columnAgent)
+            case .billing: return strings.text(.columnBilling)
+            case .plan: return strings.text(.columnPlan)
+            case .enabled: return strings.text(.columnEnabled)
+            }
+        }
 
         var width: CGFloat {
             switch self {
@@ -25,12 +35,18 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         }
 
         /// The longest text the column shows: a cell text at 13 pt, or for Enabled the header title at 11 pt.
-        var longestText: String {
+        func longestText(_ strings: AppStrings) -> String {
+            let widest = { (texts: [String]) in
+                texts.max { a, b in
+                    (a as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
+                        < (b as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
+                } ?? ""
+            }
             switch self {
-            case .agent: return AgentId.allCases.map(\.displayName).max { $0.count < $1.count } ?? ""
-            case .billing: return Billing.allCases.map(\.displayName).max { $0.count < $1.count } ?? ""
+            case .agent: return widest(AgentId.allCases.map(\.displayName))
+            case .billing: return widest(Billing.allCases.map { $0.displayName(strings) })
             case .plan: return "Enterprise"
-            case .enabled: return rawValue
+            case .enabled: return title(strings)
             }
         }
 
@@ -44,19 +60,26 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
     }
 
     private let store: SettingsStore
+    /// The shell's text (#10), chosen at launch.
+    private let strings: AppStrings
     private let table = NSTableView()
-    private let addButton = NSButton(title: "Add Agent...", target: nil, action: nil)
-    private let editButton = NSButton(title: "Edit...", target: nil, action: nil)
-    private let moveUpButton = NSButton(title: "Move Up", target: nil, action: nil)
-    private let moveDownButton = NSButton(title: "Move Down", target: nil, action: nil)
+    private let addButton: NSButton
+    private let editButton: NSButton
+    private let moveUpButton: NSButton
+    private let moveDownButton: NSButton
     private let intervalPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private var intervalChoices: [Int] = []
     private var shownOnce = false
 
     private(set) lazy var window: NSWindow = makeWindow()
 
-    init(store: SettingsStore) {
+    init(store: SettingsStore, strings: AppStrings) {
         self.store = store
+        self.strings = strings
+        addButton = NSButton(title: strings.text(.settingsAddAgent), target: nil, action: nil)
+        editButton = NSButton(title: strings.text(.settingsEdit), target: nil, action: nil)
+        moveUpButton = NSButton(title: strings.text(.settingsMoveUp), target: nil, action: nil)
+        moveDownButton = NSButton(title: strings.text(.settingsMoveDown), target: nil, action: nil)
         super.init()
         store.onChange = { [weak self] in self?.reload() }
     }
@@ -112,14 +135,14 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
     private func makeWindow() -> NSWindow {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: SettingsWindowController.contentSize),
                               styleMask: [.titled, .closable], backing: .buffered, defer: true)
-        window.title = SettingsWindowController.title
+        window.title = SettingsWindowController.title(strings)
         window.isReleasedWhenClosed = false
 
         let content = NSView(frame: NSRect(origin: .zero, size: SettingsWindowController.contentSize))
         let inset: CGFloat = 20
         let width = SettingsWindowController.contentSize.width - 2 * inset
 
-        let intervalLabel = NSTextField(labelWithString: "Refresh every")
+        let intervalLabel = NSTextField(labelWithString: strings.text(.settingsRefreshEvery))
         intervalLabel.font = .systemFont(ofSize: 13)
         intervalLabel.textColor = Palette.primaryText
         intervalLabel.frame = NSRect(x: inset, y: 308, width: 100, height: 17)
@@ -129,7 +152,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         intervalPopUp.action = #selector(intervalChanged(_:))
         content.addSubview(intervalPopUp)
 
-        let heading = NSTextField(labelWithString: "Agents")
+        let heading = NSTextField(labelWithString: strings.text(.settingsAgents))
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
         heading.textColor = Palette.primaryText
         heading.frame = NSRect(x: inset, y: 268, width: width, height: 16)
@@ -142,7 +165,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         let widths = SettingsWindowController.columnWidths(scrollerStyle: NSScroller.preferredScrollerStyle)
         Column.allCases.forEach { column in
             let tableColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.rawValue))
-            tableColumn.title = column.rawValue
+            tableColumn.title = column.title(strings)
             tableColumn.width = widths[column.rawValue] ?? column.width
             tableColumn.resizingMask = []
             table.addTableColumn(tableColumn)
@@ -179,7 +202,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
             content.addSubview(button)
         }
 
-        let footnote = NSTextField(wrappingLabelWithString: SettingsWindowController.footnote)
+        let footnote = NSTextField(wrappingLabelWithString: SettingsWindowController.footnote(strings))
         footnote.font = .systemFont(ofSize: 11)
         footnote.textColor = Palette.secondaryText
         footnote.frame = NSRect(x: inset, y: 36, width: width, height: 30)
@@ -194,7 +217,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         let current = RefreshInterval.clamped(store.config.refreshIntervalSeconds)
         intervalChoices = RefreshInterval.choices(current: store.config.refreshIntervalSeconds)
         intervalPopUp.removeAllItems()
-        intervalPopUp.addItems(withTitles: intervalChoices.map(RefreshInterval.title))
+        intervalPopUp.addItems(withTitles: intervalChoices.map { RefreshInterval.title($0, strings: strings) })
         intervalPopUp.selectItem(at: intervalChoices.firstIndex(of: current) ?? 0)
 
         let selected = table.selectedRow
@@ -223,7 +246,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         let agent = agents[row]
         switch column {
         case .agent: return SettingsWindowController.cell(agent.id.displayName)
-        case .billing: return SettingsWindowController.cell(agent.billing.displayName)
+        case .billing: return SettingsWindowController.cell(agent.billing.displayName(strings))
         case .plan: return SettingsWindowController.cell(agent.plan.displayName)
         case .enabled:
             let checkbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleEnabled(_:)))
@@ -272,11 +295,12 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
         return Dictionary(uniqueKeysWithValues: Column.allCases.map { ($0.rawValue, $0.resizes ? planWidth : $0.width) })
     }
 
-    /// The width each column needs for its longest text, with 6 pt for the cell padding. For tests.
-    static var neededColumnWidths: [String: CGFloat] {
+    /// The width each column needs for its longest text in `strings`, with 6 pt for the cell padding, by column
+    /// identifier. For tests.
+    static func neededColumnWidths(strings: AppStrings) -> [String: CGFloat] {
         Dictionary(uniqueKeysWithValues: Column.allCases.map { column in
             let size: CGFloat = column == .enabled ? NSFont.smallSystemFontSize : 13
-            let text = column.longestText as NSString
+            let text = column.longestText(strings) as NSString
             return (column.rawValue, ceil(text.size(withAttributes: [.font: NSFont.systemFont(ofSize: size)]).width) + 6)
         })
     }
@@ -337,7 +361,7 @@ final class SettingsWindowController: NSObject, NSTableViewDataSource, NSTableVi
 
     /// "Add" and "Save" replace the entry with the same agent in place, or append a new one. "Cancel" changes nothing.
     private func presentSheet(_ mode: AddAgentSheet.Mode) {
-        let sheet = AddAgentSheet(mode: mode, meters: store.meters) { [weak self] agent in
+        let sheet = AddAgentSheet(mode: mode, meters: store.meters, strings: strings) { [weak self] agent in
             guard let self, let agent else { return }
             self.store.setAgents(self.agents.adding(agent))
         }

@@ -2,6 +2,7 @@ package tokenwatchroo.providers
 
 import refined4s.types.all.*
 import tokenwatchroo.core.*
+import tokenwatchroo.core.providers.CredentialProblem
 
 /** `Config.codexHome`, else `$CODEX_HOME`, else `~/.codex`. */
 object CodexHomeResolver {
@@ -11,5 +12,5 @@ object CodexHomeResolver {
       .codexHome
       .orElse(env.get("CODEX_HOME").flatMap(v => NonEmptyString.from(v).toOption).map(CodexHome(_)))
       .orElse(env.home.flatMap(home => NonEmptyString.from(s"$home/.codex").toOption).map(CodexHome(_)))
-      .toRight(ProviderError.credentialsMalformed("Cannot locate the Codex home directory: HOME is not set."))
+      .toRight(ProviderError.credentialsMalformed(CredentialProblem.codexHomeMissing))
 }

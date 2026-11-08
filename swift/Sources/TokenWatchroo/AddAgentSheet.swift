@@ -24,30 +24,34 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     }
 
     static let width: CGFloat = 360
-    static let addTitle = "Add agent"
-    static let editTitle = "Edit agent"
-    static let subscriptionSubtitle = "Subscription plan, individual, team or enterprise"
-    static let apiSubtitle = "API, enterprise plan"
-    static let subscriptionHint = "Individual, Team or Enterprise. Windows and spend limits come from the account."
-    static let apiHint = "API budget agents are not supported yet."
-    static let alertAtHint = "A window alerts when its usage reaches a level. Up to 5 levels, at least 5 apart."
-    static let noLevelsHint = "No window alerts for this agent."
-    static let maxLevelsHint = "5 levels is the maximum."
-    static let spendAlertsTitle = "Spend alerts"
-    static let spendDefaultTitle = "70% and 85% of the limit"
-    static let spendAmountsTitle = "Amounts"
-    static let spendHint = "A spend alert comes when the spent amount reaches a level. Up to 5 levels."
-    static let noSpendLevelsHint = "No spend alerts for this agent."
-    static let spendUnknownHint = "Amounts can be set after the first refresh reads the limit."
-    static func unitMismatchHint(stored: String, meter: String) -> String {
-        "Set for \(stored). The limit is now in \(meter)."
+    static func addTitle(_ strings: AppStrings) -> String { strings.text(.sheetAddTitle) }
+    static func editTitle(_ strings: AppStrings) -> String { strings.text(.sheetEditTitle) }
+    static func subscriptionSubtitle(_ strings: AppStrings) -> String { strings.text(.sheetSubscriptionSubtitle) }
+    static func apiSubtitle(_ strings: AppStrings) -> String { strings.text(.sheetApiSubtitle) }
+    static func subscriptionHint(_ strings: AppStrings) -> String { strings.text(.sheetSubscriptionHint) }
+    static func apiHint(_ strings: AppStrings) -> String { strings.text(.sheetApiHint) }
+    static func alertAtHint(_ strings: AppStrings) -> String { strings.text(.sheetAlertAtHint) }
+    static func noLevelsHint(_ strings: AppStrings) -> String { strings.text(.sheetNoLevelsHint) }
+    static func maxLevelsHint(_ strings: AppStrings) -> String { strings.text(.sheetMaxLevelsHint) }
+    static func spendAlertsTitle(_ strings: AppStrings) -> String { strings.text(.sheetSpendAlerts) }
+    static func spendDefaultTitle(_ strings: AppStrings) -> String { strings.text(.sheetSpendDefault) }
+    static func spendAmountsTitle(_ strings: AppStrings) -> String { strings.text(.sheetSpendAmounts) }
+    static func spendHint(_ strings: AppStrings) -> String { strings.text(.sheetSpendHint) }
+    static func noSpendLevelsHint(_ strings: AppStrings) -> String { strings.text(.sheetNoSpendLevelsHint) }
+    static func spendUnknownHint(_ strings: AppStrings) -> String { strings.text(.sheetSpendUnknownHint) }
+    static func unitMismatchHint(stored: String, meter: String, strings: AppStrings) -> String {
+        strings.text(.sheetSpendUnitMismatch, ["stored": unitLabel(stored, strings), "meter": unitLabel(meter, strings)])
     }
-    static let configDirTitle = "Config folder"
-    static let configDirPlaceholder = "Default (~/.claude)"
-    static let configDirHint = "Optional. Use the same text as CLAUDE_CONFIG_DIR, or CLAUDE_SECURESTORAGE_CONFIG_DIR "
-        + "when you set it. Leave empty for the default sign-in."
-    static let chooseTitle = "Choose…"
-    static let choosePanelMessage = "Choose the Claude Code config folder."
+    static func configDirTitle(_ strings: AppStrings) -> String { strings.text(.sheetConfigDir) }
+    static func configDirPlaceholder(_ strings: AppStrings) -> String { strings.text(.sheetConfigDirPlaceholder) }
+    static func configDirHint(_ strings: AppStrings) -> String { strings.text(.sheetConfigDirHint) }
+    static func chooseTitle(_ strings: AppStrings) -> String { strings.text(.sheetChoose) }
+    static func choosePanelMessage(_ strings: AppStrings) -> String { strings.text(.sheetChoosePanel) }
+
+    /// "credits" in the language of `strings`, or the ISO code as it is.
+    static func unitLabel(_ unit: String, _ strings: AppStrings) -> String {
+        unit == "credits" ? strings.text(.unitCredits) : unit
+    }
 
     /// Shows a folder chooser over `window`, starting at `start`, and calls `done` with the chosen folder or nil.
     typealias FolderChooser = @MainActor (_ window: NSWindow?, _ start: URL?, _ done: @escaping (URL?) -> Void) -> Void
@@ -65,11 +69,12 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
 
     private let mode: Mode
     private let completion: (AgentConfig?) -> Void
+    /// The shell's text (#10), chosen at launch.
+    private let strings: AppStrings
 
     private let subtitle = AddAgentSheet.label("", size: 12, weight: .regular, color: Palette.badgeText)
     private let agentPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let billingControl = NSSegmentedControl(labels: Billing.allCases.map(\.displayName),
-                                                    trackingMode: .selectOne, target: nil, action: nil)
+    private let billingControl: NSSegmentedControl
     private let planPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let hint = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.secondaryText)
     private var alertAtRow = NSStackView()
@@ -77,7 +82,7 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     private var levelFields: [NSTextField] = []
     private var levelChipLabels: [NSTextField] = []
     private var levelChipDots: [NSView] = []
-    private let noLevels = AddAgentSheet.label("No levels", size: 12, weight: .regular, color: Palette.secondaryText)
+    private let noLevels: NSTextField
     private let addLevelButton = NSButton(title: "+", target: nil, action: nil)
     private let alertAtHintLabel = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.secondaryText)
     private var confirmButton = NSButton()
@@ -91,25 +96,32 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     private var spendUnitLabels: [NSTextField] = []
     private var spendChipLabels: [NSTextField] = []
     private var spendChipDots: [NSView] = []
-    private let noSpendLevels = AddAgentSheet.label("No levels", size: 12, weight: .regular,
-                                                    color: Palette.secondaryText)
+    private let noSpendLevels: NSTextField
     private let addSpendButton = NSButton(title: "+", target: nil, action: nil)
     private let spendHintLabel = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.secondaryText)
 
     private let chooseFolder: FolderChooser
     private var configDirRow = NSStackView()
     private let configDirField = NSTextField(string: "")
-    private let chooseButton = NSButton(title: AddAgentSheet.chooseTitle, target: nil, action: nil)
+    private let chooseButton: NSButton
     private let configDirHintLabel = AddAgentSheet.label("", size: 11, weight: .regular, color: Palette.secondaryText)
 
     /// `completion` gets the entry for "Add" or "Save", and nil for "Cancel". `meters` are the spend meters of the
     /// agents from their last snapshots (#105). `chooseFolder` shows the folder chooser (#91), a fake in tests.
-    init(mode: Mode, meters: [AgentId: SpendMeterInfo] = [:],
-         chooseFolder: @escaping FolderChooser = AddAgentSheet.openPanel,
+    init(mode: Mode, meters: [AgentId: SpendMeterInfo] = [:], strings: AppStrings,
+         chooseFolder: FolderChooser? = nil,
          completion: @escaping (AgentConfig?) -> Void) {
         self.mode = mode
         self.meters = meters
-        self.chooseFolder = chooseFolder
+        self.strings = strings
+        billingControl = NSSegmentedControl(labels: Billing.allCases.map { $0.displayName(strings) },
+                                            trackingMode: .selectOne, target: nil, action: nil)
+        noLevels = AddAgentSheet.label(strings.text(.sheetNoLevels), size: 12, weight: .regular,
+                                       color: Palette.secondaryText)
+        noSpendLevels = AddAgentSheet.label(strings.text(.sheetNoLevels), size: 12, weight: .regular,
+                                            color: Palette.secondaryText)
+        chooseButton = NSButton(title: AddAgentSheet.chooseTitle(strings), target: nil, action: nil)
+        self.chooseFolder = chooseFolder ?? AddAgentSheet.openPanel(message: AddAgentSheet.choosePanelMessage(strings))
         self.completion = completion
         super.init(nibName: nil, bundle: nil)
     }
@@ -247,14 +259,14 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         let confirmTitle: String
         switch mode {
         case .add(let addable):
-            title = AddAgentSheet.addTitle
-            confirmTitle = "Add"
+            title = AddAgentSheet.addTitle(strings)
+            confirmTitle = strings.text(.sheetAdd)
             agentPopUp.addItems(withTitles: addable.map(\.displayName))
             agentPopUp.target = self
             agentPopUp.action = #selector(agentChanged(_:))
         case .edit(let agent):
-            title = AddAgentSheet.editTitle
-            confirmTitle = "Save"
+            title = AddAgentSheet.editTitle(strings)
+            confirmTitle = strings.text(.sheetSave)
             agentPopUp.addItems(withTitles: [agent.id.displayName])
             agentPopUp.isEnabled = false
         }
@@ -274,16 +286,16 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         addLevelButton.target = self
         addLevelButton.action = #selector(addLevel(_:))
         addLevelButton.bezelStyle = .smallSquare
-        addLevelButton.setAccessibilityLabel("Add a level")
+        addLevelButton.setAccessibilityLabel(strings.text(.a11yAddLevel))
         addLevelButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
         addLevelButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
         let levels = NSStackView(views: [levelRows, noLevels, addLevelButton])
         levels.orientation = .vertical
         levels.alignment = .leading
         levels.spacing = 6
-        alertAtRow = AddAgentSheet.field("Alert at", levels, alertAtHintLabel)
+        alertAtRow = AddAgentSheet.field(strings.text(.sheetAlertAt), levels, alertAtHintLabel)
 
-        spendModePopUp.addItems(withTitles: [AddAgentSheet.spendDefaultTitle, AddAgentSheet.spendAmountsTitle])
+        spendModePopUp.addItems(withTitles: [AddAgentSheet.spendDefaultTitle(strings), AddAgentSheet.spendAmountsTitle(strings)])
         spendModePopUp.target = self
         spendModePopUp.action = #selector(spendModeChanged(_:))
         spendRows.orientation = .vertical
@@ -292,23 +304,23 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         addSpendButton.target = self
         addSpendButton.action = #selector(addSpendLevel(_:))
         addSpendButton.bezelStyle = .smallSquare
-        addSpendButton.setAccessibilityLabel("Add a spend level")
+        addSpendButton.setAccessibilityLabel(strings.text(.a11yAddSpendLevel))
         addSpendButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
         addSpendButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
         let spend = NSStackView(views: [spendModePopUp, spendDetail, spendRows, noSpendLevels, addSpendButton])
         spend.orientation = .vertical
         spend.alignment = .leading
         spend.spacing = 6
-        spendAlertsRow = AddAgentSheet.field(AddAgentSheet.spendAlertsTitle, spend, spendHintLabel)
+        spendAlertsRow = AddAgentSheet.field(AddAgentSheet.spendAlertsTitle(strings), spend, spendHintLabel)
 
         configDirField.font = .systemFont(ofSize: 13)
-        configDirField.placeholderString = AddAgentSheet.configDirPlaceholder
+        configDirField.placeholderString = AddAgentSheet.configDirPlaceholder(strings)
         configDirField.lineBreakMode = .byTruncatingMiddle
         configDirField.usesSingleLineMode = true
         configDirField.delegate = self
         configDirField.wantsLayer = true
         configDirField.layer?.cornerRadius = 4
-        configDirField.setAccessibilityLabel(AddAgentSheet.configDirTitle)
+        configDirField.setAccessibilityLabel(AddAgentSheet.configDirTitle(strings))
         configDirField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         chooseButton.target = self
         chooseButton.action = #selector(chooseConfigDir(_:))
@@ -317,12 +329,12 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         configDir.orientation = .horizontal
         configDir.spacing = 8
         configDir.widthAnchor.constraint(equalToConstant: AddAgentSheet.fieldWidth).isActive = true
-        configDirRow = AddAgentSheet.field(AddAgentSheet.configDirTitle, configDir, configDirHintLabel)
+        configDirRow = AddAgentSheet.field(AddAgentSheet.configDirTitle(strings), configDir, configDirHintLabel)
 
         let fields = NSStackView(views: [
-            AddAgentSheet.field("Agent", agentPopUp),
-            AddAgentSheet.field("Billing", billingControl),
-            AddAgentSheet.field("Plan", planPopUp, hint),
+            AddAgentSheet.field(strings.text(.sheetAgent), agentPopUp),
+            AddAgentSheet.field(strings.text(.sheetBilling), billingControl),
+            AddAgentSheet.field(strings.text(.sheetPlan), planPopUp, hint),
             configDirRow,
             alertAtRow,
             spendAlertsRow,
@@ -331,7 +343,7 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         fields.alignment = .leading
         fields.spacing = 12
 
-        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancel(_:)))
+        let cancel = NSButton(title: strings.text(.sheetCancel), target: self, action: #selector(cancel(_:)))
         cancel.keyEquivalent = "\u{1b}"
         let confirm = NSButton(title: confirmTitle, target: self, action: #selector(confirm(_:)))
         confirm.keyEquivalent = "\r"
@@ -386,12 +398,12 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         planPopUp.selectItem(at: 0)
         switch billing {
         case .subscription:
-            subtitle.stringValue = AddAgentSheet.subscriptionSubtitle
-            hint.stringValue = AddAgentSheet.subscriptionHint
+            subtitle.stringValue = AddAgentSheet.subscriptionSubtitle(strings)
+            hint.stringValue = AddAgentSheet.subscriptionHint(strings)
             alertAtRow.isHidden = false
         case .api:
-            subtitle.stringValue = AddAgentSheet.apiSubtitle
-            hint.stringValue = AddAgentSheet.apiHint
+            subtitle.stringValue = AddAgentSheet.apiSubtitle(strings)
+            hint.stringValue = AddAgentSheet.apiHint(strings)
             alertAtRow.isHidden = true
         }
         updateConfigDir()
@@ -417,13 +429,13 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     /// Shows or hides the row, and marks the field and shows the problem when its text is not an absolute path.
     private func updateConfigDir() {
         configDirRow.isHidden = !isConfigDirActive
-        if let problem = ClaudeConfigDirRules.problem(configDirField.stringValue) {
+        if let problem = ClaudeConfigDirRules.problem(configDirField.stringValue, strings: strings) {
             configDirField.layer?.borderWidth = 1.5
             configDirHintLabel.stringValue = problem
             configDirHintLabel.textColor = AddAgentSheet.errorColor
         } else {
             configDirField.layer?.borderWidth = 0
-            configDirHintLabel.stringValue = AddAgentSheet.configDirHint
+            configDirHintLabel.stringValue = AddAgentSheet.configDirHint(strings)
             configDirHintLabel.textColor = Palette.secondaryText
         }
         configDirField.layer?.borderColor = AddAgentSheet.errorColor.cgColor
@@ -445,16 +457,21 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         url.path
     }
 
-    /// The standard folder chooser, shown as a sheet over the Add-agent sheet. Hidden folders are shown, because the
-    /// Claude Code folders start with a dot.
-    static func openPanel(_ window: NSWindow?, _ start: URL?, _ done: @escaping (URL?) -> Void) {
+    /// The standard folder chooser with `message`, shown as a sheet over the Add-agent sheet. Hidden folders are shown,
+    /// because the Claude Code folders start with a dot.
+    static func openPanel(message: String) -> FolderChooser {
+        { window, start, done in openPanel(window, start, message: message, done) }
+    }
+
+    private static func openPanel(_ window: NSWindow?, _ start: URL?, message: String,
+                                  _ done: @escaping (URL?) -> Void) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
         panel.canCreateDirectories = false
-        panel.message = choosePanelMessage
+        panel.message = message
         panel.directoryURL = start
         if let window {
             panel.beginSheetModal(for: window) { response in
@@ -495,7 +512,7 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         field.delegate = self
         field.wantsLayer = true
         field.layer?.cornerRadius = 4
-        field.setAccessibilityLabel("Alert level \(index + 1), percent")
+        field.setAccessibilityLabel(strings.text(.a11yLevel, ["n": "\(index + 1)"]))
         field.widthAnchor.constraint(equalToConstant: 72).isActive = true
         let percent = AddAgentSheet.label("%", size: 13, weight: .regular, color: Palette.secondaryText)
 
@@ -513,7 +530,7 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         let remove = NSButton(title: "−", target: self, action: #selector(removeLevelRow(_:)))
         remove.tag = index
         remove.bezelStyle = .smallSquare
-        remove.setAccessibilityLabel("Remove this level")
+        remove.setAccessibilityLabel(strings.text(.a11yRemoveLevel))
         remove.widthAnchor.constraint(equalToConstant: 28).isActive = true
         remove.heightAnchor.constraint(equalToConstant: 28).isActive = true
 
@@ -533,12 +550,12 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     private func updateLevels() {
         let texts = levelTexts
         let marked = AlertLevelRules.marked(texts)
-        let problem = AlertLevelRules.problem(texts)
+        let problem = AlertLevelRules.problem(texts, strings: strings)
         for (index, field) in levelFields.enumerated() {
             field.layer?.borderWidth = marked.contains(index) ? 1.5 : 0
             field.layer?.borderColor = AddAgentSheet.errorColor.cgColor
             let level = AlertLevelRules.level(texts[index])
-            levelChipLabels[index].stringValue = level.map(AlertLevelRules.chip(for:)) ?? ""
+            levelChipLabels[index].stringValue = level.map { AlertLevelRules.chip(for: $0, strings: strings) } ?? ""
             let dot = levelChipDots[index].layer
             let color = level.flatMap { RingIcon.color(for: UsageBand.of(percent: Double($0))) }
             dot?.backgroundColor = level == nil ? nil : (color ?? .white).cgColor
@@ -553,8 +570,9 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
             alertAtHintLabel.stringValue = problem
             alertAtHintLabel.textColor = AddAgentSheet.errorColor
         } else {
-            alertAtHintLabel.stringValue = texts.isEmpty ? AddAgentSheet.noLevelsHint
-                : texts.count >= AlertLevelRules.maxCount ? AddAgentSheet.maxLevelsHint : AddAgentSheet.alertAtHint
+            alertAtHintLabel.stringValue = texts.isEmpty ? AddAgentSheet.noLevelsHint(strings)
+                : texts.count >= AlertLevelRules.maxCount ? AddAgentSheet.maxLevelsHint(strings)
+                : AddAgentSheet.alertAtHint(strings)
             alertAtHintLabel.textColor = Palette.secondaryText
         }
         updateConfirm()
@@ -563,9 +581,11 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
     /// Add or Save is disabled while a level row, an amount row or the Config folder breaks a rule. An API entry has
     /// none of these rows.
     private func updateConfirm() {
-        let levelProblem = AlertLevelRules.problem(levelTexts)
-        let spendProblem = isAmountsActive ? SpendAlertLevelRules.problem(spendFields.map(\.stringValue)) : nil
-        let configDirProblem = isConfigDirActive ? ClaudeConfigDirRules.problem(configDirField.stringValue) : nil
+        let levelProblem = AlertLevelRules.problem(levelTexts, strings: strings)
+        let spendProblem = isAmountsActive
+            ? SpendAlertLevelRules.problem(spendFields.map(\.stringValue), strings: strings) : nil
+        let configDirProblem = isConfigDirActive
+            ? ClaudeConfigDirRules.problem(configDirField.stringValue, strings: strings) : nil
         confirmButton.isEnabled = selectedBilling == .api
             || (levelProblem == nil && spendProblem == nil && configDirProblem == nil)
     }
@@ -702,7 +722,7 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         field.delegate = self
         field.wantsLayer = true
         field.layer?.cornerRadius = 4
-        field.setAccessibilityLabel("Spend alert level \(index + 1), amount")
+        field.setAccessibilityLabel(strings.text(.a11ySpendLevel, ["n": "\(index + 1)"]))
         field.widthAnchor.constraint(equalToConstant: 96).isActive = true
         let unit = AddAgentSheet.label(unitText, size: 12, weight: .regular, color: Palette.secondaryText)
 
@@ -720,7 +740,7 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         let remove = NSButton(title: "−", target: self, action: #selector(removeSpendRow(_:)))
         remove.tag = index
         remove.bezelStyle = .smallSquare
-        remove.setAccessibilityLabel("Remove this spend level")
+        remove.setAccessibilityLabel(strings.text(.a11yRemoveSpendLevel))
         remove.widthAnchor.constraint(equalToConstant: 28).isActive = true
         remove.heightAnchor.constraint(equalToConstant: 28).isActive = true
 
@@ -737,9 +757,9 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         return row
     }
 
-    /// "USD" for an ISO currency, "credits" for credits.
+    /// "USD" for an ISO currency, "credits" for credits, in the language of `strings`.
     private var unitText: String {
-        if case .spend(let currency, _)? = currentMeter { return currency }
+        if case .spend(let currency, _)? = currentMeter { return AddAgentSheet.unitLabel(currency, strings) }
         return ""
     }
 
@@ -755,12 +775,12 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
         if amounts, case .spend(_, let limit)? = currentMeter {
             let texts = spendFields.map(\.stringValue)
             let marked = SpendAlertLevelRules.marked(texts)
-            let problem = SpendAlertLevelRules.problem(texts)
+            let problem = SpendAlertLevelRules.problem(texts, strings: strings)
             for (index, field) in spendFields.enumerated() {
                 field.layer?.borderWidth = marked.contains(index) ? 1.5 : 0
                 field.layer?.borderColor = AddAgentSheet.errorColor.cgColor
                 let amount = SpendAlertLevelRules.amount(texts[index])
-                spendChipLabels[index].stringValue = amount.map { SpendAlertLevelRules.chip(amount: $0, limit: limit) }
+                spendChipLabels[index].stringValue = amount.map { SpendAlertLevelRules.chip(amount: $0, limit: limit, strings: strings) }
                     ?? ""
                 let percent = amount.flatMap { SpendAlertLevelRules.percent(of: $0, limit: limit) }
                 let color = percent.flatMap { $0 <= 100 ? RingIcon.color(for: UsageBand.of(percent: $0)) : nil }
@@ -773,15 +793,15 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
             if let problem {
                 setSpendHint(problem, color: AddAgentSheet.errorColor)
             } else {
-                setSpendHint(texts.isEmpty ? AddAgentSheet.noSpendLevelsHint
-                             : texts.count >= SpendAlertLevelRules.maxCount ? AddAgentSheet.maxLevelsHint
-                             : AddAgentSheet.spendHint, color: Palette.secondaryText)
+                setSpendHint(texts.isEmpty ? AddAgentSheet.noSpendLevelsHint(strings)
+                             : texts.count >= SpendAlertLevelRules.maxCount ? AddAgentSheet.maxLevelsHint(strings)
+                             : AddAgentSheet.spendHint(strings), color: Palette.secondaryText)
             }
         } else if currentMeter == nil {
-            setSpendHint(AddAgentSheet.spendUnknownHint, color: Palette.secondaryText)
+            setSpendHint(AddAgentSheet.spendUnknownHint(strings), color: Palette.secondaryText)
         } else if case .spend(let currency, _)? = currentMeter, let stored = storedSpend, !stored.amounts.isEmpty,
                   stored.unit != currency {
-            setSpendHint(AddAgentSheet.unitMismatchHint(stored: stored.unit, meter: currency),
+            setSpendHint(AddAgentSheet.unitMismatchHint(stored: stored.unit, meter: currency, strings: strings),
                          color: Palette.secondaryText)
         } else {
             setSpendHint("", color: Palette.secondaryText)
@@ -803,20 +823,23 @@ final class AddAgentSheet: NSViewController, NSTextFieldDelegate {
             let amounts = SpendAlertLevelRules.defaultAmounts(limit: limit)
                 .map { Formatting.money($0, currency: currency) }
             let limitText = Formatting.money(limit, currency: currency)
-            let unit = currency == "credits" ? " credits" : ""
-            return "Now \(AddAgentSheet.joined(amounts)) of \(limitText)\(unit)."
+            let args = ["amounts": AddAgentSheet.joined(amounts, strings), "limit": limitText]
+            return strings.text(currency == "credits" ? .sheetSpendNowCredits : .sheetSpendNow, args)
         case .noSpend?, nil:
-            guard let stored = storedSpend else { return "\(AddAgentSheet.spendDefaultTitle)." }
-            if stored.amounts.isEmpty { return AddAgentSheet.noSpendLevelsHint }
-            return "At \(AddAgentSheet.joined(stored.amounts.map(String.init))) \(stored.unit)."
+            guard let stored = storedSpend else { return "\(AddAgentSheet.spendDefaultTitle(strings))." }
+            if stored.amounts.isEmpty { return AddAgentSheet.noSpendLevelsHint(strings) }
+            return strings.text(.sheetSpendAt, [
+                "amounts": AddAgentSheet.joined(stored.amounts.map(String.init), strings),
+                "unit": AddAgentSheet.unitLabel(stored.unit, strings),
+            ])
         }
     }
 
-    /// "a", "a and b", "a, b and c".
-    private static func joined(_ items: [String]) -> String {
+    /// "a", "a and b", "a, b and c" (Korean: "a, b, c").
+    private static func joined(_ items: [String], _ strings: AppStrings) -> String {
         guard let last = items.last else { return "" }
         let rest = items.dropLast()
-        return rest.isEmpty ? last : "\(rest.joined(separator: ", ")) and \(last)"
+        return rest.isEmpty ? last : strings.text(.listPair, ["first": rest.joined(separator: ", "), "last": last])
     }
 
     /// Sorts the amount rows when every field is a whole amount.

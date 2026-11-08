@@ -27,7 +27,11 @@ object AgentChoice {
   def apiNotSupported: AgentChoice       = AgentChoice.ApiNotSupported
   def hidden: AgentChoice                = AgentChoice.Hidden
 
-  val ApiNotSupportedMessage: ErrorMessage = ErrorMessage(NonEmptyString("API budget agents are not supported yet"))
+  /** The card text of an enabled API entry, in the language of `messages` (#10). */
+  def apiNotSupportedMessage(messages: Messages): ErrorMessage =
+    ErrorMessage
+      .fromString(messages.errorApiNotSupported)
+      .getOrElse(ErrorMessage(NonEmptyString("API budget agents are not supported yet")))
 
   /** The display order (#104): items whose agent has an entry in `config.agents` first, in the order of the first entry
     * for each agent, then the others in `AgentId` order. A stable sort, so items of the same agent keep their order.

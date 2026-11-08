@@ -4,6 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import scala.concurrent.duration.FiniteDuration
 import tokenwatchroo.core.*
+import tokenwatchroo.core.providers.CredentialProblem
 
 /** Reads generic passwords from the login keychain. */
 trait KeychainReader {
@@ -46,7 +47,9 @@ object SecurityCli extends KeychainReader {
           case ExitNotFound => ProviderError.credentialsMissing.asLeft[String]
           case ExitAccessDenied => ProviderError.credentialsAccessDenied.asLeft[String]
           case other =>
-            ProviderError.credentialsMalformed(s"security exited with $other: ${output.stdout.trim}").asLeft[String]
+            ProviderError
+              .credentialsMalformed(CredentialProblem.securityFailed(other, output.stdout.trim))
+              .asLeft[String]
         }
       })
 }

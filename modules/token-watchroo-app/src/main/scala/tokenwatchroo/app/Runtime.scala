@@ -9,7 +9,7 @@ import scala.concurrent.duration.*
 import scala.scalanative.unsafe.*
 import tokenwatchroo.core.*
 import tokenwatchroo.core.codecs.given
-import tokenwatchroo.providers.{CurlHttp, Env, Providers, UsageProvider}
+import tokenwatchroo.providers.{CurlHttp, Env, MessageResources, Providers, UsageProvider}
 
 /** What the program publishes once its resources exist: the sequential dispatcher the exports submit through and the
   * command queue the poller reads.
@@ -58,25 +58,45 @@ object AppRuntime {
           codecs.readEither[Config](configJson) match {
             case Left(_) => Entry.BadConfig
             case Right(config) =>
-              /* Not `IORuntime.builder()`: on Scala Native (cats-effect 3.7.1) the builder has no setter for the compute
-               * thread count, `setCompute` drops the kqueue poller, and it adds a separate blocking pool. This call
-               * expresses the 2-thread pool with the kqueue poller directly.
-               */
-              val (compute, poller, shutdownCompute) =
-                IORuntime.createWorkStealingComputeThreadPool(threads = ComputeThreads, shutdownTimeout = 1.second)
-              val runtime = IORuntime(compute, compute, compute, List(poller), shutdownCompute, IORuntimeConfig())
-              state.set(Lifecycle.Starting(shutdownCompute))
-              program(config, callback, ctx).unsafeRunAndForget()(using runtime)
-              Entry.Ok
+              MessageResources.load match {
+                case Left(reason) =>
+                  /* A missing or broken bundle is a build fault (#10). */
+                  System.err.println(s"[token-watchroo] message bundles: $reason")
+                  Entry.Internal
+                case Right(bundles) => startWith(config, bundles, callback, ctx)
+              }
           }
       }
 
-  private def program(config: Config, callback: CFuncPtr2[CString, Ptr[Byte], Unit], ctx: Ptr[Byte]): IO[Unit] =
+  private def startWith(
+    config: Config,
+    bundles: MessageBundles,
+    callback: CFuncPtr2[CString, Ptr[Byte], Unit],
+    ctx: Ptr[Byte],
+  ): Int = {
+    /* Not `IORuntime.builder()`: on Scala Native (cats-effect 3.7.1) the builder has no setter for the compute
+     * thread count, `setCompute` drops the kqueue poller, and it adds a separate blocking pool. This call
+     * expresses the 2-thread pool with the kqueue poller directly.
+     */
+    val (compute, poller, shutdownCompute) =
+      IORuntime.createWorkStealingComputeThreadPool(threads = ComputeThreads, shutdownTimeout = 1.second)
+    val runtime = IORuntime(compute, compute, compute, List(poller), shutdownCompute, IORuntimeConfig())
+    state.set(Lifecycle.Starting(shutdownCompute))
+    program(config, bundles, callback, ctx).unsafeRunAndForget()(using runtime)
+    Entry.Ok
+  }
+
+  private def program(
+    config: Config,
+    bundles: MessageBundles,
+    callback: CFuncPtr2[CString, Ptr[Byte], Unit],
+    ctx: Ptr[Byte],
+  ): IO[Unit] =
     for {
       _        <- CurlHttp.globalInit
       bridge   <- Bridge.make(callback, ctx)
       registry <- Providers.live
-      _        <- run(state, config, registry, bridge, new FileStateStore(config.stateDir), clock)
+      _        <- run(state, config, bundles, registry, bridge, new FileStateStore(config.stateDir), clock)
     } yield ()
 
   /** The runtime-facing core of the program, shared with `AppRuntimeSpec`: creates the sequential dispatcher and the
@@ -87,6 +107,7 @@ object AppRuntime {
   private[app] def run(
     state: AtomicReference[Lifecycle],
     config: Config,
+    bundles: MessageBundles,
     registry: List[UsageProvider],
     sink: EnvelopeSink,
     store: StateStore,
@@ -95,7 +116,7 @@ object AppRuntime {
     (Dispatcher.sequential[IO], Resource.eval(Queue.unbounded[IO, Command])).tupled.use {
       case (dispatcher, queue) =>
         IO(publish(state, new Handles(dispatcher, queue)))
-          .ifM(Poller.run(config, registry, queue, sink, store, clock), IO.unit)
+          .ifM(Poller.run(config, bundles, registry, queue, sink, store, clock), IO.unit)
     }
 
   private def publish(state: AtomicReference[Lifecycle], handles: Handles): Boolean =

@@ -214,7 +214,7 @@ object ResponseDecodingSpec extends Properties {
     """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","refreshToken":"sk-ant-ort01-example","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max"},"mcpOAuth":{}}"""
 
   def testClaudeBlob: Result = {
-    val parsed = ClaudeCredentialsBlob.parse(blob, 1789185600000L)
+    val parsed = parseClaude(blob, 1789185600000L)
     Result.all(
       List(
         parsed.map(_.profileScope) ==== Right(ProfileScope.Granted),
@@ -227,14 +227,21 @@ object ResponseDecodingSpec extends Properties {
   }
 
   def testClaudeBlobExpired: Result =
-    ClaudeCredentialsBlob.parse(blob, 4102444800001L) ==== Left(
+    parseClaude(blob, 4102444800001L) ==== Left(
       "Claude Code token expired. Run claude to sign in again."
     )
 
   def testClaudeBlobMcpOnly: Result =
-    ClaudeCredentialsBlob.parse("""{"mcpOAuth":{"server":{}}}""", 0L) ==== Left(
+    parseClaude("""{"mcpOAuth":{"server":{}}}""", 0L) ==== Left(
       "Keychain item has no Claude sign-in (only MCP state). Run claude and use /login to sign in."
     )
+
+  /** The parse result with the problem as its English card text (#10), so the copy stays checked. */
+  private def parseClaude(raw: String, nowMillis: Long): Either[String, ClaudeOAuth] =
+    ClaudeCredentialsBlob.parse(raw, nowMillis).leftMap(TestMessages.en.credentialProblem)
+
+  private def parseCodex(raw: String): Either[String, CodexOAuth] =
+    CodexAuthFile.parse(raw).leftMap(TestMessages.en.credentialProblem)
 
   private val signInExpired = "Claude Code sign-in expired. Run claude and use /login to sign in again."
 
@@ -243,30 +250,30 @@ object ResponseDecodingSpec extends Properties {
     """{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":1790000000000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"},"mcpOAuth":{},"organizationUuid":"00000000-0000-0000-0000-000000000000"}"""
 
   def testClaudeBlobSignInExpired: Result =
-    ClaudeCredentialsBlob.parse(blobEmptied, 1789185600000L) ==== Left(signInExpired)
+    parseClaude(blobEmptied, 1789185600000L) ==== Left(signInExpired)
 
   def testClaudeBlobTimeLimit: Result = {
     val blobTimeLimit =
       """{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":1790000000000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","loginEnded":"time_limit"},"mcpOAuth":{}}"""
-    ClaudeCredentialsBlob.parse(blobTimeLimit, 1789185600000L) ==== Left(signInExpired)
+    parseClaude(blobTimeLimit, 1789185600000L) ==== Left(signInExpired)
   }
 
   def testClaudeBlobLoginEndedAlone: Result = {
     val blobLoginEnded =
       """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","refreshToken":"sk-ant-ort01-example","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max","loginEnded":"time_limit"}}"""
-    ClaudeCredentialsBlob.parse(blobLoginEnded, 1789185600000L) ==== Left(signInExpired)
+    parseClaude(blobLoginEnded, 1789185600000L) ==== Left(signInExpired)
   }
 
   def testClaudeBlobEmptyRefreshTokenOnly: Result = {
     val blobEmptyRefresh =
       """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","refreshToken":"","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max"}}"""
-    ClaudeCredentialsBlob.parse(blobEmptyRefresh, 1789185600000L) ==== Left(signInExpired)
+    parseClaude(blobEmptyRefresh, 1789185600000L) ==== Left(signInExpired)
   }
 
   def testClaudeBlobNoAccessTokenWithRefreshToken: Result = {
     val blobNoAccess =
       """{"claudeAiOauth":{"refreshToken":"sk-ant-ort01-example","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max"}}"""
-    ClaudeCredentialsBlob.parse(blobNoAccess, 1789185600000L) ==== Left(
+    parseClaude(blobNoAccess, 1789185600000L) ==== Left(
       "Keychain item has no access token. Run claude to sign in."
     )
   }
@@ -274,7 +281,7 @@ object ResponseDecodingSpec extends Properties {
   def testClaudeBlobNoRefreshTokenField: Result = {
     val blobNoRefreshField =
       """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"max"}}"""
-    ClaudeCredentialsBlob.parse(blobNoRefreshField, 1789185600000L).map(_.accessToken.value.value) ==== Right(
+    parseClaude(blobNoRefreshField, 1789185600000L).map(_.accessToken.value.value) ==== Right(
       "sk-ant-oat01-example"
     )
   }
@@ -303,14 +310,14 @@ object ResponseDecodingSpec extends Properties {
     """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","expiresAt":4102444800000,"scopes":["user:profile"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}"""
 
   def testClaudeBlobWithTier: Result =
-    ClaudeCredentialsBlob.parse(blobWithTier, 1789185600000L).map(_.planLabel.map(_.value.value)) ==== Right(
+    parseClaude(blobWithTier, 1789185600000L).map(_.planLabel.map(_.value.value)) ==== Right(
       Some("Max 5x")
     )
 
   def testClaudeBlobUnknownSubscription: Result = {
     val blobFree =
       """{"claudeAiOauth":{"accessToken":"sk-ant-oat01-example","expiresAt":4102444800000,"scopes":["user:profile"],"subscriptionType":"free","rateLimitTier":"default_claude_max_5x"}}"""
-    ClaudeCredentialsBlob.parse(blobFree, 1789185600000L).map(_.planLabel.map(_.value.value)) ==== Right(Some("Free"))
+    parseClaude(blobFree, 1789185600000L).map(_.planLabel.map(_.value.value)) ==== Right(Some("Free"))
   }
 
   private val claudeProfile =
@@ -465,7 +472,7 @@ object ResponseDecodingSpec extends Properties {
     """{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"x.y.z","access_token":"eyJ-access","refresh_token":"r","account_id":"acct-123"},"last_refresh":"2026-09-10T00:00:00Z"}"""
 
   def testCodexAuth: Result = {
-    val parsed = CodexAuthFile.parse(codexAuth)
+    val parsed = parseCodex(codexAuth)
     Result.all(
       List(
         parsed.map(_.accessToken.value.value) ==== Right("eyJ-access"),
@@ -475,6 +482,6 @@ object ResponseDecodingSpec extends Properties {
   }
 
   def testCodexAuthApiKey: Result =
-    CodexAuthFile.parse("""{"auth_mode":"apikey","OPENAI_API_KEY":"sk-proj-x","tokens":null}""") ====
+    parseCodex("""{"auth_mode":"apikey","OPENAI_API_KEY":"sk-proj-x","tokens":null}""") ====
       Left("Codex is in API-key mode, not supported in v1.")
 }

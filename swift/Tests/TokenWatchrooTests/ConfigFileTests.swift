@@ -181,8 +181,8 @@ final class ConfigFileTests: XCTestCase {
         XCTAssertNil(ClaudeConfigDirRules.value("~/x"))
         XCTAssertNil(ClaudeConfigDirRules.value(""))
         XCTAssertNil(ClaudeConfigDirRules.value(nil))
-        XCTAssertNil(ClaudeConfigDirRules.problem(""))
-        XCTAssertNil(ClaudeConfigDirRules.problem("/a"))
-        XCTAssertEqual(ClaudeConfigDirRules.problem("a/b"), ClaudeConfigDirRules.problem)
+        XCTAssertNil(ClaudeConfigDirRules.problem("", strings: TestStrings.en))
+        XCTAssertNil(ClaudeConfigDirRules.problem("/a", strings: TestStrings.en))
+        XCTAssertEqual(ClaudeConfigDirRules.problem("a/b", strings: TestStrings.en), ClaudeConfigDirRules.problemText(TestStrings.en))
     }
 }

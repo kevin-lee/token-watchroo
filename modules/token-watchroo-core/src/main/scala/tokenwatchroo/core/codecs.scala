@@ -207,7 +207,10 @@ object codecs {
    * A missing `alertLevels`, or levels that break the rules, give the default levels, and the default levels are left
    * out on write (#9). A missing `spendAlertLevels`, or one with an unknown unit or amounts that break the rules,
    * gives the default spend levels, and the defaults are left out on write (#105). A missing or invalid
-   * `claudeConfigDir` is not set, and it is left out on write (#91). */
+   * `claudeConfigDir` is not set, and it is left out on write (#91). `locale` and `numberFormat` (#10) come from the
+   * shell at launch: a missing or unknown `locale` is English, and a missing or invalid `numberFormat` gives the
+   * default rules without failing the config. Both are written. The shell sends them only to the library, never to
+   * `config.json`. */
 
   final private case class SpendAlertLevelsWire(unit: String, amounts: List[Long])
 
@@ -259,12 +262,32 @@ object codecs {
       a.claudeConfigDir.map(_.value),
     )
 
+  /* Every field is optional, so a missing field gives the default rules instead of failing the whole config. */
+  final private case class NumberFormatWire(
+    decimalSeparator: Option[String],
+    groupingSeparator: Option[String],
+    currencySymbol: Option[String],
+  )
+
+  private def numberFormatFromWire(w: NumberFormatWire): Option[NumberFormat] =
+    for {
+      decimal   <- w.decimalSeparator
+      grouping  <- w.groupingSeparator
+      placement <- w.currencySymbol.flatMap(SymbolPlacement.parse(_).toOption)
+      format    <- NumberFormat.from(decimal, grouping, placement).toOption
+    } yield format
+
+  private def numberFormatToWire(f: NumberFormat): NumberFormatWire =
+    NumberFormatWire(f.decimalSeparator.some, f.groupingSeparator.some, f.currencySymbol.wire.some)
+
   final private case class ConfigWire(
     stateDir: StateDir,
     refreshIntervalSeconds: RefreshIntervalSeconds,
     codexHome: Option[CodexHome],
     claudeCodeVersionOverride: Option[ClaudeCodeVersion],
     agents: List[AgentConfigWire],
+    locale: Option[String],
+    numberFormat: Option[NumberFormatWire],
   )
 
   private given configWireCodec: JsonValueCodec[ConfigWire] =
@@ -279,6 +302,8 @@ object codecs {
           w.codexHome,
           w.claudeCodeVersionOverride,
           w.agents.flatMap(agentConfigFromWire),
+          AppLanguage.fromWire(w.locale),
+          w.numberFormat.flatMap(numberFormatFromWire).getOrElse(NumberFormat.default),
         ),
       c =>
         ConfigWire(
@@ -287,6 +312,8 @@ object codecs {
           c.codexHome,
           c.claudeCodeVersionOverride,
           c.agents.map(agentConfigToWire),
+          c.language.wire.some,
+          numberFormatToWire(c.numberFormat).some,
         ),
       Config.default(StateDir(NonEmptyString.unsafeFrom("-"))),
     )

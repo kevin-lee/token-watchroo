@@ -14,12 +14,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let configURL = ConfigFile.url(in: stateDirectory)
         let config = AppDelegate.loadConfig(from: configURL, stateDir: stateDirectory.path)
 
+        // The language and the number rules come from macOS at launch and do not change during a run (#10).
+        let preferences = Locale.preferredLanguages
+        let strings = AppStrings.launch(preferences: preferences, bundle: .main)
+        let numberFormat = NumberFormatPayload(locale: .current)
+        Log.app.notice("language=\(strings.language.rawValue) preferences=\(preferences.joined(separator: ",")) "
+            + "region=\(Locale.current.identifier)")
+
         let core = Core.shared
         let store = SettingsStore(config: config, fileURL: configURL, push: { core.setConfig($0) }, pushDelay: 1)
-        let settings = SettingsWindowController(store: store)
+        let settings = SettingsWindowController(store: store, strings: strings)
         settingsStore = store
         settingsWindow = settings
-        let controller = StatusItemController(core: core, updater: updater, settings: settings)
+        let controller = StatusItemController(core: core, updater: updater, settings: settings, strings: strings)
         statusItem = controller
 
         core.snapshotHandler = { [weak controller, weak store] snapshot in
@@ -29,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         core.alertHandler = { alert in Notifier.shared.post(alert) }
 
-        let code = core.start(config: config)
+        let code = core.start(config: config, language: strings.language, numberFormat: numberFormat)
         if code != 0 {
             Log.app.error("tw_start failed with code \(code), quitting")
             NSApp.terminate(nil)

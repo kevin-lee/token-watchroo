@@ -83,26 +83,26 @@ final case class ClaudeOAuth(
 object ClaudeCredentialsBlob {
 
   /** Parses the keychain payload. An expired token is rejected here so no network call is made with it. */
-  def parse(raw: String, nowMillis: Long): Either[String, ClaudeOAuth] =
+  def parse(raw: String, nowMillis: Long): Either[CredentialProblem, ClaudeOAuth] =
     for {
-      blob  <- codecs.readEither[ClaudeCredentialsBlob](raw).leftMap(_.message)
+      blob  <- codecs.readEither[ClaudeCredentialsBlob](raw).leftMap(e => CredentialProblem.unreadable(e.message))
       oauth <- blob
                  .claudeAiOauth
-                 .toRight("Keychain item has no Claude sign-in (only MCP state). Run claude and use /login to sign in.")
+                 .toRight(CredentialProblem.claudeNoSignIn)
       _     <- Either.cond(
                  !oauth.signInEnded,
                  (),
-                 "Claude Code sign-in expired. Run claude and use /login to sign in again.",
+                 CredentialProblem.claudeSignInExpired,
                )
       token <- oauth
                  .accessToken
                  .flatMap(t => NonEmptyString.from(t).toOption)
                  .map(AccessToken(_))
-                 .toRight("Keychain item has no access token. Run claude to sign in.")
+                 .toRight(CredentialProblem.claudeNoAccessToken)
       _     <- Either.cond(
                  oauth.expiresAt.forall(_ > nowMillis),
                  (),
-                 "Claude Code token expired. Run claude to sign in again.",
+                 CredentialProblem.claudeTokenExpired,
                )
     } yield ClaudeOAuth(
       token,

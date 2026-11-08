@@ -43,6 +43,25 @@ All business logic is Scala 3 compiled by Scala Native into a static library. A 
 - Self-update through [Sparkle](https://sparkle-project.org): a check at most once a day and on demand, with the release notes, the download, and "Install and Relaunch". Each update is verified with an EdDSA (Edwards-curve Digital Signature Algorithm) signature before it is opened.
 - Menu items: Refresh now, Launch at Login, About Token Watchroo, Check for Updates..., Quit.
 
+## Languages
+
+Token Watchroo is in English and Korean: the menu, the cards, the settings window, the notifications and the update windows.
+
+- The app follows macOS. It uses the first language in System Settings > General > Language & Region > Preferred Languages that it has, else English.
+- To use another language for Token Watchroo only, add it in System Settings > General > Language & Region > Applications (click "+", choose Token Watchroo and the language). Then quit and open the app again.
+- Numbers, money and dates follow the macOS region (System Settings > General > Language & Region > Region).
+- Product names, plan names, commands such as `claude` and `/login`, and environment variables are not translated.
+
+### Add a language
+
+The core's text (notifications and card messages) and the shell's text have one file each per language. `<tag>` is the language tag, for example `ja`.
+
+1. Add `modules/token-watchroo-core/src/main/resources/tokenwatchroo/i18n/messages_<tag>.properties` with every key of `messages_en.properties`. The files are UTF-8. Keep every `{name}` placeholder.
+2. Add `swift/Resources/<tag>.lproj/Localizable.strings` with every key of `swift/Resources/en.lproj/Localizable.strings`.
+3. Add a case for the language to `AppLanguage` in Scala (`modules/token-watchroo-core/src/main/scala/tokenwatchroo/core/AppLanguage.scala`, with its `wire` value, and a field in `MessageBundles` and `MessageResources.load`) and in Swift (`swift/Sources/TokenWatchroo/Localization.swift`).
+4. Add `<tag>` to `LANGUAGES` and to `CFBundleLocalizations` in `scripts/bundle-app.sh`.
+5. Run `sbt "core/testFull; providers/testFull; app/testFull; swiftTest"`. The key tests fail until every key has a text and the same placeholders in every language.
+
 ## Limitations (v1)
 
 - The usage endpoints are undocumented and may change. When they do, the card says "Unexpected response" instead of crashing.

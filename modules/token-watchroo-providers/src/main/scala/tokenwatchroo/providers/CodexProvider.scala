@@ -42,20 +42,25 @@ final class CodexProvider private (
         }
     }
 
-  override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
+  override def fetch(
+    now: EpochSeconds,
+    config: Config,
+    trigger: FetchTrigger,
+    messages: Messages,
+  ): IO[AgentSnapshot] =
     CodexHomeResolver.resolve(config, env) match {
-      case Left(error) => IO.pure(AgentSnapshot.unavailable(id, now, error.toErrorMessage(CodexProvider.Cli)))
+      case Left(error) => IO.pure(AgentSnapshot.unavailable(id, now, error.toErrorMessage(CodexProvider.Cli, messages)))
       case Right(home) =>
         auth.read(home).flatMap {
-          case Left(error) => fromLocalLog(home, now, error)
+          case Left(error) => fromLocalLog(home, now, error, messages)
           case Right(oauth) =>
             fromApi(oauth, now).flatMap {
               case Right(snapshot) => lastGood.set(LastGoodSnapshot(oauth.accessToken, snapshot).some).as(snapshot)
               case Left(ProviderError.RateLimited) =>
                 lastGood.get.flatMap {
-                  _.flatMap(_.carriedFor(oauth.accessToken, CodexProvider.RateLimitedNote, now)) match {
+                  _.flatMap(_.carriedFor(oauth.accessToken, CodexProvider.rateLimitedNote(messages), now)) match {
                     case Some(carried) => IO.pure(carried)
-                    case None => fromLocalLog(home, now, ProviderError.RateLimited)
+                    case None => fromLocalLog(home, now, ProviderError.RateLimited, messages)
                   }
                 }
               case Left(
@@ -64,7 +69,7 @@ final class CodexProvider private (
                      ProviderError.Network(_) | ProviderError.Decode(_) | ProviderError.Timeout |
                      ProviderError.Unsupported(_))
                    ) =>
-                fromLocalLog(home, now, error)
+                fromLocalLog(home, now, error, messages)
             }
         }
     }
@@ -89,11 +94,16 @@ final class CodexProvider private (
   }
 
   /** The newest rollout log's last rate-limit snapshot, marked as coming from the local log with the API error kept. */
-  private def fromLocalLog(home: CodexHome, now: EpochSeconds, apiError: ProviderError): IO[AgentSnapshot] =
+  private def fromLocalLog(
+    home: CodexHome,
+    now: EpochSeconds,
+    apiError: ProviderError,
+    messages: Messages,
+  ): IO[AgentSnapshot] =
     rollouts.newest(home).flatMap {
-      case None => IO.pure(AgentSnapshot.unavailable(id, now, apiError.toErrorMessage(CodexProvider.Cli)))
+      case None => IO.pure(AgentSnapshot.unavailable(id, now, apiError.toErrorMessage(CodexProvider.Cli, messages)))
       case Some(RolloutLog.Compressed(_)) =>
-        IO.pure(AgentSnapshot.unavailable(id, now, CodexProvider.compressedNote(apiError)))
+        IO.pure(AgentSnapshot.unavailable(id, now, CodexProvider.compressedNote(apiError, messages)))
       case Some(RolloutLog.Plain(path)) =>
         rollouts.latestEvent(path).map {
           case Some(event) =>
@@ -104,11 +114,11 @@ final class CodexProvider private (
                 UsageMeters(event.rateLimits.toWindows, none[Spend]),
                 Source.LocalLog,
                 now,
-                apiError.toErrorMessage(CodexProvider.Cli).some,
+                apiError.toErrorMessage(CodexProvider.Cli, messages).some,
               )
               .copy(observedAt = event.observedAt)
               .withStatusAt(now)
-          case None => AgentSnapshot.unavailable(id, now, apiError.toErrorMessage(CodexProvider.Cli))
+          case None => AgentSnapshot.unavailable(id, now, apiError.toErrorMessage(CodexProvider.Cli, messages))
         }
     }
 
@@ -122,12 +132,14 @@ object CodexProvider {
   val Cli: String      = "codex"
   val UsageUrl: String = "https://chatgpt.com/backend-api/wham/usage"
 
-  private val RateLimitedNote: ErrorMessage = ProviderError.rateLimited.toErrorMessage(Cli)
+  private def rateLimitedNote(messages: Messages): ErrorMessage =
+    ProviderError.rateLimited.toErrorMessage(Cli, messages)
 
-  val CompressedLogText: String = "The newest Codex log is compressed, so it is more than 7 days old."
-
-  def compressedNote(apiError: ProviderError): ErrorMessage =
-    ErrorMessage.fromString(s"${apiError.message(Cli)}. $CompressedLogText").getOrElse(apiError.toErrorMessage(Cli))
+  /** The API error, then the note that the newest Codex log is compressed (#81), in the language of `messages`. */
+  def compressedNote(apiError: ProviderError, messages: Messages): ErrorMessage =
+    ErrorMessage
+      .fromString(messages.codexCompressedLog(apiError.message(Cli, messages)))
+      .getOrElse(apiError.toErrorMessage(Cli, messages))
 
   def userAgent(appVersion: String): UserAgent =
     UserAgent(NonEmptyString.unsafeFrom(s"token-watchroo/${appVersion.trim}"))

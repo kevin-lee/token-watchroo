@@ -17,15 +17,16 @@ enum RefreshInterval {
         return presets.contains(value) ? presets : (presets + [value]).sorted()
     }
 
-    static func title(_ seconds: Int) -> String {
+    static func title(_ seconds: Int, strings: AppStrings) -> String {
         if seconds % 3600 == 0 {
             let hours = seconds / 3600
-            return hours == 1 ? "1 hour" : "\(hours) hours"
+            return hours == 1 ? strings.text(.intervalHourOne) : strings.text(.intervalHourOther, ["n": "\(hours)"])
         }
         if seconds % 60 == 0 {
             let minutes = seconds / 60
-            return minutes == 1 ? "1 minute" : "\(minutes) minutes"
+            return minutes == 1
+                ? strings.text(.intervalMinuteOne) : strings.text(.intervalMinuteOther, ["n": "\(minutes)"])
         }
-        return "\(seconds) seconds"
+        return strings.text(.intervalSeconds, ["n": "\(seconds)"])
     }
 }

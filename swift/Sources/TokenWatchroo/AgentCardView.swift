@@ -17,10 +17,13 @@ final class AgentCardView: NSView {
 
     private var agent: AgentSnapshot
     private var now: Date
+    /// The shell's text (#10), chosen at launch.
+    private let strings: AppStrings
 
-    init(agent: AgentSnapshot, now: Date) {
+    init(agent: AgentSnapshot, now: Date, strings: AppStrings) {
         self.agent = agent
         self.now = now
+        self.strings = strings
         super.init(frame: NSRect(x: 0, y: 0, width: AgentCardView.width, height: AgentCardView.height(for: agent)))
     }
 
@@ -67,8 +70,9 @@ final class AgentCardView: NSView {
 
         if agent.status == .unavailable {
             let text = agent.source == .localLog
-                ? "No current usage · " + Formatting.localLogNote(observedAt: agent.observedAt, error: agent.error)
-                : agent.error ?? "Unavailable"
+                ? strings.text(.cardNoCurrentUsage) + " · "
+                    + Formatting.localLogNote(observedAt: agent.observedAt, error: agent.error, strings: strings)
+                : agent.error ?? strings.text(.cardUnavailable)
             draw(text, at: NSPoint(x: p, y: y), font: .systemFont(ofSize: 11), color: Palette.secondaryText,
                  maxWidth: bounds.width - 2 * p)
             return
@@ -88,7 +92,7 @@ final class AgentCardView: NSView {
 
         if agent.source == .localLog {
             y += AgentCardView.rowGap
-            let note = Formatting.localLogNote(observedAt: agent.observedAt, error: agent.error)
+            let note = Formatting.localLogNote(observedAt: agent.observedAt, error: agent.error, strings: strings)
             draw(note, at: NSPoint(x: p, y: y), font: .systemFont(ofSize: 11), color: Palette.secondaryText,
                  maxWidth: bounds.width - 2 * p)
         } else if let error = agent.error {
@@ -112,7 +116,7 @@ final class AgentCardView: NSView {
                      background: Palette.badgeBackground, radius: 4, horizontalPadding: 6, verticalPadding: 1)
         }
 
-        let (pillText, pillTextColor, pillBackground) = Palette.statusPill(for: agent.status)
+        let (pillText, pillTextColor, pillBackground) = Palette.statusPill(for: agent.status, strings: strings)
         let pillFont = NSFont.systemFont(ofSize: 11, weight: .medium)
         let pillSize = NSAttributedString(string: pillText, attributes: [.font: pillFont]).size()
         let pillWidth = pillSize.width + 16
@@ -122,11 +126,11 @@ final class AgentCardView: NSView {
 
     private func drawWindow(_ window: UsageWindow, at y: CGFloat) {
         let p = AgentCardView.padding
-        let left = NSMutableAttributedString(string: window.id.label, attributes: [
+        let left = NSMutableAttributedString(string: window.id.label(strings), attributes: [
             .font: NSFont.systemFont(ofSize: 12), .foregroundColor: Palette.primaryText,
         ])
         if window.id == .session {
-            left.append(NSAttributedString(string: " · 5 h window", attributes: [
+            left.append(NSAttributedString(string: " · " + strings.text(.cardSessionWindow), attributes: [
                 .font: NSFont.systemFont(ofSize: 12), .foregroundColor: Palette.secondaryText,
             ]))
         }
@@ -135,11 +139,11 @@ final class AgentCardView: NSView {
         let right = NSMutableAttributedString()
         let expired = window.isExpired(now: now)
         if expired {
-            right.append(NSAttributedString(string: Formatting.expiredWindow, attributes: [
+            right.append(NSAttributedString(string: Formatting.expiredWindow(strings: strings), attributes: [
                 .font: NSFont.systemFont(ofSize: 12), .foregroundColor: Palette.secondaryText,
             ]))
         } else if window.isIdle {
-            right.append(NSAttributedString(string: "idle", attributes: [
+            right.append(NSAttributedString(string: strings.text(.cardIdle), attributes: [
                 .font: NSFont.systemFont(ofSize: 12), .foregroundColor: Palette.secondaryText,
             ]))
         } else {
@@ -148,7 +152,8 @@ final class AgentCardView: NSView {
                 .foregroundColor: Palette.percentText(for: window.usedPercent),
             ]))
             if let resetsAt = window.resetsAt {
-                let reset = window.id == .session ? Formatting.resetsIn(epoch: resetsAt, now: now) : Formatting.resetsAt(epoch: resetsAt)
+                let reset = window.id == .session ? Formatting.resetsIn(epoch: resetsAt, now: now, strings: strings)
+                    : Formatting.resetsAt(epoch: resetsAt, strings: strings)
                 right.append(NSAttributedString(string: " · \(reset)", attributes: [
                     .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
                     .foregroundColor: Palette.secondaryText,
@@ -170,14 +175,14 @@ final class AgentCardView: NSView {
             .foregroundColor: Palette.percentText(for: spend.usedPercent),
         ])
         if let resetsAt = spend.resetsAt {
-            right.append(NSAttributedString(string: " · \(Formatting.resetsOn(epoch: resetsAt))", attributes: [
+            right.append(NSAttributedString(string: " · \(Formatting.resetsOn(epoch: resetsAt, strings: strings))", attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
                 .foregroundColor: Palette.secondaryText,
             ]))
         }
         right.draw(at: NSPoint(x: bounds.width - p - right.size().width, y: y))
 
-        let left = NSAttributedString(string: Formatting.spendSummary(spend), attributes: [
+        let left = NSAttributedString(string: Formatting.spendSummary(spend, strings: strings), attributes: [
             .font: NSFont.systemFont(ofSize: 12), .foregroundColor: Palette.primaryText,
         ])
         let leftWidth = bounds.width - 2 * p - right.size().width - 8
@@ -253,14 +258,14 @@ enum Palette {
         }
     }
 
-    static func statusPill(for status: AgentStatus) -> (String, NSColor, NSColor) {
+    static func statusPill(for status: AgentStatus, strings: AppStrings) -> (String, NSColor, NSColor) {
         switch status {
-        case .ok: return ("OK", dynamic(light: rgb(0x3A8F5A), dark: rgb(0x7FD1A7)), dynamic(light: rgb(0xE6F4EA), dark: rgb(0x1F3A2A)))
-        case .elevated: return ("Over half", dynamic(light: rgb(0x0060C0), dark: rgb(0x4DA3FF)), dynamic(light: rgb(0xE3EEFB), dark: rgb(0x1A2C43)))
-        case .warning: return ("Near limit", dynamic(light: rgb(0x9A6B00), dark: rgb(0xF0B73A)), dynamic(light: rgb(0xFBF1D6), dark: rgb(0x3D3117)))
-        case .critical: return ("Almost out", dynamic(light: rgb(0xB3261E), dark: rgb(0xFF6B5C)), dynamic(light: rgb(0xFDE7E5), dark: rgb(0x43221F)))
-        case .exhausted: return ("Exhausted", dynamic(light: rgb(0xB3261E), dark: rgb(0xFF6B5C)), dynamic(light: rgb(0xFDE7E5), dark: rgb(0x43221F)))
-        case .unavailable: return ("Unavailable", badgeText, badgeBackground)
+        case .ok: return (strings.text(.pillOk), dynamic(light: rgb(0x3A8F5A), dark: rgb(0x7FD1A7)), dynamic(light: rgb(0xE6F4EA), dark: rgb(0x1F3A2A)))
+        case .elevated: return (strings.text(.pillElevated), dynamic(light: rgb(0x0060C0), dark: rgb(0x4DA3FF)), dynamic(light: rgb(0xE3EEFB), dark: rgb(0x1A2C43)))
+        case .warning: return (strings.text(.pillWarning), dynamic(light: rgb(0x9A6B00), dark: rgb(0xF0B73A)), dynamic(light: rgb(0xFBF1D6), dark: rgb(0x3D3117)))
+        case .critical: return (strings.text(.pillCritical), dynamic(light: rgb(0xB3261E), dark: rgb(0xFF6B5C)), dynamic(light: rgb(0xFDE7E5), dark: rgb(0x43221F)))
+        case .exhausted: return (strings.text(.pillExhausted), dynamic(light: rgb(0xB3261E), dark: rgb(0xFF6B5C)), dynamic(light: rgb(0xFDE7E5), dark: rgb(0x43221F)))
+        case .unavailable: return (strings.text(.pillUnavailable), badgeText, badgeBackground)
         }
     }
 
