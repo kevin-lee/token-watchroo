@@ -91,14 +91,14 @@ final class SnapshotDecodingTests: XCTestCase {
 
     @MainActor
     func testTheDecodedZeroAgentSnapshotEmptiesTheOpenMenu() throws {
-        let controller = StatusItemController(core: .shared)
+        let controller = StatusItemController(core: .shared, strings: TestStrings.en)
         controller.apply(snapshot: try Self.snapshot(from: Self.unavailableAgentEnvelope))
         let menu = try XCTUnwrap(controller.statusMenu)
         controller.menuWillOpen(menu)
         defer { controller.menuDidClose(menu) }
 
         controller.apply(snapshot: try Self.snapshot(from: Self.zeroAgentEnvelope))
-        XCTAssertEqual(menu.items[1].title, MenuBuilder.noAgentTitle)
+        XCTAssertEqual(menu.items[1].title, MenuBuilder.noAgentTitle(TestStrings.en))
         XCTAssertFalse(menu.items.contains { $0.view?.subviews.first is AgentCardView })
         XCTAssertEqual(controller.menubarLabel, " --")
     }

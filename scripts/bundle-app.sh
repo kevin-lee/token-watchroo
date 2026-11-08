@@ -47,6 +47,9 @@ ICON_ICNS="$ROOT/assets/AppIcon.icns"
 ICON_CAR="$ROOT/assets/Assets.car"
 ABOUT_ICON_LIGHT="$ROOT/assets/AboutIcon-light.png"
 ABOUT_ICON_DARK="$ROOT/assets/AboutIcon-dark.png"
+# The shell's strings (#10). One folder per language in CFBundleLocalizations below.
+STRINGS_DIR="$ROOT/swift/Resources"
+LANGUAGES=(en ko)
 for icon in "$ICON_ICNS" "$ICON_CAR" "$ABOUT_ICON_LIGHT" "$ABOUT_ICON_DARK"; do
   if [ ! -f "$icon" ]; then
     echo "error: app icon missing, run scripts/generate-icons.sh: $icon" >&2
@@ -121,10 +124,18 @@ ditto "$SPARKLE_FRAMEWORK" "$FRAMEWORK"
 rm -rf "$FRAMEWORK/Versions/B/XPCServices"
 rm -f "$FRAMEWORK/XPCServices"
 
-echo "==> app icon"
+echo "==> resources"
 cp "$ICON_ICNS" "$APP/Contents/Resources/AppIcon.icns"
 cp "$ICON_CAR" "$APP/Contents/Resources/Assets.car"
 cp "$ABOUT_ICON_LIGHT" "$ABOUT_ICON_DARK" "$APP/Contents/Resources/"
+# The .lproj folders also tell macOS, AppKit and Sparkle which languages the app has (#10).
+for lang in "${LANGUAGES[@]}"; do
+  if [[ ! -f "$STRINGS_DIR/$lang.lproj/Localizable.strings" ]]; then
+    echo "error: missing $STRINGS_DIR/$lang.lproj/Localizable.strings" >&2
+    exit 1
+  fi
+  ditto "$STRINGS_DIR/$lang.lproj" "$APP/Contents/Resources/$lang.lproj"
+done
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -153,6 +164,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>$FULL_VERSION</string>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>ko</string>
+    </array>
     <key>LSMinimumSystemVersion</key>
     <string>$MIN_OS</string>
     <key>LSUIElement</key>

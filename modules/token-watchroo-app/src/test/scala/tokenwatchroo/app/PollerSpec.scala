@@ -25,6 +25,8 @@ class PollerSpec extends munit.FunSuite {
       none[CodexHome],
       none[ClaudeCodeVersion],
       List.empty[AgentConfig],
+      AppLanguage.En,
+      NumberFormat.default,
     )
 
   final private class Stub(
@@ -32,17 +34,27 @@ class PollerSpec extends munit.FunSuite {
     detection: Detection,
     fetchResult: (EpochSeconds, FetchTrigger) => IO[AgentSnapshot],
   ) extends UsageProvider {
-    override def id: AgentId                                                                        = agent
-    override def detect(config: Config): IO[Detection]                                              = IO.pure(detection)
-    override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
+    override def id: AgentId                           = agent
+    override def detect(config: Config): IO[Detection] = IO.pure(detection)
+    override def fetch(
+      now: EpochSeconds,
+      config: Config,
+      trigger: FetchTrigger,
+      messages: Messages
+    ): IO[AgentSnapshot]                               =
       fetchResult(now, trigger)
   }
 
   /** A provider whose detection a test flips between ticks. A fetch while not detected fails the tick. */
   final private class Switchable(agent: AgentId, detection: Ref[IO, Detection], percent: Double) extends UsageProvider {
-    override def id: AgentId                                                                        = agent
-    override def detect(config: Config): IO[Detection]                                              = detection.get
-    override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
+    override def id: AgentId                           = agent
+    override def detect(config: Config): IO[Detection] = detection.get
+    override def fetch(
+      now: EpochSeconds,
+      config: Config,
+      trigger: FetchTrigger,
+      messages: Messages
+    ): IO[AgentSnapshot]                               =
       detection.get.flatMap {
         case Detection.Detected =>
           IO.pure(
@@ -127,7 +139,7 @@ class PollerSpec extends munit.FunSuite {
       _   <- steps.traverse_ {
                case (claudeDetection, codexDetection) =>
                  claude.set(claudeDetection) >> codex.set(codexDetection) >>
-                   Poller.tick(config, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
+                   Poller.tick(config, TestBundles.bundles, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
              }
       all <- ref.get
     } yield all).timeoutAndForget(TestTimeout).unsafeRunSync()
@@ -137,9 +149,9 @@ class PollerSpec extends munit.FunSuite {
       for {
         (ref, sink, store) <- setup
         providers = List(claudeAt(85.0d), codexDown, notDetected)
-        _      <- Poller.tick(config, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
+        _      <- Poller.tick(config, TestBundles.bundles, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
         first  <- ref.get
-        _      <- Poller.tick(config, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
+        _      <- Poller.tick(config, TestBundles.bundles, providers, sink, store, IO.pure(now), FetchTrigger.Scheduled)
         second <- ref.get
       } yield (first, second)
     val (first, second) = program.timeoutAndForget(TestTimeout).unsafeRunSync()
@@ -182,6 +194,7 @@ class PollerSpec extends munit.FunSuite {
       (ref, sink, store) <- setup
       _                  <- Poller.tick(
                               config.copy(agents = agents),
+                              TestBundles.bundles,
                               List(claudeSpend),
                               sink,
                               store,
@@ -215,7 +228,7 @@ class PollerSpec extends munit.FunSuite {
         triggers           <- Ref.of[IO, List[FetchTrigger]](Nil)
         queue              <- Queue.unbounded[IO, Command]
         provider = claudeRecording(10.0d, triggers)
-        fiber <- Poller.run(config, List(provider), queue, sink, store, IO.pure(now)).start
+        fiber <- Poller.run(config, TestBundles.bundles, List(provider), queue, sink, store, IO.pure(now)).start
         _     <- awaitSnapshots(ref, 1).timeout(5.seconds)
         _     <- queue.offer(Command.refresh)
         _     <- awaitSnapshots(ref, 2).timeout(3.seconds)
@@ -242,7 +255,7 @@ class PollerSpec extends munit.FunSuite {
         clock              <- Ref.of[IO, EpochSeconds](now)
         queue              <- Queue.unbounded[IO, Command]
         provider = claudeRecording(10.0d, triggers)
-        fiber <- Poller.run(config, List(provider), queue, sink, store, clock.get).start
+        fiber <- Poller.run(config, TestBundles.bundles, List(provider), queue, sink, store, clock.get).start
         _     <- awaitSnapshots(ref, 1).timeout(5.seconds)
         _     <- queue.offer(Command.refresh) >> queue.offer(Command.refresh) >> queue.offer(Command.refresh)
         _     <- queue.offer(Command.setConfig(barrier("/tmp/barrier-1")))
@@ -285,7 +298,15 @@ class PollerSpec extends munit.FunSuite {
       for {
         ref <- Ref.of[IO, List[Envelope]](Nil)
         sink = new RecordingSink(ref)
-        _   <- Poller.tick(config, List(claudeAt(10.0d)), sink, broken, IO.pure(now), FetchTrigger.Scheduled)
+        _   <- Poller.tick(
+                 config,
+                 TestBundles.bundles,
+                 List(claudeAt(10.0d)),
+                 sink,
+                 broken,
+                 IO.pure(now),
+                 FetchTrigger.Scheduled
+               )
         all <- ref.get
       } yield all
     val all                = program.timeoutAndForget(TestTimeout).unsafeRunSync()
@@ -367,8 +388,8 @@ class PollerSpec extends munit.FunSuite {
   private def oneTick(tickConfig: Config, registry: List[UsageProvider]): List[Envelope] =
     (for {
       (ref, sink, store) <- setup
-      _                  <- Poller.tick(tickConfig, registry, sink, store, IO.pure(now), FetchTrigger.Scheduled)
-      all                <- ref.get
+      _   <- Poller.tick(tickConfig, TestBundles.bundles, registry, sink, store, IO.pure(now), FetchTrigger.Scheduled)
+      all <- ref.get
     } yield all).timeoutAndForget(TestTimeout).unsafeRunSync()
 
   /** Runs the loop, sends each config after the previous snapshot, and returns one snapshot per step. */
@@ -376,7 +397,7 @@ class PollerSpec extends munit.FunSuite {
     (for {
       (ref, sink, store) <- setup
       queue              <- Queue.unbounded[IO, Command]
-      fiber              <- Poller.run(config, registry, queue, sink, store, IO.pure(now)).start
+      fiber              <- Poller.run(config, TestBundles.bundles, registry, queue, sink, store, IO.pure(now)).start
       _                  <- awaitSnapshots(ref, 1).timeout(5.seconds)
       _                  <- next.zipWithIndex.traverse_ {
                               case (nextConfig, index) =>
@@ -429,7 +450,7 @@ class PollerSpec extends munit.FunSuite {
         triggers           <- Ref.of[IO, List[FetchTrigger]](Nil)
         queue              <- Queue.unbounded[IO, Command]
         registry = List(claudeRecording(10.0d, triggers), codexAt(40.0d, Detection.Detected))
-        fiber <- Poller.run(ordered, registry, queue, sink, store, IO.pure(now)).start
+        fiber <- Poller.run(ordered, TestBundles.bundles, registry, queue, sink, store, IO.pure(now)).start
         _     <- awaitSnapshots(ref, 1).timeout(5.seconds)
         _     <- queue.offer(Command.setConfig(reversed)) >> queue.offer(Command.refresh)
         _     <- awaitSnapshots(ref, 2).timeout(5.seconds)
@@ -484,6 +505,17 @@ class PollerSpec extends munit.FunSuite {
       agents.find(_.id === AgentId.Codex).flatMap(_.error),
       Some(ErrorMessage(NonEmptyString("API budget agents are not supported yet"))),
     )
+  }
+
+  test("a Korean config gives the Korean API card text and a Korean alert (#10)") {
+    val korean = configWith(AgentConfig.defaults(AgentId.Codex).copy(billing = Billing.Api, plan = PlanKind.Enterprise))
+      .copy(language = AppLanguage.Ko)
+    val all    = oneTick(korean, List(claudeAt(85.0d), codexMustNotFetch))
+    assertEquals(
+      snapshots(all).flatMap(_.agents).find(_.id === AgentId.Codex).flatMap(_.error).map(_.value.value),
+      Some("API 예산 에이전트는 아직 지원하지 않습니다"),
+    )
+    assertEquals(alerts(all).map(_.title), List("Claude Code 사용량 거의 소진"))
   }
 
   private val codexWithoutLabel: UsageProvider =

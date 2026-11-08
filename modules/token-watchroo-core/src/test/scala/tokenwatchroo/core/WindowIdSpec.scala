@@ -1,7 +1,6 @@
 package tokenwatchroo.core
 
 import cats.syntax.all.*
-import extras.render.Render
 import hedgehog.*
 import hedgehog.runner.*
 import refined4s.types.all.*
@@ -10,11 +9,10 @@ object WindowIdSpec extends Properties {
 
   override def tests: List[Test] = List(
     property("wire round-trips through parse for every case", testRoundTrip),
-    example("wire, label, describe, and limit noun per case", testTexts),
+    example("wire per case (the words are in MessagesSpec, #10)", testTexts),
     example("parse keeps the name verbatim", testVerbatim),
     example("unknown and empty wires are rejected", testRejected),
     example("ModelName.fromDisplayName trims and rejects empty", testFromDisplayName),
-    property("Render of a WindowId is its label", testRender),
   )
 
   private def model(name: String): WindowId = WindowId.model(ModelName(NonEmptyString.unsafeFrom(name)))
@@ -28,20 +26,10 @@ object WindowIdSpec extends Properties {
     Result.all(
       List(
         WindowId.Session.wire ==== "session",
-        WindowId.Session.label ==== "Session",
-        WindowId.Session.describe ==== "5 h window",
-        WindowId.Session.limitNoun ==== "session",
         WindowId.Weekly.wire ==== "weekly",
-        WindowId.Weekly.label ==== "Weekly",
-        WindowId.Weekly.describe ==== "weekly window",
-        WindowId.Weekly.limitNoun ==== "weekly",
         model("Fable").wire ==== "weekly-model:Fable",
-        model("Fable").label ==== "Weekly (Fable)",
-        model("Fable").describe ==== "weekly Fable window",
-        model("Fable").limitNoun ==== "weekly Fable",
         model("Opus").wire ==== "weekly-model:Opus",
         model("Sonnet 4.5").wire ==== "weekly-model:Sonnet 4.5",
-        model("Sonnet 4.5").label ==== "Weekly (Sonnet 4.5)",
       )
     )
 
@@ -74,9 +62,4 @@ object WindowIdSpec extends Properties {
         ModelName.fromDisplayName("  ") ==== none[ModelName],
       )
     )
-
-  def testRender: Property =
-    Fixtures.genWindowId.log("id").map { id =>
-      Render[WindowId].render(id) ==== id.label
-    }
 }

@@ -33,7 +33,7 @@ final class AboutTests: XCTestCase {
 
     func testTheOptionsBlankTheBuildVersionAndCarryTheCredits() throws {
         let info: [String: Any] = [About.versionKey: "0.1.2+5-0ee2f7d5", "CFBundleShortVersionString": "0.1.2"]
-        let options = About.options(infoDictionary: info, architecture: "x64 (Rosetta)", icon: nil)
+        let options = About.options(infoDictionary: info, architecture: "x64 (Rosetta)", icon: nil, strings: TestStrings.en)
 
         XCTAssertEqual(options[.applicationVersion] as? String, "0.1.2+5-0ee2f7d5")
         XCTAssertEqual(options[.version] as? String, "")
@@ -52,7 +52,7 @@ final class AboutTests: XCTestCase {
 
     func testTheOptionsCarryTheIconWhenGiven() {
         let icon = NSImage(size: NSSize(width: 1, height: 1))
-        let options = About.options(infoDictionary: nil, architecture: "arm64", icon: icon)
+        let options = About.options(infoDictionary: nil, architecture: "arm64", icon: icon, strings: TestStrings.en)
         XCTAssertIdentical(options[.applicationIcon] as? NSImage, icon)
     }
 

@@ -57,7 +57,7 @@ enum About {
 
     /// Three centred lines: the architecture, then the project and author links shown without `https://`. The label
     /// colour keeps the text readable in dark mode, where an attributed string without a colour is drawn black.
-    static func credits(architecture: String) -> NSAttributedString {
+    static func credits(architecture: String, strings: AppStrings) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         let base: [NSAttributedString.Key: Any] = [
@@ -66,9 +66,9 @@ enum About {
             .paragraphStyle: paragraph,
         ]
         let parts: [(text: String, link: String?)] = [
-            ("Architecture: \(architecture)\nProject: ", nil),
+            ("\(strings.text(.aboutArchitecture)): \(architecture)\n\(strings.text(.aboutProject)): ", nil),
             (displayed(projectLink), projectLink),
-            ("\nAuthor: Kevin Lee (", nil),
+            ("\n\(strings.text(.aboutAuthor)): Kevin Lee (", nil),
             (displayed(authorLink), authorLink),
             (")", nil),
         ]
@@ -104,24 +104,25 @@ enum About {
     /// `CFBundleVersion`, so a dev build does not read "Version 0.1.2+5-0ee2f7d5 (0.1.2)". Without an icon AppKit shows
     /// the bundle icon.
     static func options(infoDictionary: [String: Any]?, architecture: String,
-                        icon: NSImage?) -> [NSApplication.AboutPanelOptionKey: Any] {
+                        icon: NSImage?, strings: AppStrings) -> [NSApplication.AboutPanelOptionKey: Any] {
         var options: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationVersion: version(infoDictionary: infoDictionary),
             .version: "",
-            .credits: credits(architecture: architecture),
+            .credits: credits(architecture: architecture, strings: strings),
         ]
         options[.applicationIcon] = icon
         return options
     }
 
     /// AppKit does not return the panel, so it is the one window that the call added, else the panel found before.
-    static func show() {
+    static func show(strings: AppStrings) {
         WindowFront.show {
             let before = NSApp.windows.map(ObjectIdentifier.init)
             NSApp.orderFrontStandardAboutPanel(options: options(
                 infoDictionary: Bundle.main.infoDictionary,
                 architecture: architectureLabel(.current, translated: isTranslated()),
-                icon: bundledIcon(in: .main)
+                icon: bundledIcon(in: .main),
+                strings: strings
             ))
             let after = NSApp.windows
             if let id = WindowFront.newWindow(before: before, after: after.map(ObjectIdentifier.init)) {

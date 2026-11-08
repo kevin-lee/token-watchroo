@@ -24,6 +24,10 @@ import tokenwatchroo.providers.UsageProvider
   * plan, interval) waits for the next scheduled tick, which comes one new interval after the last tick (#104).
   * `SetConfig` replaces only the config, so the providers and their caches (the Claude
   * plan badge, the last good snapshots), the alert state, and the schedule are kept.
+  *
+  * Each tick takes the `Messages` of `config.language` with `config.numberFormat` from the bundles loaded at start
+  * (#10), for the card texts and the notification copy. The shell sends the same language and number format for the
+  * whole run, so `AgentChoice.needsFetch` does not look at them.
   */
 object Poller {
 
@@ -38,6 +42,7 @@ object Poller {
 
   def run(
     initial: Config,
+    bundles: MessageBundles,
     registry: List[UsageProvider],
     queue: Queue[IO, Command],
     sink: EnvelopeSink,
@@ -46,7 +51,7 @@ object Poller {
   ): IO[Unit] = {
     def loop(config: Config, trigger: FetchTrigger, lastManualAt: Option[EpochSeconds]): IO[Unit] =
       for {
-        _     <- tick(config, registry, sink, store, clock, trigger)
+        _     <- tick(config, bundles, registry, sink, store, clock, trigger)
         after <- clock
         last = trigger match {
                  case FetchTrigger.Manual => after.some
@@ -84,23 +89,34 @@ object Poller {
 
   def tick(
     config: Config,
+    bundles: MessageBundles,
     registry: List[UsageProvider],
     sink: EnvelopeSink,
     store: StateStore,
     clock: IO[EpochSeconds],
     trigger: FetchTrigger,
   ): IO[Unit] = {
-    val refresh =
+    val messages = bundles.of(config.language).withNumberFormat(config.numberFormat)
+    val refresh  =
       for {
         now     <- clock
-        planned <- AgentChoice.ordered(config, registry)(_.id).traverseFilter(provider => plan(provider, config, now))
+        planned <-
+          AgentChoice.ordered(config, registry)(_.id).traverseFilter(provider => plan(provider, config, now, messages))
         agents  <- planned.parTraverse {
-                     case Planned.Fetch(provider, kind) => provider.fetch(now, config, trigger).map(_.withPlan(kind))
+                     case Planned.Fetch(provider, kind) =>
+                       provider.fetch(now, config, trigger, messages).map(_.withPlan(kind))
                      case Planned.Ready(snapshot) => IO.pure(snapshot)
                    }
         snapshot = Snapshot.of(now, agents)
         state <- store.read
-        stepped = AlertEngine.step(state, snapshot, now, AlertLevels.of(config, _), SpendAlertLevels.of(config, _))
+        stepped        = AlertEngine.step(
+                           state,
+                           snapshot,
+                           now,
+                           AlertLevels.of(config, _),
+                           SpendAlertLevels.of(config, _),
+                           messages,
+                         )
         (next, alerts) = stepped
         _ <- store.write(next)
         _ <- sink.emit(seq => Envelope.snapshot(seq, snapshot))
@@ -112,7 +128,12 @@ object Poller {
   }
 
   /** Detection runs one provider after the other, as before #8. */
-  private def plan(provider: UsageProvider, config: Config, now: EpochSeconds): IO[Option[Planned]] =
+  private def plan(
+    provider: UsageProvider,
+    config: Config,
+    now: EpochSeconds,
+    messages: Messages,
+  ): IO[Option[Planned]] =
     AgentChoice.of(config, provider.id) match {
       case AgentChoice.AutoDetect =>
         provider
@@ -120,7 +141,9 @@ object Poller {
           .map(detection => Option.when(detection.isDetected)(Planned.Fetch(provider, PlanKind.Individual)))
       case AgentChoice.Fetch(kind) => IO.pure(Planned.Fetch(provider, kind).some)
       case AgentChoice.ApiNotSupported =>
-        IO.pure(Planned.Ready(AgentSnapshot.unavailable(provider.id, now, AgentChoice.ApiNotSupportedMessage)).some)
+        IO.pure(
+          Planned.Ready(AgentSnapshot.unavailable(provider.id, now, AgentChoice.apiNotSupportedMessage(messages))).some
+        )
       case AgentChoice.Hidden => IO.pure(none[Planned])
     }
 }

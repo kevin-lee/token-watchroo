@@ -7,6 +7,7 @@ import cats.syntax.all.*
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 import scala.concurrent.duration.FiniteDuration
+import tokenwatchroo.core.providers.CredentialProblem
 
 final case class ProcessOutput(exitCode: Int, stdout: String) derives CanEqual, Eq, Show
 
@@ -30,7 +31,12 @@ object Processes {
       }
     }.handleError { e =>
       ProviderError
-        .credentialsMalformed(s"Could not run ${command.headOption.getOrElse("process")}: ${e.getMessage}")
+        .credentialsMalformed(
+          CredentialProblem.processFailed(
+            command.headOption.getOrElse("process"),
+            Option(e.getMessage).getOrElse(e.getClass.getName),
+          )
+        )
         .asLeft[ProcessOutput]
     }
 }

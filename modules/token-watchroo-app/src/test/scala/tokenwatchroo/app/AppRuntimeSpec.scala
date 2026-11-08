@@ -40,6 +40,8 @@ class AppRuntimeSpec extends munit.FunSuite {
       none[CodexHome],
       none[ClaudeCodeVersion],
       List.empty[AgentConfig],
+      AppLanguage.En,
+      NumberFormat.default,
     )
 
   private def window(percent: Double): UsageWindow =
@@ -60,7 +62,12 @@ class AppRuntimeSpec extends munit.FunSuite {
   final private class Stub(triggers: AtomicReference[List[FetchTrigger]]) extends UsageProvider {
     override def id: AgentId                           = AgentId.ClaudeCode
     override def detect(config: Config): IO[Detection] = IO.pure(Detection.Detected)
-    override def fetch(now: EpochSeconds, config: Config, trigger: FetchTrigger): IO[AgentSnapshot] =
+    override def fetch(
+      now: EpochSeconds,
+      config: Config,
+      trigger: FetchTrigger,
+      messages: Messages
+    ): IO[AgentSnapshot]                               =
       IO.delay(triggers.updateAndGet(_ :+ trigger)).as(claudeSnapshot(10.0d, now))
   }
 
@@ -95,7 +102,15 @@ class AppRuntimeSpec extends munit.FunSuite {
     InMemoryStateStore
       .make
       .flatMap { store =>
-        AppRuntime.run(state, config, List(new Stub(triggers)), new AtomicSink(envelopes), store, IO.pure(now))
+        AppRuntime.run(
+          state,
+          config,
+          TestBundles.bundles,
+          List(new Stub(triggers)),
+          new AtomicSink(envelopes),
+          store,
+          IO.pure(now)
+        )
       }
       .unsafeToFuture()(using runtime)
 

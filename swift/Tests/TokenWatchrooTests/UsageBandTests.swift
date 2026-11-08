@@ -26,7 +26,7 @@ final class UsageBandTests: XCTestCase {
     }
 
     func testTheElevatedStatusAndRing() {
-        XCTAssertEqual(Palette.statusPill(for: .elevated).0, "Over half")
+        XCTAssertEqual(Palette.statusPill(for: .elevated, strings: TestStrings.en).0, "Over half")
         XCTAssertEqual(RingIcon.tint(for: .elevated), RingIcon.elevatedColor)
         XCTAssertNil(RingIcon.color(for: .normal))
         XCTAssertEqual(RingIcon.color(for: .elevated), RingIcon.elevatedColor)

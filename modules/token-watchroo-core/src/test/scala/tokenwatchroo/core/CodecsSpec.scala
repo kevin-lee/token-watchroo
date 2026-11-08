@@ -27,6 +27,7 @@ object CodecsSpec extends Properties {
     example("observedAt is written when present and left out when absent", testObservedAt),
     property("config round-trips with and without agents", testConfigRoundTrip),
     example("a v1 config without agents decodes to no agents", testConfigWithoutAgents),
+    example("config reads locale and numberFormat from the shell, with defaults (#10)", testConfigLocale),
     example("an agent entry with only an id decodes to the defaults", testAgentEntryDefaults),
     example("agent entries with an unknown id, billing or plan are skipped and the others kept", testAgentEntrySkipped),
     example("an agent entry writes its wire values", testAgentEntryWire),
@@ -97,6 +98,33 @@ object CodecsSpec extends Properties {
         codecs.readEither[Config](claudeEntry(s""","claudeConfigDir":"$text"""")).map(_.claudeConfigDir) ====
           Right(expected.some)
       }
+    )
+  }
+
+  def testConfigLocale: Result = {
+    val base    = """{"stateDir":"/tmp/tw","refreshIntervalSeconds":60,"agents":[{"id":"codex"}]"""
+    val german  =
+      ""","numberFormat":{"decimalSeparator":",","groupingSeparator":".","currencySymbol":"after-spaced"}"""
+    val read    = (extra: String) => codecs.readEither[Config](s"$base$extra}")
+    val germanF = NumberFormat.from(",", ".", SymbolPlacement.AfterSpaced).fold(sys.error, identity)
+    Result.all(
+      List(
+        read(s""","locale":"ko"$german""").map(c => (c.language, c.numberFormat)) ==== Right((AppLanguage.Ko, germanF)),
+        read("").map(c => (c.language, c.numberFormat)) ==== Right((AppLanguage.En, NumberFormat.default)),
+        read(""","locale":"fr"""").map(_.language) ==== Right(AppLanguage.En),
+        read(
+          ""","numberFormat":{"decimalSeparator":".","groupingSeparator":".","currencySymbol":"before"}"""
+        ).map(c => (c.numberFormat, c.agents.size)) ==== Right((NumberFormat.default, 1)),
+        read(""","numberFormat":{"decimalSeparator":",","groupingSeparator":".","currencySymbol":"left"}""")
+          .map(_.numberFormat) ==== Right(NumberFormat.default),
+        read(""","numberFormat":{"decimalSeparator":","}""").map(_.numberFormat) ==== Right(NumberFormat.default),
+        read(s""","locale":"ko"$german""")
+          .map(c => codecs.readEither[Config](codecs.write(c)) ==== Right(c))
+          .fold(
+            e => Result.failure.log(e.toString),
+            identity,
+          ),
+      )
     )
   }
 
@@ -354,6 +382,7 @@ object CodecsSpec extends Properties {
         Fixtures.window(WindowId.Session, 82.0d, EpochSeconds(1789187040L).some),
         now,
         AlertLevel.unsafeFrom(70),
+        TestMessages.en,
       )
     val envelopes = List(
       Envelope.snapshot(SequenceNumber(42L), snapshot),
@@ -570,12 +599,14 @@ object CodecsSpec extends Properties {
       Fixtures.spend(Fixtures.usd, "145", "200", EpochSeconds(1790812800L).some),
       now,
       SpendAlertKind.percent(AlertLevel.unsafeFrom(70)),
+      TestMessages.en,
     )
     val noReset  = AlertText.spendLevel(
       AgentId.Codex,
       Fixtures.spend(Currency.credits, "8600", "10000", none[EpochSeconds]),
       now,
       SpendAlertKind.amount(SpendLevel.unsafeFrom(8500L)),
+      TestMessages.en,
     )
     val envelope = (alert: Alert) => Envelope.alert(SequenceNumber(7L), alert)
     val json     = codecs.write(envelope(noReset))

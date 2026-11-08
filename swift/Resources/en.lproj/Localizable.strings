@@ -1,0 +1,158 @@
+/* Token Watchroo shell strings, English (#10). UTF-8. Placeholders are {name}. Every StringKey must be here,
+   and no other key. Keep the order of the other language. */
+
+/* menu */
+"menu.waiting" = "Waiting for the first refresh…";
+"menu.noAgent" = "No agent detected. Run claude or codex once.";
+"menu.refreshNow" = "Refresh now";
+"menu.settings" = "Settings...";
+"menu.launchAtLogin" = "Launch at Login";
+"menu.about" = "About Token Watchroo";
+"menu.checkForUpdates" = "Check for Updates...";
+"menu.quit" = "Quit Token Watchroo";
+
+/* header */
+"header.refresh" = "Refresh";
+"header.waiting" = "Waiting for first update";
+"header.updatedSeconds" = "Updated {n} s ago";
+"header.updatedMinutes" = "Updated {n} m ago";
+"header.updatedHours" = "Updated {n} h ago";
+
+/* short */
+"short.underMinute" = "<1 m";
+"short.days" = "{d} d";
+"short.daysHours" = "{d} d {h} h";
+"short.hours" = "{h} h";
+"short.hoursMinutes" = "{h} h {m} m";
+"short.minutes" = "{m} m";
+"short.resetting" = "resetting...";
+
+/* card */
+"card.resetsIn" = "resets in {time}";
+"card.resetsAt" = "resets {time}";
+"card.expired" = "reset · no newer data";
+"card.localLog" = "from local log";
+"card.noCurrentUsage" = "No current usage";
+"card.unavailable" = "Unavailable";
+"card.idle" = "idle";
+"card.sessionWindow" = "5 h window";
+
+/* window */
+"window.session" = "Session";
+"window.weekly" = "Weekly";
+"window.model" = "Weekly ({model})";
+
+/* pill */
+"pill.ok" = "OK";
+"pill.elevated" = "Over half";
+"pill.warning" = "Near limit";
+"pill.critical" = "Almost out";
+"pill.exhausted" = "Exhausted";
+"pill.unavailable" = "Unavailable";
+
+/* spend */
+"spend.summary" = "{spent} of {limit} spent";
+"spend.summaryCredits" = "{spent} of {limit} credits spent";
+
+/* settings */
+"settings.title" = "Token Watchroo Settings";
+"settings.footnote" = "Detected agents are added to this list. Clear Enabled to hide an agent.";
+"settings.addAgent" = "Add Agent...";
+"settings.edit" = "Edit...";
+"settings.moveUp" = "Move Up";
+"settings.moveDown" = "Move Down";
+"settings.refreshEvery" = "Refresh every";
+"settings.agents" = "Agents";
+
+/* column */
+"column.agent" = "Agent";
+"column.billing" = "Billing";
+"column.plan" = "Plan";
+"column.enabled" = "Enabled";
+
+/* interval */
+"interval.hour.one" = "1 hour";
+"interval.hour.other" = "{n} hours";
+"interval.minute.one" = "1 minute";
+"interval.minute.other" = "{n} minutes";
+"interval.seconds" = "{n} seconds";
+
+/* billing */
+"billing.subscription" = "Subscription plan";
+"billing.api" = "API";
+
+/* sheet */
+"sheet.addTitle" = "Add agent";
+"sheet.editTitle" = "Edit agent";
+"sheet.subscriptionSubtitle" = "Subscription plan, individual, team or enterprise";
+"sheet.apiSubtitle" = "API, enterprise plan";
+"sheet.subscriptionHint" = "Individual, Team or Enterprise. Windows and spend limits come from the account.";
+"sheet.apiHint" = "API budget agents are not supported yet.";
+"sheet.agent" = "Agent";
+"sheet.billing" = "Billing";
+"sheet.plan" = "Plan";
+"sheet.alertAt" = "Alert at";
+"sheet.spendAlerts" = "Spend alerts";
+"sheet.configDir" = "Config folder";
+"sheet.alertAtHint" = "A window alerts when its usage reaches a level. Up to 5 levels, at least 5 apart.";
+"sheet.noLevelsHint" = "No window alerts for this agent.";
+"sheet.maxLevelsHint" = "5 levels is the maximum.";
+"sheet.noLevels" = "No levels";
+"sheet.spendDefault" = "70% and 85% of the limit";
+"sheet.spendAmounts" = "Amounts";
+"sheet.spendHint" = "A spend alert comes when the spent amount reaches a level. Up to 5 levels.";
+"sheet.noSpendLevelsHint" = "No spend alerts for this agent.";
+"sheet.spendUnknownHint" = "Amounts can be set after the first refresh reads the limit.";
+"sheet.spendUnitMismatch" = "Set for {stored}. The limit is now in {meter}.";
+"sheet.spendNow" = "Now {amounts} of {limit}.";
+"sheet.spendNowCredits" = "Now {amounts} of {limit} credits.";
+"sheet.spendAt" = "At {amounts} {unit}.";
+
+/* list */
+"list.pair" = "{first} and {last}";
+
+/* sheet */
+"sheet.configDirPlaceholder" = "Default (~/.claude)";
+"sheet.configDirHint" = "Optional. Use the same text as CLAUDE_CONFIG_DIR, or CLAUDE_SECURESTORAGE_CONFIG_DIR when you set it. Leave empty for the default sign-in.";
+"sheet.choose" = "Choose…";
+"sheet.choosePanel" = "Choose the Claude Code config folder.";
+"sheet.add" = "Add";
+"sheet.save" = "Save";
+"sheet.cancel" = "Cancel";
+
+/* a11y */
+"a11y.addLevel" = "Add a level";
+"a11y.level" = "Alert level {n}, percent";
+"a11y.removeLevel" = "Remove this level";
+"a11y.addSpendLevel" = "Add a spend level";
+"a11y.spendLevel" = "Spend alert level {n}, amount";
+"a11y.removeSpendLevel" = "Remove this spend level";
+
+/* rule */
+"rule.configDir" = "Use a full path that starts with /.";
+"rule.levelNumber" = "Use a whole number from 1 to 100.";
+"rule.levelGap" = "Levels must be at least 5 apart.";
+"rule.spendNumber" = "Use a whole number of 1 or more.";
+"rule.spendDuplicate" = "Amounts must be different.";
+
+/* chip */
+"chip.critical" = "Red · is almost out";
+"chip.warning" = "Amber · is near its limit";
+"chip.elevated" = "Blue · is near its limit";
+"chip.normal" = "No colour · is near its limit";
+"chip.aboveLimit" = "Above the limit";
+"chip.ofLimit" = "{colour} · {percent}% of the limit";
+
+/* colour */
+"colour.red" = "Red";
+"colour.amber" = "Amber";
+"colour.blue" = "Blue";
+"colour.none" = "No colour";
+
+/* unit */
+"unit.credits" = "credits";
+
+/* about */
+"about.architecture" = "Architecture";
+"about.project" = "Project";
+"about.author" = "Author";

@@ -381,6 +381,12 @@ def commonNativeConfig(base: File)(c: NativeConfig): NativeConfig = {
     /* CoreFoundation for CFStringNormalize in providers' mac_text.c (#91). CommonCrypto is in libSystem. The static
      * library for the app does not use these options, so swift/Package.swift links CoreFoundation too. */
     .withLinkingOptions(c.linkingOptions :+ deploymentTarget :+ "-framework" :+ "CoreFoundation")
+    /* The message bundles (#10) are read with getResourceAsStream, so they are embedded in every binary. Only the
+     * bundles: the default pattern (every path) would embed every classpath resource, also the resources of dependency
+     * jars. Files under the `scala-native` resource folder are never embedded. The spike of 2026-11-09 proved that this works in the static
+     * library and in the test binaries. */
+    .withEmbedResources(true)
+    .withResourceIncludePatterns(Seq("/tokenwatchroo/i18n/*.properties"))
 }
 
 /* The -I option that puts native-overrides/scala-native-<version>/ ahead of nativelib's own include directories, so the

@@ -40,10 +40,10 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
     } yield a).unsafeRunSync()
 
   private def scheduled(p: ClaudeCodeProvider, now: EpochSeconds): IO[AgentSnapshot] =
-    p.fetch(now, Fakes.config, FetchTrigger.Scheduled)
+    p.fetch(now, Fakes.config, FetchTrigger.Scheduled, TestMessages.en)
 
   private def manual(p: ClaudeCodeProvider, now: EpochSeconds): IO[AgentSnapshot] =
-    p.fetch(now, Fakes.config, FetchTrigger.Manual)
+    p.fetch(now, Fakes.config, FetchTrigger.Manual, TestMessages.en)
 
   private def fetchUsage(usage: String): AgentSnapshot =
     (for {
@@ -449,7 +449,7 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
             )
         http     <- Fakes.RoutingHttp.make(Fakes.claudeRoutes(Fakes.ok(Fakes.claudeProfile20x)))
         p        <- make(http, keychain)
-        snapshot <- p.fetch(Fakes.now, workConfig, FetchTrigger.Scheduled)
+        snapshot <- p.fetch(Fakes.now, workConfig, FetchTrigger.Scheduled, TestMessages.en)
         calls    <- keychain.calls
       } yield (snapshot, calls.map(_.service))).unsafeRunSync()
     assertNotEquals(snapshot.status, AgentStatus.Unavailable)
@@ -466,9 +466,9 @@ class ClaudeCodeProviderSpec extends munit.FunSuite {
                         Map((ClaudeCredentials.Service, Fakes.keychainAccount.some) -> Fakes.claudeBlob.asRight)
                       )
         p        <- make(new Fakes.FakeHttp(Fakes.ok(Fakes.claudeUsage)), keychain)
-        snapshot <- p.fetch(Fakes.now, workConfig, FetchTrigger.Scheduled)
+        snapshot <- p.fetch(Fakes.now, workConfig, FetchTrigger.Scheduled, TestMessages.en)
       } yield snapshot).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
-    assertEquals(snapshot.error.map(_.value.value), Some(ClaudeCredentials.ConfigDirMissingMessage))
+    assertEquals(snapshot.error.map(_.value.value), Some(TestMessages.en.credentialsConfigDirNoSignIn))
   }
 }

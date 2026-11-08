@@ -35,9 +35,9 @@ final class UpdaterTests: XCTestCase {
 
     @MainActor
     func testTheItemIsDisabledWithoutAnUpdaterOnEveryRebuildAndOnOpening() throws {
-        let controller = StatusItemController(core: .shared)
+        let controller = StatusItemController(core: .shared, strings: TestStrings.en)
         let menu = try XCTUnwrap(controller.statusMenu)
-        let item = try XCTUnwrap(menu.items.first { $0.title == MenuBuilder.checkForUpdatesTitle })
+        let item = try XCTUnwrap(menu.items.first { $0.title == MenuBuilder.checkForUpdatesTitle(TestStrings.en) })
         XCTAssertFalse(item.isEnabled)
 
         controller.menuWillOpen(menu)
@@ -47,10 +47,10 @@ final class UpdaterTests: XCTestCase {
 
     @MainActor
     func testTheBuilderSetsTheItemsEnabledState() throws {
-        let builder = MenuBuilder()
+        let builder = MenuBuilder(strings: TestStrings.en)
         let target = NSObject()
         let enabled = builder.rebuild(snapshot: nil, receivedAt: nil, target: target, canCheckForUpdates: true)
-        let item = try XCTUnwrap(enabled.items.first { $0.title == MenuBuilder.checkForUpdatesTitle })
+        let item = try XCTUnwrap(enabled.items.first { $0.title == MenuBuilder.checkForUpdatesTitle(TestStrings.en) })
         XCTAssertTrue(item.isEnabled)
 
         builder.setCanCheckForUpdates(false)
@@ -59,6 +59,6 @@ final class UpdaterTests: XCTestCase {
         XCTAssertTrue(item.isEnabled)
 
         let disabled = builder.rebuild(snapshot: nil, receivedAt: nil, target: target, canCheckForUpdates: false)
-        XCTAssertFalse(try XCTUnwrap(disabled.items.first { $0.title == MenuBuilder.checkForUpdatesTitle }).isEnabled)
+        XCTAssertFalse(try XCTUnwrap(disabled.items.first { $0.title == MenuBuilder.checkForUpdatesTitle(TestStrings.en) }).isEnabled)
     }
 }

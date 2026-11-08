@@ -4,7 +4,9 @@ import cats.{Eq, Show}
 import cats.derived.*
 import cats.syntax.all.*
 
-/** Runtime configuration supplied by the Swift shell as JSON. */
+/** Runtime configuration supplied by the Swift shell as JSON. `language` and `numberFormat` come from macOS at the
+  * shell's launch and do not change during a run (#10), so a config change never needs a fetch for them.
+  */
 final case class Config(
   stateDir: StateDir,
   refreshInterval: RefreshIntervalSeconds,
@@ -14,6 +16,10 @@ final case class Config(
     * behaviour before #8. See `AgentChoice.of`.
     */
   agents: List[AgentConfig],
+  /** The language of the core's text (#10), `locale` on the wire. */
+  language: AppLanguage,
+  /** The number rules of the macOS region for money text (#10). */
+  numberFormat: NumberFormat,
 ) derives CanEqual,
       Eq,
       Show {
@@ -31,5 +37,7 @@ object Config {
       none[CodexHome],
       none[ClaudeCodeVersion],
       List.empty[AgentConfig],
+      AppLanguage.En,
+      NumberFormat.default,
     )
 }

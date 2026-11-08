@@ -66,7 +66,7 @@ final class StatusItemControllerTests: XCTestCase {
         let claude = Self.claude()
         let codex = Self.codex()
         XCTAssertNotEqual(AgentCardView.height(for: claude), AgentCardView.height(for: codex))
-        let controller = StatusItemController(core: .shared)
+        let controller = StatusItemController(core: .shared, strings: TestStrings.en)
         controller.apply(snapshot: Self.snapshot([claude, codex]))
         let menu = try open(controller)
         defer { controller.menuDidClose(menu) }
@@ -87,7 +87,7 @@ final class StatusItemControllerTests: XCTestCase {
 
     @MainActor
     func testAllAgentsSignedOutWhileOpenShowsOnlyTheEmptyItemAndDashes() throws {
-        let controller = StatusItemController(core: .shared)
+        let controller = StatusItemController(core: .shared, strings: TestStrings.en)
         controller.apply(snapshot: Self.snapshot([Self.claude(), Self.codex()]))
         let menu = try open(controller)
         defer { controller.menuDidClose(menu) }
@@ -95,13 +95,13 @@ final class StatusItemControllerTests: XCTestCase {
         controller.apply(snapshot: Self.snapshot([]))
         XCTAssertIdentical(controller.statusMenu, menu)
         assertCards(in: menu, match: [])
-        XCTAssertEqual(menu.items[1].title, MenuBuilder.noAgentTitle)
+        XCTAssertEqual(menu.items[1].title, MenuBuilder.noAgentTitle(TestStrings.en))
         XCTAssertFalse(menu.items[1].isEnabled)
         XCTAssertEqual(menu.items.count, 11)
         XCTAssertEqual(controller.menubarLabel, " --")
 
         controller.apply(snapshot: Self.snapshot([]))
-        XCTAssertEqual(menu.items.filter { $0.title == MenuBuilder.noAgentTitle }.count, 1)
+        XCTAssertEqual(menu.items.filter { $0.title == MenuBuilder.noAgentTitle(TestStrings.en) }.count, 1)
         XCTAssertEqual(menu.items.count, 11)
     }
 
@@ -109,7 +109,7 @@ final class StatusItemControllerTests: XCTestCase {
     func testSigningInWhileOpenAddsTheCardsToTheSameMenu() throws {
         let claude = Self.claude()
         let codex = Self.codex()
-        let controller = StatusItemController(core: .shared)
+        let controller = StatusItemController(core: .shared, strings: TestStrings.en)
         controller.apply(snapshot: Self.snapshot([]))
         let menu = try open(controller)
         defer { controller.menuDidClose(menu) }
@@ -117,7 +117,7 @@ final class StatusItemControllerTests: XCTestCase {
         controller.apply(snapshot: Self.snapshot([codex]))
         XCTAssertIdentical(controller.statusMenu, menu)
         assertCards(in: menu, match: [codex])
-        XCTAssertFalse(menu.items.contains { $0.title == MenuBuilder.noAgentTitle })
+        XCTAssertFalse(menu.items.contains { $0.title == MenuBuilder.noAgentTitle(TestStrings.en) })
 
         controller.apply(snapshot: Self.snapshot([claude, codex]))
         assertCards(in: menu, match: [claude, codex])
@@ -126,7 +126,7 @@ final class StatusItemControllerTests: XCTestCase {
 
     @MainActor
     func testUnchangedAgentsKeepTheirCardViews() throws {
-        let controller = StatusItemController(core: .shared)
+        let controller = StatusItemController(core: .shared, strings: TestStrings.en)
         controller.apply(snapshot: Self.snapshot([Self.claude(), Self.codex()]))
         let menu = try open(controller)
         defer { controller.menuDidClose(menu) }
@@ -142,7 +142,7 @@ final class StatusItemControllerTests: XCTestCase {
     @MainActor
     func testClosingTheMenuAfterASignOutRebuildsIt() throws {
         let codex = Self.codex()
-        let controller = StatusItemController(core: .shared)
+        let controller = StatusItemController(core: .shared, strings: TestStrings.en)
         controller.apply(snapshot: Self.snapshot([Self.claude(), codex]))
         let menu = try open(controller)
         controller.apply(snapshot: Self.snapshot([codex]))
@@ -160,7 +160,7 @@ final class StatusItemControllerTests: XCTestCase {
 
     @MainActor
     func testTheAboutGroupSitsAboveQuit() throws {
-        let controller = StatusItemController(core: .shared)
+        let controller = StatusItemController(core: .shared, strings: TestStrings.en)
         controller.apply(snapshot: Self.snapshot([Self.claude()]))
         let items = try XCTUnwrap(controller.statusMenu).items
         XCTAssertGreaterThanOrEqual(items.count, 5)
@@ -168,11 +168,11 @@ final class StatusItemControllerTests: XCTestCase {
         XCTAssertEqual(items[items.count - 1].title, "Quit Token Watchroo")
         XCTAssertTrue(items[items.count - 2].isSeparatorItem)
         let checkForUpdates = items[items.count - 3]
-        XCTAssertEqual(checkForUpdates.title, MenuBuilder.checkForUpdatesTitle)
+        XCTAssertEqual(checkForUpdates.title, MenuBuilder.checkForUpdatesTitle(TestStrings.en))
         XCTAssertEqual(checkForUpdates.action, #selector(StatusItemController.checkForUpdates(_:)))
         XCTAssertIdentical(checkForUpdates.target, controller)
         let about = items[items.count - 4]
-        XCTAssertEqual(about.title, MenuBuilder.aboutTitle)
+        XCTAssertEqual(about.title, MenuBuilder.aboutTitle(TestStrings.en))
         XCTAssertEqual(about.action, #selector(StatusItemController.showAbout(_:)))
         XCTAssertIdentical(about.target, controller)
         XCTAssertTrue(items[items.count - 5].isSeparatorItem)
@@ -180,12 +180,12 @@ final class StatusItemControllerTests: XCTestCase {
 
     @MainActor
     func testSettingsFollowsRefreshNowWithCommandComma() throws {
-        let controller = StatusItemController(core: .shared)
+        let controller = StatusItemController(core: .shared, strings: TestStrings.en)
         controller.apply(snapshot: Self.snapshot([Self.claude()]))
         let items = try XCTUnwrap(controller.statusMenu).items
         let refresh = try XCTUnwrap(items.firstIndex { $0.title == "Refresh now" })
         let settings = items[refresh + 1]
-        XCTAssertEqual(settings.title, MenuBuilder.settingsTitle)
+        XCTAssertEqual(settings.title, MenuBuilder.settingsTitle(TestStrings.en))
         XCTAssertEqual(settings.keyEquivalent, ",")
         XCTAssertEqual(settings.action, #selector(StatusItemController.showSettings(_:)))
         XCTAssertIdentical(settings.target, controller)

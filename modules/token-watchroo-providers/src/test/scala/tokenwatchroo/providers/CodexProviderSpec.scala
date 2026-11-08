@@ -17,7 +17,7 @@ class CodexProviderSpec extends munit.FunSuite {
   private def at(offset: Long): EpochSeconds = EpochSeconds(Fakes.now.value + offset)
 
   private def fetch(p: CodexProvider, now: EpochSeconds, trigger: FetchTrigger): IO[AgentSnapshot] =
-    p.fetch(now, config, trigger)
+    p.fetch(now, config, trigger, TestMessages.en)
 
   /** A provider wired to a routing fake answering the usage URL as given. */
   private def withRouting[A](usage: Either[ProviderError, HttpResponse], auth: CodexAuthReader, rollouts: RolloutFiles)(
@@ -35,7 +35,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(none[List[String]])
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Ok)
     assertEquals(snapshot.source, Some(Source.Api))
     assertEquals(snapshot.planLabel.map(_.value.value), Some("Enterprise"))
@@ -52,7 +52,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(none[List[String]])
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
     assertEquals(snapshot.error.map(_.value.value), Some("No usage limit reported by the usage API"))
   }
@@ -63,7 +63,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(List(Fakes.rolloutLineCurrent).some)
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))
     assertEquals(snapshot.windows.map(_.usedPercent.value), List(17.0d, 6.0d))
     assertEquals(snapshot.spend, None)
@@ -76,7 +76,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(none[List[String]])
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Warning)
     assertEquals(snapshot.source, Some(Source.Api))
     assertEquals(snapshot.planLabel.map(_.value.value), Some("Plus"))
@@ -97,7 +97,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(none[List[String]])
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Warning)
     assertEquals(snapshot.source, Some(Source.Api))
     assertEquals(snapshot.planLabel.map(_.value.value), Some("Team"))
@@ -117,7 +117,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(List(Fakes.rolloutLineCurrent).some)
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))
     assertEquals(snapshot.status, AgentStatus.Ok)
     assertEquals(snapshot.planLabel.map(_.value.value), Some("Prolite"))
@@ -132,7 +132,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(List(Fakes.rolloutLine).some)
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
     assertEquals(snapshot.source, Some(Source.LocalLog))
     assertEquals(snapshot.windows.map(_.usedPercent.value), List(17.0d, 6.0d))
@@ -145,10 +145,13 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       Fakes.FakeCompressedRollout
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
     assertEquals(snapshot.source, None)
-    assertEquals(snapshot.error.map(_.value.value), Some(s"Network error: curl 6. ${CodexProvider.CompressedLogText}"))
+    assertEquals(
+      snapshot.error.map(_.value.value),
+      Some("Network error: curl 6. The newest Codex log is compressed, so it is more than 7 days old.")
+    )
   }
 
   test("a 429 carry recomputes the status at the new time") {
@@ -175,7 +178,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(none[List[String]])
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
     assertEquals(snapshot.error.map(_.value.value), Some("Usage API error HTTP 500"))
   }
@@ -207,7 +210,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(List(Fakes.rolloutLineCurrent).some)
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.source, Some(Source.LocalLog))
     assertEquals(snapshot.windows.map(_.usedPercent.value), List(17.0d, 6.0d))
     assertEquals(snapshot.error.map(_.value.value), Some(RateLimitedText))
@@ -219,7 +222,7 @@ class CodexProviderSpec extends munit.FunSuite {
       new Fakes.FakeCodexAuth(Fakes.codexOAuth.asRight),
       new Fakes.FakeRollouts(none[List[String]])
     )
-    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled).unsafeRunSync()
+    val snapshot = p.fetch(Fakes.now, config, FetchTrigger.Scheduled, TestMessages.en).unsafeRunSync()
     assertEquals(snapshot.status, AgentStatus.Unavailable)
     assertEquals(snapshot.error.map(_.value.value), Some(RateLimitedText))
   }

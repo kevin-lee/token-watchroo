@@ -74,7 +74,7 @@ object AlertEngineSpec extends Properties {
     at: EpochSeconds,
     levels: AlertLevels = AlertLevels.defaults,
   ): (AlertState, List[Alert]) =
-    AlertEngine.step(state, snapshot, at, _ => levels, _ => SpendAlertLevels.defaults)
+    AlertEngine.step(state, snapshot, at, _ => levels, _ => SpendAlertLevels.defaults, TestMessages.en)
 
   /** The kind of a window alert. A spend alert fails the test. */
   private def kindOf(alert: Alert): AlertKind =
@@ -476,6 +476,7 @@ object AlertEngineSpec extends Properties {
         now,
         id => if (id === AgentId.Codex) fifty else AlertLevels.defaults,
         _ => SpendAlertLevels.defaults,
+        TestMessages.en,
       )
     Result.all(List(alerts.map(_.agent) ==== List(AgentId.Codex), alerts.map(kindOf) ==== List(level(50))))
   }
@@ -490,7 +491,7 @@ object AlertEngineSpec extends Properties {
     at: EpochSeconds,
     levels: SpendAlertLevels = SpendAlertLevels.defaults,
   ): (AlertState, List[Alert]) =
-    AlertEngine.step(state, snapshot, at, _ => AlertLevels.defaults, _ => levels)
+    AlertEngine.step(state, snapshot, at, _ => AlertLevels.defaults, _ => levels, TestMessages.en)
 
   private def spendSnapshot(agent: AgentId, spend: Spend, at: EpochSeconds = now): Snapshot =
     Fixtures.snapshot(at, Fixtures.withSpend(agent, at, spend))

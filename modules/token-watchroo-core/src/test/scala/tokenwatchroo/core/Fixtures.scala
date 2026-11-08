@@ -96,7 +96,12 @@ object Fixtures {
       codexHome <- genPath.map(CodexHome(_)).option
       version   <- Gen.constant(ClaudeCodeVersion.fallback).option
       agents    <- genAgentConfig.list(Range.linear(0, 3))
-    } yield Config(stateDir, interval, codexHome, version, agents)
+      language  <- Gen.element1(AppLanguage.En, AppLanguage.Ko)
+      format    <- Gen.element1(
+                     NumberFormat.default,
+                     NumberFormat.from(",", ".", SymbolPlacement.AfterSpaced).fold(sys.error, identity),
+                   )
+    } yield Config(stateDir, interval, codexHome, version, agents, language, format)
 
   def window(id: WindowId, percent: Double, resetsAt: Option[EpochSeconds]): UsageWindow =
     UsageWindow.clamped(id, percent, resetsAt, Seconds(18000L).some)

@@ -4,7 +4,7 @@ import XCTest
 final class RefreshIntervalTests: XCTestCase {
 
     func testTitles() {
-        XCTAssertEqual([15, 60, 120, 3600, 7200, 45].map(RefreshInterval.title),
+        XCTAssertEqual([15, 60, 120, 3600, 7200, 45].map { RefreshInterval.title($0, strings: TestStrings.en) },
                        ["15 seconds", "1 minute", "2 minutes", "1 hour", "2 hours", "45 seconds"])
     }
 

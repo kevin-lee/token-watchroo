@@ -24,8 +24,6 @@ object EpochSeconds extends Newtype[Long], CatsEqShow[Long], CatsOrder[Long], Ex
 type Seconds = Seconds.Type
 object Seconds extends Newtype[Long], CatsEqShow[Long], CatsOrder[Long] {
   def clampNonNegative(n: Long): Seconds = Seconds(math.max(0L, n))
-
-  given render: Render[Seconds] = Render.render(Format.longDuration)
 }
 
 /** Percentage of a usage window that has been consumed, always within 0.0 to 100.0. */

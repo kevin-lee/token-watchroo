@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import scala.concurrent.duration.*
 import tokenwatchroo.core.*
-import tokenwatchroo.core.providers.{ClaudeCredentialsBlob, ClaudeOAuth}
+import tokenwatchroo.core.providers.{ClaudeCredentialsBlob, ClaudeOAuth, CredentialProblem}
 
 trait ClaudeCredentialReader {
   def read(
@@ -53,12 +53,12 @@ final class ClaudeCredentials(keychain: KeychainReader, account: KeychainAccount
         ClaudeKeychainService.candidates(dir) match {
           case Left(reason) =>
             IO.pure(
-              ProviderError.credentialsMalformed(s"Config folder in Settings cannot be read: $reason").asLeft[String]
+              ProviderError.credentialsMalformed(CredentialProblem.configDirUnreadable(reason)).asLeft[String]
             )
           case Right(services) =>
             readFirst(services, timeout).map {
               case Left(ProviderError.CredentialsMissing) =>
-                ProviderError.unsupported(ClaudeCredentials.ConfigDirMissingMessage).asLeft[String]
+                ProviderError.unsupported(UnsupportedReason.ConfigDirNoSignIn).asLeft[String]
               case other => other
             }
         }
@@ -78,11 +78,7 @@ final class ClaudeCredentials(keychain: KeychainReader, account: KeychainAccount
             oauth.profileScope match {
               case ProfileScope.Granted => oauth.asRight[ProviderError]
               case ProfileScope.Missing =>
-                ProviderError
-                  .unsupported(
-                    "Claude Code token cannot read usage (no user:profile scope). Run claude and use /login to sign in again."
-                  )
-                  .asLeft[ClaudeOAuth]
+                ProviderError.unsupported(UnsupportedReason.NoProfileScope).asLeft[ClaudeOAuth]
             }
           }
       })
@@ -91,10 +87,6 @@ final class ClaudeCredentials(keychain: KeychainReader, account: KeychainAccount
 object ClaudeCredentials {
 
   val Service: String = "Claude Code-credentials"
-
-  /** The card text when no item exists for the config folder in the settings (#91). */
-  val ConfigDirMissingMessage: String =
-    "No Claude Code sign-in for the Config folder in Settings. Check the folder or use /login."
 
   /** The first read may have the "Always Allow" dialog open, later reads must be quick. */
   def timeoutFor(attempt: ReadAttempt): FiniteDuration = attempt match {
