@@ -36,23 +36,6 @@ ThisBuild / scmInfo :=
  * project/GcYieldpoints.scala and the .sbtopts line, keeping the gates until #5046 is fixed. */
 Global / onLoad := (Global / onLoad).value.andThen(GcYieldpoints.checkOnLoad)
 
-/* Scala Native 0.5.12's javalib `SynchronousQueue` throws a NullPointerException when an offer meets a timed poll that
- * has just timed out, and in cats-effect that kills a compute worker and the fiber on it (#83).
- * modules/token-watchroo-core/src/main/scala/java/util/concurrent/SynchronousQueue.scala is a corrected copy, which the
- * linker takes ahead of javalib's. The copy belongs to the javalib it was taken from, so another Scala Native version is
- * refused until the copy is compared with the new file. Remove this check and the copy together when a Scala Native
- * release includes the fix. */
-lazy val synchronousQueueOverrideVersion = "0.5.12"
-
-Global / onLoad := (Global / onLoad).value.andThen { state =>
-  if (nativeVersion == synchronousQueueOverrideVersion) state
-  else
-    sys.error(
-      s"""Scala Native is $nativeVersion, but modules/token-watchroo-core/src/main/scala/java/util/concurrent/SynchronousQueue.scala corrects the $synchronousQueueOverrideVersion javalib file (#83).
-         |If this Scala Native release fixes SynchronousQueue, delete the copy and this check. Otherwise diff the copy against the new javalib file and update synchronousQueueOverrideVersion.""".stripMargin
-    )
-}
-
 lazy val tokenWatchroo = (project in file("."))
   .settings(name := props.ProjectName)
   .settings(noPublish)
@@ -88,12 +71,6 @@ lazy val core = module("core")
     nativeConfig := Def.uncached(commonNativeConfig((LocalRootProject / baseDirectory).value)(nativeConfig.value)),
   )
   .settings(nativeSettings)
-  .settings(
-    /* src/main/scala/java/lang/impl/PosixThread.scala (#43) and src/main/scala/java/util/concurrent/SynchronousQueue.scala
-     * (#83) are upstream Scala Native code, compiled without `-Werror` there. Their warnings are silenced instead of
-     * fixed, so that the diff against upstream stays small. */
-    Compile / scalacOptions += "-Wconf:src=java/(lang/impl|util/concurrent)/.*:silent"
-  )
 
 lazy val providers = module("providers")
   .enablePlugins(ScalaNativePlugin)
@@ -321,10 +298,9 @@ def commonNativeConfig(base: File)(c: NativeConfig): NativeConfig = {
   val deploymentTarget = s"-mmacosx-version-min=${props.MinimumMacOsVersion}"
   /* The interflow optimiser is on. It was off from 2026-09-12 (#20), because the app's first poller tick never
    * completed in release-fast with it on, while it did with the optimiser off, in debug mode and in release-full mode.
-   * That build linked with trap-based GC yieldpoints and without the patched `PosixThread`, and both have been worked
-   * around since (#44, #43). #20 re-tested the optimiser on this tree with the app and the storm suites on both
-   * architectures. The optimiser does not remove the allocation behind #43, so the patched `PosixThread` copy in
-   * `modules/token-watchroo-core/src/main/scala/java/lang/impl/` stays either way. */
+   * That build linked with trap-based GC yieldpoints and without the patched `PosixThread`. #20 turned the optimiser
+   * back on with both workarounds in place, and #117 removed the workarounds after Scala Native 0.5.13 fixed their
+   * causes (#43, #44). */
   c.withLTO(LTO.none)
     .withMode(Mode.releaseFast)
     .withOptimize(true)
