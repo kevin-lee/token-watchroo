@@ -13,7 +13,8 @@
 
 - `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS` (`1` or `0`) at link time picks the mode. scala-cli has no option for it.
 - Each arm has its own workspace under `work/`, because a change of the variable alone does not relink.
-- `build.sh` checks the binary with `nm` (`scalanative_gc_safepoint_poll_trampoline` and `scalanative_GC_yieldpoint_trap` exist only in trap mode) and fails if the mode is wrong. On 2026-11-26 the first trap build from a fresh workspace came out conditional once, and I could not repeat it.
+- `build.sh` checks the binary with `nm` (`scalanative_gc_safepoint_poll_trampoline` and `scalanative_GC_yieldpoint_trap` exist only in trap mode) and fails if the mode is wrong. The first version of the check used `nm | grep -q` under `pipefail`. When `grep` exited early, `nm` got a broken pipe and the pipeline failed, so a trap binary looked conditional. The check now reads the `nm` output into a variable first.
+- The Scala Native linker can fail once with `java.nio.file.ClosedFileSystemException` while it reads jars that scala-cli has just downloaded. `build.sh` then tries once more.
 - The x86_64 build uses clang wrappers in `work/clang-x86_64` that add `-target x86_64-apple-macos14`.
 - scala-cli downloads `scala-native-cli` 0.5.13 on the first build. In the Claude Code sandbox the JVM cannot download, so the build runs outside it.
 

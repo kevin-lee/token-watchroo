@@ -31,11 +31,24 @@ if [ "$arch" = x86_64 ]; then
 fi
 
 out="$here/bin/repro-$arm-$arch"
-SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=$mode \
-  scala-cli --power package "$work/Repro.scala" --server=false --workspace "$work" \
-  ${clang_opts[@]+"${clang_opts[@]}"} -o "$out" -f
+package() {
+  SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=$mode \
+    scala-cli --power package "$work/Repro.scala" --server=false --workspace "$work" \
+    ${clang_opts[@]+"${clang_opts[@]}"} -o "$out" -f
+}
+# The Scala Native linker can fail once with java.nio.file.ClosedFileSystemException while it reads the jars that
+# scala-cli has just downloaded. It is a tool error, so try once more.
+package || { echo "package failed, trying once more" >&2; package; }
 
-# The trap mode links scalanative_GC_yieldpoint_trap, the conditional mode does not.
-if nm "$out" | grep -q scalanative_GC_yieldpoint_trap; then linked=trap; else linked=conditional; fi
+# The trap mode links scalanative_GC_yieldpoint_trap and scalanative_gc_safepoint_poll_trampoline, the conditional
+# mode links neither. Read nm into a variable first: with pipefail, `nm | grep -q` fails when grep exits early and
+# nm gets a broken pipe, so a trap binary would look conditional.
+symbols=$(nm "$out")
+if grep -q 'scalanative_GC_yieldpoint_trap$' <<< "$symbols" \
+  && grep -q 'scalanative_gc_safepoint_poll_trampoline$' <<< "$symbols"; then
+  linked=trap
+else
+  linked=conditional
+fi
 echo "$out: $(file -b "$out" | cut -d' ' -f1-3), yieldpoints $linked"
 [ "$linked" = "$arm" ] || { echo "mode check failed: wanted $arm" >&2; exit 1; }
