@@ -22,20 +22,6 @@ ThisBuild / scmInfo :=
     s"https://github.com/${props.GitHubUsername}/${props.RepoName}.git",
   ).some
 
-/* The Scala Native 0.5.12 GC loses a root of a thread stopped by a trap-based yieldpoint, the release default, and
- * frees live objects (#44, upstream scala-native/scala-native#5046: on CI 9 of 15 trap jobs failed against 0 of 15
- * linked with conditional yieldpoints). Scala Native reads the mode for every link from
- * SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS in the environment of the sbt server, and its incremental checks ignore the
- * variable, so a server with the wrong value would link and test every binary in the wrong mode for as long as it
- * lives. project/GcYieldpoints.scala checks at load: 0 passes, no value becomes 0 in the server's own environment (#72,
- * through the --add-opens option in .sbtopts), and any other value is refused unless TW_ALLOW_TRAP_YIELDPOINTS=1, which
- * is for experiments that need a trap build and also skips the archive gate in stageNativeLib. A server that cannot set
- * the value is refused as well. Remove this check, project/GcYieldpoints.scala, the .sbtopts line, that gate,
- * checkYieldpoints, scripts/check-yieldpoints.sh and the CI env together when a Scala Native release fixes #5046. If a
- * release adds a NativeConfig setting for the mode first, set it in commonNativeConfig and remove this check,
- * project/GcYieldpoints.scala and the .sbtopts line, keeping the gates until #5046 is fixed. */
-Global / onLoad := (Global / onLoad).value.andThen(GcYieldpoints.checkOnLoad)
-
 lazy val tokenWatchroo = (project in file("."))
   .settings(name := props.ProjectName)
   .settings(noPublish)
@@ -146,11 +132,9 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     val converter = fileConverter.value
     val archive   = converter.toPath((app / Compile / nativeLink).value).toFile
     val target    = baseDirectory.value / "swift" / "lib" / s"lib${props.StaticLibBaseName}.a"
-    /* Gated before it is staged, so bundleApp, runApp and swiftTest fail before Swift builds when a stale target was
-     * linked with trap-based yieldpoints (#44, see the onLoad check). */
-    if (sys.env.get("TW_ALLOW_TRAP_YIELDPOINTS").contains("1"))
-      log.warn(s"TW_ALLOW_TRAP_YIELDPOINTS=1: not checking the yieldpoint mode of ${archive.getPath}")
-    else checkYieldpointMode(baseDirectory.value, List(archive))
+    /* Gated before it is staged, so bundleApp, runApp and swiftTest fail on an archive that was not linked with
+     * conditional GC yieldpoints (#44). */
+    checkYieldpointMode(baseDirectory.value, List(archive))
     /* removeStaleArchive prevents this. The gate catches an archive that it kept, and reports signs of stale members,
      * not a prediction of a crash (#87). */
     checkArchiveMembersGate(baseDirectory.value, archive)
@@ -276,8 +260,7 @@ def checkYieldpointMode(base: File, files: List[File]): Unit = {
   if (exit != 0)
     sys.error(
       s"check-yieldpoints.sh exited with $exit: a binary was not linked with conditional GC yieldpoints (#44). " +
-        "Run `sbt --client shutdown`, remove the native and native-test folders under target/out/native0.5/scala-3.8.4/*/, " +
-        "and start sbt with SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS unset or 0 (the build sets 0 when it is unset, #72)."
+        "Check that commonNativeConfig still sets withTrapBasedYieldPoints(false), then relink."
     )
   else ()
 }
@@ -305,6 +288,10 @@ def commonNativeConfig(base: File)(c: NativeConfig): NativeConfig = {
     .withMode(Mode.releaseFast)
     .withOptimize(true)
     .withGC(GC.commix)
+    /* Conditional GC yieldpoints (#44, #117): the Scala Native 0.5.13 proof run found faults with trap-based yieldpoints
+     * that conditional ones did not show. A NativeConfig setting relinks on a change, unlike the environment variable
+     * used before (#72). */
+    .withGarbageCollectorConfig(_.withTrapBasedYieldPoints(false))
     .withCompileOptions(c.compileOptions :+ deploymentTarget)
     /* CoreFoundation for CFStringNormalize in providers' mac_text.c (#91). CommonCrypto is in libSystem. The static
      * library for the app does not use these options, so swift/Package.swift links CoreFoundation too. */
