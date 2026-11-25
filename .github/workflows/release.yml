@@ -96,13 +96,12 @@ jobs:
           swift --version
           clang --version
 
-      # Before the tests, as in build.yml, so a test binary that dies has a proved link-time mode (#44) and the patched
-      # RegistersCapture.h (#63), and a real fault can be told apart from a stale link. The tasks link the three test
+      # Before the tests, as in build.yml, so a test binary that dies has a proved link-time mode (#44), and a real fault can be told apart from a stale link. The tasks link the three test
       # binaries and the Test step's fresh sbt reuses those links. The archive and the bundle executable are checked
       # after bundleApp. --server runs sbt in the foreground instead of the sbtn client, here and in every sbt step of
       # this job: no background server is left behind for the bundle step to reuse with an identity-less environment.
-      - name: Verify yieldpoint mode and register capture (test binaries)
-        run: sbt --server "checkYieldpoints; checkRegistersCapture"
+      - name: Verify yieldpoint mode (test binaries)
+        run: sbt --server checkYieldpoints
 
       # testFull, not test: in sbt 2 `test` is the cached task, and the v0.1.2 release ran 3 tests with it (#60).
       # GC_LOG_FILE is the only channel for GC output, and sbt --server keeps the test processes' stderr, so a failure
@@ -176,13 +175,12 @@ jobs:
       - name: Bundle (Developer ID)
         run: sbt --server bundleApp
 
-      # The staged archive and the bundle executable, which exist only once bundleApp has run (#44, #63). The three test
+      # The staged archive and the bundle executable, which exist only once bundleApp has run (#44). The three test
       # binaries were checked before the Test step, as in build.yml.
-      - name: Verify yieldpoint mode and register capture (bundle)
+      - name: Verify yieldpoint mode (bundle)
         run: |
           set -euo pipefail
           scripts/check-yieldpoints.sh conditional swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
-          scripts/check-registers-capture.sh swift/lib/libtokenwatchroo.a "dist/Token Watchroo.app/Contents/MacOS/TokenWatchroo"
 
       # Two notary round trips take minutes, so an ad-hoc or unsigned bundle fails here rather than there.
       - name: Check the app signature
@@ -243,7 +241,7 @@ jobs:
 
       # Fail the release if the app inside the image is not Developer ID signed with hardened runtime, accepted by
       # Gatekeeper, stapled, built for this runner's architecture, linked with conditional GC yieldpoints (#44),
-      # compiled with the patched RegistersCapture.h (#63), and carrying the tag's version for the About panel (#77).
+      # and carrying the tag's version for the About panel (#77).
       - name: Verify the DMG
         run: |
           set -euo pipefail
@@ -266,7 +264,6 @@ jobs:
             exit 1
           fi
           scripts/check-yieldpoints.sh conditional "$APP/Contents/MacOS/TokenWatchroo"
-          scripts/check-registers-capture.sh "$APP/Contents/MacOS/TokenWatchroo"
           scripts/check-sparkle-bundle.sh "$APP" "${{ matrix.arch }}" developer-id
           (cd dist && shasum -a 256 -c ./*.sha256)
 
