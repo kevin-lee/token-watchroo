@@ -89,9 +89,9 @@ jobs:
           swift --version
           clang --version
 
-      # Before the tests, as in build.yml, so a test binary that dies has a proved link-time mode (#44), and a real fault can be told apart from a stale link. The tasks link the three test
-      # binaries and the Test step's fresh sbt reuses those links. The archive and the bundle executable are checked
-      # after bundleApp. --server runs sbt in the foreground instead of the sbtn client, here and in every sbt step of
+      # Before the tests, as in build.yml, so a test binary that dies has a proved link-time mode (#44), and a real fault
+      # can be told apart from a stale link. The task links the three test binaries and the Test step's fresh sbt reuses
+      # those links. The archive and the bundle executable are checked after bundleApp. --server runs sbt in the foreground instead of the sbtn client, here and in every sbt step of
       # this job: no background server is left behind for the bundle step to reuse with an identity-less environment.
       - name: Verify yieldpoint mode (test binaries)
         run: sbt --server checkYieldpoints

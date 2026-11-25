@@ -67,9 +67,8 @@ jobs:
           clang --version
 
       # Before the tests, so a test binary that dies has a proved link-time mode and a real fault can be told apart from
-      # a stale trap-based link (#44, #61). The task links
-      # the three test binaries itself and the Test step reuses those links, so the earlier position costs no extra
-      # linking. The staged archive and the bundle executable cannot be checked here because bundleApp has not run yet:
+      # a stale trap-based link (#44, #61). The task links the three test binaries itself and the Test step reuses those
+      # links, so the earlier position costs no extra linking. The staged archive and the bundle executable cannot be checked here because bundleApp has not run yet:
       # they are checked in the later step.
       - name: Verify yieldpoint mode (test binaries)
         run: sbt checkYieldpoints
