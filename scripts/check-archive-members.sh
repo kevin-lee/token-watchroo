@@ -3,7 +3,7 @@
 #
 #   scripts/check-archive-members.sh <archive>
 #
-# On macOS without llvm-ar, Scala Native 0.5.12 links the archive with `ar rc`, which adds to an existing file, so old
+# On macOS without llvm-ar, Scala Native 0.5.13 links the archive with `ar rc`, which adds to an existing file, so old
 # members stay. curl_write_buffer.c.o has the sbt-dynver version in its name, so each version adds a copy, and a stale
 # copy of code defines the same symbols as the current one. Archives with stale generated_*.ll.o members crashed or hung
 # at launch.

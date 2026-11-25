@@ -5,7 +5,7 @@ import java.nio.charset.StandardCharsets
 import scala.scalanative.unsafe.*
 import scala.scalanative.unsigned.*
 
-/** Bindings to `src/main/resources/scala-native/mac_text.c` (#91). Scala Native 0.5.12 has no `java.text.Normalizer`
+/** Bindings to `src/main/resources/scala-native/mac_text.c` (#91). Scala Native 0.5.13 has no `java.text.Normalizer`
   * and no `java.security.MessageDigest`, so NFC comes from CoreFoundation and SHA-256 from CommonCrypto. Both C
   * functions are short and call nothing back, so they are not `@blocking`.
   */

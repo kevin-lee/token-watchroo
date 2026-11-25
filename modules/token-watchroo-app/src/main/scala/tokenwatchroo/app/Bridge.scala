@@ -69,8 +69,9 @@ object Bridge {
 
   /** Converts the JSON with `toCString` and checks the result against the JSON's own UTF-8 bytes while Managed.
     *
-    * The Scala Native 0.5.12 GC can sweep the line of the encoder's live output array as free (#44), which leaves the
-    * C string with line metadata or a new object's header in it. The JSON `String` was never seen corrupted, so its
+    * The Scala Native 0.5.12 GC could sweep the line of the encoder's live output array as free (#44, fixed in 0.5.13),
+    * which left the C string with line metadata or a new object's header in it. The check stays as a net for a GC
+    * regression. The JSON `String` was never seen corrupted, so its
     * bytes are the reference: a mismatch means the conversion is redone, and after [[MaxAttempts]] the reference bytes
     * are copied directly.
     */
