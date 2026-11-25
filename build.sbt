@@ -115,13 +115,13 @@ lazy val app = module("app")
 
 /* App assembly tasks, scoped to the root project: sbt 2 applies bare settings to every subproject. */
 
-lazy val removeStaleArchive    = taskKey[Unit]("Remove the static library when its link inputs changed (#87)")
-lazy val stageNativeLib        = taskKey[String]("Copy the Scala Native static library into swift/lib/")
-lazy val swiftBuild            = taskKey[String]("Build the Swift shell against the staged static library")
-lazy val swiftTest             = taskKey[Unit]("Run the Swift shell tests against the staged static library")
-lazy val bundleApp             = taskKey[String]("Assemble dist/Token Watchroo.app")
-lazy val runApp                = taskKey[Unit]("Assemble and open the app bundle")
-lazy val checkYieldpoints      =
+lazy val removeStaleArchive = taskKey[Unit]("Remove the static library when its link inputs changed (#87)")
+lazy val stageNativeLib     = taskKey[String]("Copy the Scala Native static library into swift/lib/")
+lazy val swiftBuild         = taskKey[String]("Build the Swift shell against the staged static library")
+lazy val swiftTest          = taskKey[Unit]("Run the Swift shell tests against the staged static library")
+lazy val bundleApp          = taskKey[String]("Assemble dist/Token Watchroo.app")
+lazy val runApp             = taskKey[Unit]("Assemble and open the app bundle")
+lazy val checkYieldpoints   =
   taskKey[Unit]("Check that the three test binaries were linked with conditional GC yieldpoints (#44)")
 
 lazy val appAssemblySettings: SettingsDefinition = List(
