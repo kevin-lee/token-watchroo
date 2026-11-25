@@ -3,11 +3,7 @@
 #
 #   scripts/check-yieldpoints.sh <conditional|trap> <file>...
 #
-# Scala Native 0.5.12 picks the mode at link time from SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS, and its incremental
-# check ignores the variable, so a stale target keeps the old mode. Every binary of this build is linked with
-# conditional yieldpoints because the 0.5.12 GC loses a root of a thread stopped by a trap-based yieldpoint and frees
-# live objects (#44, upstream scala-native/scala-native#5046). Remove this script together with the onLoad check and
-# the gates in build.sbt and the CI env when a Scala Native release fixes #5046.
+# The build links every binary with conditional yieldpoints through GarbageCollectorConfig in commonNativeConfig (#44, #117).
 #
 # trap: scalanative_gc_safepoint_poll_trampoline present.
 # conditional: that symbol, the scalanative_GC_yieldpoint_trap thread-local and SafepointTrapHandler all absent, and
