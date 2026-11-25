@@ -1,5 +1,5 @@
 # Temporary (#117, scala-native/scala-native#5393): run the standalone scala-cli reproducer on GitHub's Intel macOS
-# runners with trap-based GC yieldpoints, one set of thread roles per job, to find which roles fault. Not for merging.
+# and Apple Silicon runners: Minimal.scala, trap-based against conditional GC yieldpoints. Not for merging.
 name: issue-117-scala-cli-repro
 
 on:
@@ -12,23 +12,20 @@ permissions:
 
 jobs:
   repro:
-    name: x86_64 trap ${{ matrix.id }}
-    runs-on: macos-26-intel
+    name: ${{ matrix.arch }} ${{ matrix.arm }} ${{ matrix.child }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { id: default, roles: '' }
-          - { id: no-spawn, roles: 'gc,alloc*4,sleep,handoff' }
-          - { id: no-handoff, roles: 'gc,alloc*4,sleep,spawn' }
-          - { id: no-sleep, roles: 'gc,alloc*4,handoff,spawn' }
-          - { id: one-alloc, roles: 'gc,alloc,sleep,handoff,spawn' }
-          - { id: no-alloc, roles: 'gc,sleep,handoff,spawn' }
-          - { id: no-gc, roles: 'alloc*4,sleep,handoff,spawn' }
-          - { id: gc-alloc4-spawn, roles: 'gc,alloc*4,spawn' }
-          - { id: gc-spawn, roles: 'gc,spawn' }
-          - { id: gc-alloc4, roles: 'gc,alloc*4' }
+          - { arch: x86_64, runner: macos-26-intel, arm: trap, child: empty }
+          - { arch: x86_64, runner: macos-26-intel, arm: trap, child: alloc }
+          - { arch: x86_64, runner: macos-26-intel, arm: trap, child: sleep }
+          - { arch: x86_64, runner: macos-26-intel, arm: conditional, child: empty }
+          - { arch: x86_64, runner: macos-26-intel, arm: conditional, child: sleep }
+          - { arch: arm64, runner: macos-26, arm: trap, child: empty }
+          - { arch: arm64, runner: macos-26, arm: trap, child: sleep }
     env:
       REPRO_DIR: tmp/issue-117-scala-cli-repro
       RUNS: 20
@@ -58,15 +55,15 @@ jobs:
 
       - name: Build
         timeout-minutes: 15
-        run: '"$REPRO_DIR/build.sh" trap host'
+        run: '"$REPRO_DIR/build.sh" "${{ matrix.arm }}" host Minimal.scala'
 
       - name: Run
         id: run
         run: |
-          rm -f ~/Library/Logs/DiagnosticReports/repro-* 2>/dev/null || true
-          "$REPRO_DIR/run.sh" "$REPRO_DIR/bin/repro-trap-host" "$RUNS" "$SECONDS_PER_RUN" "$TIMEOUT_PER_RUN" "${{ matrix.roles }}" | tee "$RUNNER_TEMP/run.txt"
+          rm -f ~/Library/Logs/DiagnosticReports/minimal-* 2>/dev/null || true
+          "$REPRO_DIR/run.sh" "$REPRO_DIR/bin/minimal-${{ matrix.arm }}-host" "$RUNS" "$SECONDS_PER_RUN" "$TIMEOUT_PER_RUN" "${{ matrix.child }}" | tee "$RUNNER_TEMP/run.txt"
           summary=$(grep '^summary ' "$RUNNER_TEMP/run.txt")
-          echo "x86_64 trap ${{ matrix.id }}: $summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ matrix.arch }} ${{ matrix.arm }} ${{ matrix.child }}: $summary" >> "$GITHUB_STEP_SUMMARY"
           faults=$(echo "$summary" | sed -E 's/.* sigill=([0-9]+) hang=([0-9]+) other=([0-9]+).*/\1 \2 \3/' | awk '{print $1 + $2 + $3}')
           echo "faults=$faults" >> "$GITHUB_OUTPUT"
 
@@ -74,14 +71,14 @@ jobs:
         if: always()
         run: |
           mkdir -p "$REPRO_DIR/logs/crash-reports"
-          cp ~/Library/Logs/DiagnosticReports/repro-* "$REPRO_DIR/logs/crash-reports/" 2>/dev/null || true
+          cp ~/Library/Logs/DiagnosticReports/minimal-* "$REPRO_DIR/logs/crash-reports/" 2>/dev/null || true
           ls -l "$REPRO_DIR/logs/crash-reports"
 
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: repro-x86_64-trap-${{ matrix.id }}
+          name: minimal-${{ matrix.arch }}-${{ matrix.arm }}-${{ matrix.child }}
           path: ${{ env.REPRO_DIR }}/logs
           retention-days: 14
 

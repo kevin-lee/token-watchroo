@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Build one arm of the reproducer.
-#   build.sh trap|conditional [host|x86_64]
+#   build.sh trap|conditional [host|x86_64] [source=Repro.scala]
+# The binary is bin/<source name in lower case>-<arm>-<arch>, for example bin/minimal-trap-host.
 # x86_64 cross-builds on an arm64 Mac through clang wrappers that add -target, for Rosetta 2.
 # Each arm and architecture has its own workspace, because a change of the environment variable alone does not relink.
 set -euo pipefail
 
 arm=${1:?trap or conditional}
 arch=${2:-host}
+source=${3:-Repro.scala}
+name=$(basename "$source" .scala | tr "[:upper:]" "[:lower:]")
 here=$(cd "$(dirname "$0")" && pwd)
 
 case "$arm" in
@@ -15,9 +18,9 @@ case "$arm" in
   *) echo "unknown arm: $arm" >&2; exit 2 ;;
 esac
 
-work="$here/work/$arm-$arch"
+work="$here/work/$name-$arm-$arch"
 mkdir -p "$work" "$here/bin"
-cp "$here/Repro.scala" "$work/Repro.scala"
+cp "$here/$source" "$work/$source"
 
 clang_opts=()
 if [ "$arch" = x86_64 ]; then
@@ -30,10 +33,10 @@ if [ "$arch" = x86_64 ]; then
   clang_opts=(--native-clang "$wrappers/clang" --native-clangpp "$wrappers/clang++")
 fi
 
-out="$here/bin/repro-$arm-$arch"
+out="$here/bin/$name-$arm-$arch"
 package() {
   SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=$mode \
-    scala-cli --power package "$work/Repro.scala" --server=false --workspace "$work" \
+    scala-cli --power package "$work/$source" --server=false --workspace "$work" \
     ${clang_opts[@]+"${clang_opts[@]}"} -o "$out" -f
 }
 # The Scala Native linker can fail once with java.nio.file.ClosedFileSystemException while it reads the jars that
