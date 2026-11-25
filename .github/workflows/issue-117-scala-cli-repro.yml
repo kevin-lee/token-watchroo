@@ -14,25 +14,25 @@ jobs:
   repro:
     name: x86_64 trap ${{ matrix.id }}
     runs-on: macos-26-intel
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
           - { id: default, roles: '' }
-          - { id: gc-alloc, roles: 'gc,alloc' }
-          - { id: gc-simple, roles: 'gc,simple' }
-          - { id: gc-spin, roles: 'gc,spin' }
+          - { id: no-spawn, roles: 'gc,alloc*4,sleep,handoff' }
+          - { id: no-handoff, roles: 'gc,alloc*4,sleep,spawn' }
+          - { id: no-sleep, roles: 'gc,alloc*4,handoff,spawn' }
+          - { id: one-alloc, roles: 'gc,alloc,sleep,handoff,spawn' }
+          - { id: no-alloc, roles: 'gc,sleep,handoff,spawn' }
+          - { id: no-gc, roles: 'alloc*4,sleep,handoff,spawn' }
+          - { id: gc-alloc4-spawn, roles: 'gc,alloc*4,spawn' }
           - { id: gc-spawn, roles: 'gc,spawn' }
-          - { id: gc-sleep, roles: 'gc,sleep' }
-          - { id: gc-handoff, roles: 'gc,handoff' }
-          - { id: gc-only, roles: 'gc' }
-          - { id: alloc4, roles: 'alloc*4' }
-          - { id: simple2, roles: 'simple*2' }
+          - { id: gc-alloc4, roles: 'gc,alloc*4' }
     env:
       REPRO_DIR: tmp/issue-117-scala-cli-repro
       RUNS: 20
-      SECONDS_PER_RUN: 10
+      SECONDS_PER_RUN: 20
       TIMEOUT_PER_RUN: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,6 +57,7 @@ jobs:
           scala-cli version
 
       - name: Build
+        timeout-minutes: 15
         run: '"$REPRO_DIR/build.sh" trap host'
 
       - name: Run
