@@ -19,7 +19,17 @@
  *
  * The yieldpoint mode comes from SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS (1 or 0) in the environment at link time.
  *
- * Usage: repro [seconds]. Exit 0: no fault seen. Exit 3: an array lost its contents. A SIGILL ends the process with
+ * Usage: repro [seconds] [roles]. roles is a comma-separated list of role or role*count, default
+ * gc,alloc*4,sleep,handoff,spawn. Roles:
+ *   gc       calls System.gc() in a loop
+ *   alloc    allocates and checks arrays that it keeps alive
+ *   simple   allocates a 64-byte array in a loop and keeps nothing
+ *   spin     counts in a loop and never allocates
+ *   sleep    calls usleep(200) through a @blocking binding in a loop
+ *   handoff  a producer and a consumer on a SynchronousQueue with 1 ms timeouts
+ *   spawn    starts a short-lived thread, waits for it, and starts the next
+ *
+ * Exit 0: no fault seen. Exit 3: an array lost its contents. A SIGILL ends the process with
  * 132 from the shell. A hang is caught by the caller's timeout.
  */
 
@@ -45,6 +55,9 @@ object Repro {
   private val handoffs    = AtomicLong(0L)
   private val spawned     = AtomicLong(0L)
   private val corrupted   = AtomicLong(0L)
+  private val spins       = AtomicLong(0L)
+
+  @volatile private var sink: Array[Byte] = null
 
   private def worker(name: String)(body: => Unit): Thread = {
     val thread = new Thread(() => body, name)
@@ -86,6 +99,18 @@ object Repro {
     }
   }
 
+  private def simpleAllocator(): Unit =
+    while (!stop.get()) {
+      sink = new Array[Byte](64)
+      allocations.incrementAndGet()
+    }
+
+  private def spinner(): Unit = {
+    var n = 0L
+    while (!stop.get()) n += 1
+    spins.addAndGet(n)
+  }
+
   private def sleeper(): Unit =
     while (!stop.get()) {
       LibC.usleep(200.toUInt)
@@ -115,22 +140,40 @@ object Repro {
 
   def main(args: Array[String]): Unit = {
     val seconds = args.headOption.flatMap(_.toIntOption).getOrElse(20)
+    val roles   = args.lift(1).getOrElse("gc,alloc*4,sleep,handoff,spawn")
     val queue   = new SynchronousQueue[Array[Byte]]()
-    val threads =
-      List(
-        worker("collector")(collector()),
-        worker("sleeper")(sleeper()),
-        worker("producer")(producer(queue)),
-        worker("consumer")(consumer(queue)),
-        worker("spawner")(spawner()),
-      ) ++ (1 to 4).map(n => worker(s"allocator-$n")(allocator(n)))
+
+    def start(role: String, n: Int): List[Thread] = role match {
+      case "gc" => List(worker(s"collector-$n")(collector()))
+      case "alloc" => List(worker(s"allocator-$n")(allocator(n)))
+      case "simple" => List(worker(s"simple-$n")(simpleAllocator()))
+      case "spin" => List(worker(s"spinner-$n")(spinner()))
+      case "sleep" => List(worker(s"sleeper-$n")(sleeper()))
+      case "handoff" => List(worker(s"producer-$n")(producer(queue)), worker(s"consumer-$n")(consumer(queue)))
+      case "spawn" => List(worker(s"spawner-$n")(spawner()))
+      case other =>
+        System.err.println(s"unknown role: $other")
+        System.exit(2)
+        Nil
+    }
+
+    val threads = roles.split(',').toList.flatMap { entry =>
+      entry.split('*') match {
+        case Array(role) => start(role, 1)
+        case Array(role, count) => (1 to count.toInt).toList.flatMap(n => start(role, n))
+        case _ =>
+          System.err.println(s"bad role entry: $entry")
+          System.exit(2)
+          Nil
+      }
+    }
 
     Thread.sleep(seconds * 1000L)
     stop.set(true)
     threads.foreach(_.join())
 
     println(
-      s"seconds=$seconds collections=${collections.get()} allocations=${allocations.get()} sleeps=${sleeps.get()} " +
+      s"roles=$roles seconds=$seconds spins=${spins.get()} collections=${collections.get()} allocations=${allocations.get()} sleeps=${sleeps.get()} " +
         s"handoffs=${handoffs.get()} spawned=${spawned.get()} corrupted=${corrupted.get()}"
     )
     if (corrupted.get() != 0L) System.exit(3)
