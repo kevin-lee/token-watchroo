@@ -27,22 +27,12 @@ import tokenwatchroo.core.codecs.given
   *     `unsafeToFuture` and no `unsafeRunSync`. The body returns the `Future` at once, so munit's timeout applies. The
   *     runner thread waits in `Await.result`, which parks through `LockSupport.park` in a `@blocking` pthread call, and a
   *     parked thread is Unmanaged, so the wait never stalls a collection.
-  *   - `Bridge.send` verifies every conversion against the JSON bytes and redoes it on a mismatch (#44); the suite
-  *     reads the count of redone conversions and shows it in a failure clue. It stays as a second net: the library is
-  *     linked with conditional GC yieldpoints for #44, because the Scala Native 0.5.12 GC loses a root of a thread
-  *     stopped by a trap-based yieldpoint and frees live objects (upstream scala-native/scala-native#5046).
-  *   - On x86_64 the Scala Native 0.5.12 GC never saved the callee-saved registers of a thread that goes Unmanaged, so an
-  *     object that only a register referred to was freed while in use, and the storm suites failed on x86_64 (#63,
-  *     upstream scala-native/scala-native#5048). The build compiles the GC with the patched `RegistersCapture.h` in
-  *     `native-overrides/`.
-  *   - The storm keeps commix's growth rules firing, so with the defaults every test process grew its heap to the
-  *     machine's whole memory, where an allocation that missed its retries exited the process with `Out of heap space`
-  *     (#65). `build.sbt` runs this module's test processes with the mark-time rule switched off, the free-block rule
-  *     relaxed and the heap capped at 2 GiB.
-  *   - Timeouts: the forced-collection storm runs several times slower under conditional yieldpoints on many-core
-  *     machines (measured 2.2 times in mean and 4 times in the worst run on an 18-core Mac, 2026-09-20, where this
-  *     suite timed out at 30 s in both modes), while the app itself shows no cost, so `munitTimeout` is 120 s and
-  *     `ProgramTimeout` 90 s.
+  *   - `Bridge.send` verifies every conversion against the JSON bytes and redoes it on a mismatch; the suite reads the
+  *     count of redone conversions and shows it in a failure clue. The check was added for #44, a Scala Native 0.5.12
+  *     GC bug that 0.5.13 fixed (upstream scala-native/scala-native#5046), and stays as a net for a GC regression.
+  *     Linked with conditional GC yieldpoints, like every binary of this build (`commonNativeConfig`).
+  *   - Timeouts: a hang is the failure these limits catch, so they stay well above the slowest healthy run (45 s for
+  *     this suite on an x86_64 CI runner in #20's proof run): `munitTimeout` is 120 s and `ProgramTimeout` 90 s.
   */
 class BridgeSpec extends munit.FunSuite {
 

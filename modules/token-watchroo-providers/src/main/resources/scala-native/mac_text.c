@@ -2,7 +2,7 @@
  * NFC and SHA-256 for the Claude Code keychain service name (#91).
  *
  * Claude Code names the keychain item of a custom config folder "Claude Code-credentials-" plus the first 8 hex
- * characters of sha256 of the folder text in Unicode Normalization Form C (NFC). Scala Native 0.5.12 has no
+ * characters of sha256 of the folder text in Unicode Normalization Form C (NFC). Scala Native 0.5.13 has no
  * java.text.Normalizer and no java.security.MessageDigest, so these two functions use the macOS libraries:
  * CFStringNormalize from CoreFoundation (linked with -framework CoreFoundation) and CC_SHA256 from CommonCrypto (in
  * libSystem).

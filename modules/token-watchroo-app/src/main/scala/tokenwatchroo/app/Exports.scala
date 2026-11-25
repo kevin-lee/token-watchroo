@@ -7,7 +7,10 @@ import scala.scalanative.unsafe.*
   */
 object Exports {
 
-  /** Entered Managed, right after `ScalaNativeInit`, so it skips the yield and only performs the epilogue. */
+  /** Since Scala Native 0.5.13, `ScalaNativeInit` ends with the thread Unmanaged and the guard that the compiler adds to
+    * every export enters Managed, so this skips the yield and only performs the epilogue. #119 removes the manual
+    * switches.
+    */
   @exported("tw_start")
   def start(configJson: CString, callback: CFuncPtr2[CString, Ptr[Byte], Unit], ctx: Ptr[Byte]): CInt = {
     val result =

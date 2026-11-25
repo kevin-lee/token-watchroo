@@ -20,22 +20,11 @@ import tokenwatchroo.providers.CurlBufferSpec.{firstMismatch, pattern}
   *     collections land while the thread is Unmanaged inside the feed.
   *   - Waiting: the test runs on a runtime this suite owns, with a single `unsafeToFuture` and no `unsafeRunSync`, so
   *     munit's timeout applies and the parked runner thread never stalls a collection.
-  *   - Linked with conditional GC yieldpoints for #44, like every binary of this build: the Scala Native 0.5.12 GC
-  *     loses a root of a thread stopped by a trap-based yieldpoint and frees live objects (upstream
-  *     scala-native/scala-native#5046). `BridgeSpec` keeps `Bridge.send`'s verify-and-retry as a second net, and this
-  *     suite checks every byte of the assembled body.
-  *   - On x86_64 the Scala Native 0.5.12 GC never saved the callee-saved registers of a thread that goes Unmanaged, so an
-  *     object that only a register referred to was freed while in use, and the storm suites failed on x86_64 (#63,
-  *     upstream scala-native/scala-native#5048). The build compiles the GC with the patched `RegistersCapture.h` in
-  *     `native-overrides/`.
-  *   - The storm keeps commix's growth rules firing, so with the defaults every test process grew its heap to the
-  *     machine's whole memory, where an allocation that missed its retries exited the process with `Out of heap space`
-  *     (#65). `build.sbt` runs this module's test processes with the mark-time rule switched off, the free-block rule
-  *     relaxed and the heap capped at 2 GiB.
-  *   - Timeouts: the forced-collection storm runs several times slower under conditional yieldpoints on many-core
-  *     machines (measured 2.2 times in mean and 4 times in the worst run on an 18-core Mac, 2026-09-20: this suite
-  *     took 5.1 to 16.2 s against 3.8 to 4.9 s), while the app itself shows no cost, so `munitTimeout` is 120 s and
-  *     `ProgramTimeout` 90 s.
+  *   - `BridgeSpec` keeps `Bridge.send`'s verify-and-retry as a net for a GC regression like #44, and this suite checks
+  *     every byte of the assembled body. Linked with conditional GC yieldpoints, like every binary of this build
+  *     (`commonNativeConfig`).
+  *   - Timeouts: a hang is the failure these limits catch, so they stay well above the slowest healthy run (42 s for
+  *     this suite on an x86_64 CI runner in #20's proof run): `munitTimeout` is 120 s and `ProgramTimeout` 90 s.
   */
 class CurlBufferSpec extends munit.FunSuite {
 
