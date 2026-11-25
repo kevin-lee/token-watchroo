@@ -36,24 +36,6 @@ ThisBuild / scmInfo :=
  * project/GcYieldpoints.scala and the .sbtopts line, keeping the gates until #5046 is fixed. */
 Global / onLoad := (Global / onLoad).value.andThen(GcYieldpoints.checkOnLoad)
 
-/* Scala Native 0.5.12's RegistersCapture.h takes its buffer by value on x86 and x86_64, so the GC never scans the
- * callee-saved registers of a thread that goes Unmanaged, and on x86_64 it frees objects that only a register refers to
- * (#63, upstream scala-native/scala-native#5048). native-overrides/scala-native-0.5.12/ holds a patched copy that
- * commonNativeConfig puts on the C include path ahead of nativelib's own directories. The copy belongs to the nativelib
- * it was taken from, so another Scala Native version is refused until the copy is compared with the new header. Remove
- * this check, the directory, the -I option, checkRegistersCapture, scripts/check-registers-capture.sh and the CI steps
- * together when a Scala Native release includes scala-native#5048. */
-lazy val registersCaptureOverrideVersion = "0.5.12"
-
-Global / onLoad := (Global / onLoad).value.andThen { state =>
-  if (nativeVersion == registersCaptureOverrideVersion) state
-  else
-    sys.error(
-      s"""Scala Native is $nativeVersion, but native-overrides/scala-native-$registersCaptureOverrideVersion/immix_commix/RegistersCapture.h patches the $registersCaptureOverrideVersion header (#63).
-         |If this Scala Native release includes scala-native/scala-native#5048, remove the override as build.sbt describes. Otherwise diff the copy against the new nativelib header, move it to native-overrides/scala-native-$nativeVersion/ and update registersCaptureOverrideVersion.""".stripMargin
-    )
-}
-
 /* Scala Native 0.5.12's javalib `SynchronousQueue` throws a NullPointerException when an offer meets a timed poll that
  * has just timed out, and in cats-effect that kills a compute worker and the fiber on it (#83).
  * modules/token-watchroo-core/src/main/scala/java/util/concurrent/SynchronousQueue.scala is a corrected copy, which the
@@ -180,8 +162,6 @@ lazy val bundleApp             = taskKey[String]("Assemble dist/Token Watchroo.a
 lazy val runApp                = taskKey[Unit]("Assemble and open the app bundle")
 lazy val checkYieldpoints      =
   taskKey[Unit]("Check that the three test binaries were linked with conditional GC yieldpoints (#44)")
-lazy val checkRegistersCapture =
-  taskKey[Unit]("Check that the three test binaries were compiled with the patched RegistersCapture.h (#63)")
 
 lazy val appAssemblySettings: SettingsDefinition = List(
   stageNativeLib := Def.uncached {
@@ -194,9 +174,6 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     if (sys.env.get("TW_ALLOW_TRAP_YIELDPOINTS").contains("1"))
       log.warn(s"TW_ALLOW_TRAP_YIELDPOINTS=1: not checking the yieldpoint mode of ${archive.getPath}")
     else checkYieldpointMode(baseDirectory.value, List(archive))
-    /* Not skipped by TW_ALLOW_TRAP_YIELDPOINTS, which is about the other workaround: an archive compiled with
-     * nativelib's own RegistersCapture.h frees live objects on x86_64 (#63). */
-    checkRegistersCaptureOverride(baseDirectory.value, List(archive))
     /* removeStaleArchive prevents this. The gate catches an archive that it kept, and reports signs of stale members,
      * not a prediction of a crash (#87). */
     checkArchiveMembersGate(baseDirectory.value, archive)
@@ -267,17 +244,6 @@ lazy val appAssemblySettings: SettingsDefinition = List(
     checkYieldpointMode(baseDirectory.value, binaries)
     streams.value.log.info(s"Conditional GC yieldpoints confirmed for ${binaries.map(_.getName).mkString(", ")}")
   },
-
-  checkRegistersCapture := Def.uncached {
-    val converter = fileConverter.value
-    val binaries  = List(
-      (core / Test / nativeLink).value,
-      (providers / Test / nativeLink).value,
-      (app / Test / nativeLink).value,
-    ).map(ref => converter.toPath(ref).toFile)
-    checkRegistersCaptureOverride(baseDirectory.value, binaries)
-    streams.value.log.info(s"Patched RegistersCapture.h confirmed for ${binaries.map(_.getName).mkString(", ")}")
-  },
 )
 
 addCommandAlias("buildApp", "bundleApp")
@@ -339,19 +305,6 @@ def checkYieldpointMode(base: File, files: List[File]): Unit = {
   else ()
 }
 
-/* Runs scripts/check-registers-capture.sh on the files and fails when any of them was compiled with nativelib's own
- * RegistersCapture.h instead of the patched copy in native-overrides/ (#63). */
-def checkRegistersCaptureOverride(base: File, files: List[File]): Unit = {
-  val script = base / "scripts" / "check-registers-capture.sh"
-  val exit   = Process(script.getPath +: files.map(_.getPath), base).!
-  if (exit != 0)
-    sys.error(
-      s"check-registers-capture.sh exited with $exit: a binary was not compiled with native-overrides/scala-native-$registersCaptureOverrideVersion/immix_commix/RegistersCapture.h (#63). " +
-        "Check that commonNativeConfig still adds registersCaptureInclude to the C options, then relink."
-    )
-  else ()
-}
-
 /* Runs scripts/check-archive-members.sh on the static library and fails when it has signs of stale members (#87). */
 def checkArchiveMembersGate(base: File, archive: File): Unit = {
   val script = base / "scripts" / "check-archive-members.sh"
@@ -377,7 +330,6 @@ def commonNativeConfig(base: File)(c: NativeConfig): NativeConfig = {
     .withOptimize(true)
     .withGC(GC.commix)
     .withCompileOptions(c.compileOptions :+ deploymentTarget)
-    .withCOptions(c.cOptions :+ registersCaptureInclude(base))
     /* CoreFoundation for CFStringNormalize in providers' mac_text.c (#91). CommonCrypto is in libSystem. The static
      * library for the app does not use these options, so swift/Package.swift links CoreFoundation too. */
     .withLinkingOptions(c.linkingOptions :+ deploymentTarget :+ "-framework" :+ "CoreFoundation")
@@ -388,10 +340,3 @@ def commonNativeConfig(base: File)(c: NativeConfig): NativeConfig = {
     .withEmbedResources(true)
     .withResourceIncludePatterns(Seq("/tokenwatchroo/i18n/*.properties"))
 }
-
-/* The -I option that puts native-overrides/scala-native-<version>/ ahead of nativelib's own include directories, so the
- * GC compiles the patched immix_commix/RegistersCapture.h (#63). A C option, not a compile option: C options reach only
- * C and assembly files, never C++ or LLVM IR, and clang sees them before every -I among the compile options, which hold
- * Scala Native's system include directories and, for each native library, that library's own directories. */
-def registersCaptureInclude(base: File): String =
-  s"-I${(base / "native-overrides" / s"scala-native-$registersCaptureOverrideVersion").getAbsolutePath}"
