@@ -41,7 +41,7 @@ object ProjectInfo {
     val JsoniterScalaVersion = "2.40.1"
     val OsLibVersion         = "0.11.8"
 
-    val HedgehogVersion      = "0.15.0"
+    val HedgehogVersion      = "0.15.1"
     val HedgehogExtraVersion = "0.25.0"
     val MunitVersion         = "1.3.6"
   }
